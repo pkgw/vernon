@@ -3,3 +3,5 @@
 /.version
 /Dockerfile
 /stack
+/polsynchemis.so
+/radtrans_integrate.so
