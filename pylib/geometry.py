@@ -433,148 +433,243 @@ class TiltedDipoleField (object):
         view (coord[::-1], yflip=True, **kwargs)
 
 
-class FullSynchrotronCalculator (object):
-    """TODO/FIXME: this code needs to be updated to use the full-polarized
-    `grtrans` radiative transfer routines!!!
+class FakeSphereDistribution (object):
+    """Class holding information about the distribution of electrons in the body's
+    magnetosphere. This particular information just implements a uniformly
+    filled sphere where the parameters of the electron energy distribution are
+    fixed.
 
-    Compute synchrotron coefficients using the full "symphony" calculator. We
-    cache results, because many of the numerical integrators evaluate the
-    function at the exact same position multiple times, and there are few
-    enough steps in the integration that memory isn't an issue. And the
-    symphony calculation is currently VERY slow (~1 second per invocation).
+    TODO: one day we will probably have to be smarter and/or more flexible
+    about how we describe the electron energy distribution at each point.
 
-    If symphony blows up, we re-use the previous coefficients to try and not
-    throw the integrator off too much.
+    radius
+      The radius of the electron-filled sphere, in units of the body's radius.
+    n_e
+      The density of energetic electrons within the sphere, in units of total
+      electrons per cubic centimeter.
+    p
+      The power-law index of the energetic electrons, such that N(>E) ~ E^(-p).
 
     """
-    gamma_cutoff = 300
-    integration_epsabs = 1e-20
+    def __init__ (self, radius, n_e, p):
+        self.radius = float (radius)
+        self.n_e = float (n_e)
+        self.p = float (p)
 
-    def prep_ray (self, x, y, z0, z1, setup):
-        # TODO/FIXME: out of date!
-        """x and y are the line-of-sight coordinates in units of the body radius. z0
-        and z1 are the bounds of the planned integration. nu is the observing
-        frequency in Hz. o2b is an ObserverToBody object. bfield defines the
-        magnetic field (ie a TiltedDipoleField object). distrib defines the
-        electron distribution (ie a TestDistribution object).
-
-        """
-        self.cache = {}
-        self.prev_coeffs = [0., 0.]
 
     @broadcastize(3,(0,0))
-    def coeffs (self, x, y, z, setup, verbose=0):
-        # TODO/FIXME: out of date!
-        """Arguments:
+    def get_samples (self, mlat, mlon, L):
+        """Sample properties of the electron distribution at the specified locations
+        in magnetic field coordinates. Arguments are magnetic latitude,
+        longitude, and McIlwain L parameter.
 
-        x, y, z
-           The current position of the integration, in units of the body's radius.
-        setup
-           A VanAllenSetup instance
+        Returns: (n_e, p), where
 
-        Returns (j_nu, alpha_nu):
-
-        j_nu
-           The emission coefficient, in erg/s/Hz/sr/cm^3.
-        alpha_nu
-           The absorption coefficient, in cm^-1.
+        n_e
+           Array of electron densities corresponding to the provided coordinates.
+           Units of electrons per cubic centimeter.
+        p
+           Array of power-law indices of the electrons at the provided coordinates.
 
         """
-        n_e, B, theta, p = setup.oc_to_physical (x, y, z)
+        r = L * np.cos (mlat)**2
+        inside = (r < self.radius)
 
-        # Here we forego powerlaw()s broadcasting capability so that we can cache
-        # effectively. When ray-tracing we get called with scalar parameters so
-        # in most cases we're not losing anything.
+        n_e = np.zeros (mlat.shape)
+        n_e[inside] = self.n_e
 
-        jnu = np.zeros_like (x)
-        alphanu = np.zeros_like (x)
+        p = np.zeros (mlat.shape)
+        p[inside] = self.p
 
-        r_n_e = n_e.ravel ()
-        r_B = B.ravel ()
-        r_theta = theta.ravel ()
-        r_p = p.ravel ()
-        r_jnu = jnu.ravel ()
-        r_alphanu = alphanu.ravel ()
-
-        for i in xrange (r_n_e.size):
-            the_n_e = r_n_e[i]
-            the_B = r_B[i]
-            the_theta = r_theta[i]
-            the_p = r_p[i]
-            key = (the_n_e, the_B, the_theta, the_p)
-
-            cached = self.cache.get (key)
-            if cached is not None:
-                r_jnu[i], r_alphanu[i] = cached
-                continue
-
-            try:
-                from symphony import powerlaw
-                the_jnu, the_alphanu = powerlaw (nu=setup.nu, n_e=the_n_e, B=the_B,
-                                                 theta=the_theta, p=the_p,
-                                                 gamma_cutoff=self.gamma_cutoff,
-                                                 integration_epsabs=self.integration_epsabs)
-                self.cache[key] = self.prev_coeffs = the_jnu, the_alphanu
-            except RuntimeError as e:
-                print ('symphony error:', e)
-                the_jnu, the_alphanu = self.prev_coeffs
-
-            if verbose:
-                print_numbers (z, the_n_e, the_B, the_theta, the_p, the_jnu, the_alphanu)
-
-            r_jnu[i] = the_jnu
-            r_alphanu[i] = the_alphanu
-
-        return jnu, alphanu
-
-    def done_ray (self):
-        pass
+        return n_e, p
 
 
-class SplineSynchrotronCalculator (object):
-    # TODO/FIXME: out of date!
-
-    """Computes synchrotron coefficients by pre-tabulating on a grid and
-    generating a spline approximation.
-
-    I'm currently fitting the log of j and alpha so that I can enforce
-    positivity. This seems dangerous since spline errors will get magnified,
-    however. I can't just return `np.maximum (j, 0)` (e.g.) since at z=-15
-    both jnu and alphanu can easily get clamped to zero, in which case the
-    integrator quickly decides that there's nothing to integrate.
+class BasicRayTracer (object):
+    """Class the implements the definition of a ray through the magnetosphere. By
+    definition, rays end at a specified X/Y location in observer coordinates,
+    with Z = infinity and traveling along the observer Z axis. They might not
+    start there if we ever implement refraction.
 
     """
-    spl_jnu = None
-    spl_alphanu = None
-    gamma_cutoff = 300
-    integration_epsabs = 1e-20
-    n_samp = 50
+    way_back_z = -15.
+    "A Z coordinate well behind the object, in units of the body's radius."
 
-    def prep_ray (self, x, y, z0, z1, setup):
-        self.samp_z = np.linspace (z0, z1, self.n_samp) # XXX arbitrary
-        n_e, B, theta, p = setup.oc_to_physical (x, y, self.samp_z)
+    way_front_z = 15.
+    "A Z coordinate well in front of the object, in units of the body's radius."
 
-        from symphony import powerlaw
-        self.samp_jnu, self.samp_alphanu = powerlaw (nu=setup.nu,
-                                                     n_e=n_e, B=B, theta=theta,
-                                                     p=p, gamma_cutoff=self.gamma_cutoff,
-                                                     integration_epsabs=self.integration_epsabs)
+    surface_delta_radius = 0.03
+    """Rays emerging from the body's surface start this far above it, measured in
+    units of the body's radius. Needed to avoid blows up various coordinates
+    that blow up at R = 1.
 
-        from scipy.interpolate import UnivariateSpline
-        self.spl_jnu = UnivariateSpline (self.samp_z, np.log (self.samp_jnu), s=0)
-        self.spl_alphanu = UnivariateSpline (self.samp_z, np.log (self.samp_alphanu), s=0)
+    """
+    ne0_cutoff = 1
+    """Make sure that rays are launched from locations with n_e larger than this
+    value, measured in electrons per cubic centimeter. Without this, we can
+    start at regions of zero density which then cause the numerical integrator
+    to skip all of our electrons.
 
-    def coeffs (self, x, y, z, setup, verbose=0):
-        if self.spl_jnu is None:
-            raise RuntimeError ('spline calculator may only be used for ray tracing')
-        return np.exp (self.spl_jnu (z)), np.exp (self.spl_alphanu (z))
+    """
+    delta_z = 1.
+    """When searching for the first particles along the ray, skip around along the
+    Z axis by this much, in units of the body's radius.
 
-    def done_ray (self):
-        self.spl_jnu = self.spl_alphanu = None
+    """
+    nsamps = 300
+    "Number of points to sample along the ray."
+
+    def calc_ray_params (self, x, y, setup):
+        """Figure out the limits of the integration that we need to perform.
+
+        x
+          The horizontal position, in units of the body's radius. The x axis
+          is perpendicular to the body's rotation axis.
+        y
+          The vertical position, in units of the body's radius. The body's
+          inclination angle is relative to the y axis.
+        setup
+          A VanAllenSetup instance.
+
+        Returns: (x, B, theta, n_e, p), with the usual definitions. The output
+        x is a vector of displacements along the ray, measured in cm and
+        starting at 0.
+
+        TODO: we could go back to having an 'i0' output giving the initial
+        intensity (now in IQUV) at the ray start.
+
+        """
+        if x**2 + y**2 <= 1:
+            # Start just above body's surface.
+            z0 = np.sqrt ((1 + self.surface_delta_radius)**2 - (x**2 + y**2))
+        else:
+            # Start behind object.
+            z0 = self.way_back_z
+
+        z1 = self.way_front_z
+
+        # If ne(z0) = 0, which happens when we're in a loss cone, the emission
+        # and absorption coefficients are zero and the ODE integrator gives
+        # really bad answers. So we patch up the bounds to find a start point
+        # with a very small but nonzero density to make sure we get going. z1
+        # doesn't matter since by then we've integrated everything and it's OK
+        # if we blaze through 'z' values.
+
+        zsamps = np.arange (z0, z1, self.delta_z)
+
+        def z_to_ne (z):
+            bc = setup.o2b (x, y, z)
+            mc = setup.bfield (*bc)
+            n_e, p = setup.distrib.get_samples (*mc)
+            return n_e
+
+        nesamps = z_to_ne (zsamps)
+
+        if not np.any (nesamps > 0):
+            # Doesn't seem like we have any particles along this line of sight!
+            retx = np.linspace (z0, z1, 2) * setup.radius
+            retx -= retx.min ()
+
+            b = np.zeros (2)
+            theta = np.zeros (2)
+            n_e = np.zeros (2)
+            p = np.zeros (2)
+            return retx, b, theta, n_e, p
+
+        if nesamps[0] < self.ne0_cutoff:
+            # The current starting point, z0, does not contain any particles.
+            # Move it up to somewhere that does.
+
+            from scipy.optimize import brentq
+            ofs_n_e = lambda z: (z_to_ne (z) - self.ne0_cutoff)
+            zstart = zsamps[nesamps > self.ne0_cutoff].min ()
+            z0, info = brentq (ofs_n_e, z0, zstart, full_output=True)
+            if not info.converged:
+                raise RuntimeError ('could not find suitable starting point: %r %r %r'
+                                    % (z0, zstart, info))
+
+        # OK, we have a good starting point. For now we just trace the ray
+        # idiotically:
+
+        z = np.linspace (z0, z1, self.nsamps)
+        retx = (z - z.min ()) * setup.radius
+
+        bc = setup.o2b (x, y, z)
+        bhat = setup.bfield.bhat (*bc)
+        theta = setup.o2b.theta_zhat (x, y, z, *bhat)
+        bmag = setup.bfield.bmag (*bc)
+
+        mc = setup.bfield (*bc)
+        n_e, p = setup.distrib.get_samples (*mc)
+
+        return retx, bmag, theta, n_e, p
+
+
+class GrtransSynchrotronCalculator (object):
+    """Compute synchrotron coefficients using the `grtrans` code.
+
+    """
+    gamma_min = 3
+    gamma_max = 1e5
+
+    @broadcastize(3,(0,0,0))
+    def get_coeffs (self, nu, B, theta, n_e, p):
+        """Arguments:
+
+        nu
+          Array of observing frequencies, in Hz.
+        B
+          Array of magnetic field strengths, in Gauss.
+        theta
+          Array of field-to-(line-of-sight) angles, in radians.
+        n_e
+          Array of electron densities, in cm^-3.
+        p
+          Array of electron energy distribution power-law indices.
+
+        Returns (j_nu, alpha_nu, rho):
+
+        j_nu
+           Array of shape (X, 4), where X is the input shape. The emission
+           coefficients for Stokes IQUV, in erg/s/Hz/sr/cm^3.
+        alpha_nu
+           Array of shape (X, 4), where X is the input shape. The absorption
+           coefficients, in cm^-1.
+        rho_nu
+           Array of shape (X, 3), where X is the input shape. Faraday mixing
+           coefficients, in units that I haven't checked.
+
+        """
+        from .grtrans import calc_powerlaw_synchrotron_coefficients as cpsc
+        return cpsc (nu, n_e, B, theta, p, self.gamma_min, self.gamma_max)
+
+
+class GrtransRTIntegrator (object):
+    """Perform radiative-transfer integration along a ray using the integrator in
+    `grtrans`.
+
+    """
+    def integrate (self, x, j, a, rho):
+        """Arguments:
+
+        x
+          1D array, shape (n,). "path length along the ray starting from its minimum"
+        j
+          Array, shape (n, 4). Emission coefficients, in erg/(s Hz sr cm^3).
+        a
+          Array, shape (n, 4). Absorption coefficients, in cm^-1.
+        rho
+          Array, shape (n, 3). Faraday mixing coefficients.
+
+        Returns: Array of shape (4,): Stokes intensities at the end of the ray, in
+        erg/(s Hz sr cm^2).
+
+        """
+        from .grtrans import integrate_ray
+        iquv = integrate_ray (x, j, a, rho)
+        return iquv[:,-1]
 
 
 class VanAllenSetup (object):
-    # TODO/FIXME: out of date!
     """Object holding the whole simulation setup.
 
     o2b
@@ -585,193 +680,41 @@ class VanAllenSetup (object):
       must be an instance of TiltedDipoleField.
     distrib
       An object defining the distribution of electrons around the object. Currently
-      this must be an instance of TestDistribution.
+      this must be an instance of FakeSphereDistribution.
+    ray_tracer
+      An object used to trace out ray paths.
     synch_calc
-      An object used to calculate synchrotron emission coefficients. May be an
-      instance of FullSynchrotronCalculator, ApproximateSynchrotronCalculator, etc.
+      An object used to calculate synchrotron emission coefficients. Currenly this
+      must be an instance of GrtransSynchrotronCalculator.
+    rad_trans
+      An object used to perform the radiative transfer integration. Currenly this
+      must be an instance of GrtransRTIntegrator.
     radius
       The body's radius, in cm.
     nu
       The frequency for which to run the simulations, in Hz.
 
-    XXX we currently hardcode the particle distribution and synchrotron stuff.
     """
-
-    def __init__ (self, o2b, bfield, distrib, synch_calc, radius, nu):
+    def __init__ (self, o2b, bfield, distrib, ray_tracer, synch_calc, rad_trans, radius, nu):
         self.o2b = o2b
         self.bfield = bfield
         self.distrib = distrib
+        self.ray_tracer = ray_tracer
         self.synch_calc = synch_calc
+        self.rad_trans = rad_trans
         self.radius = radius
         self.nu = nu
 
 
-    @broadcastize(3,(0,0,0,0))
-    def oc_to_physical (self, x, y, z):
-        # TODO/FIXME: out of date!
-        """Compute physical quantities relevant to the radiative transfer problem,
-        given observer coordinates. Returns (n_e, B, theta, p):
-
-        n_e
-           The ambient electron number density, in cm^-3. TODO: for the
-           powerlaw case we fix n_e = n_e_NT ("nonthermal"), but this is
-           almost surely inappropriate since there will be thermal electrons
-           too! And the precise meaning of n_e may vary from one distribution
-           function to another. To be investigated.
-        B
-           The local magnetic field strength, in Gauss.
-        theta
-           The angle between the magnetic field and the line of sight, in radians.
-        p
-           A power-law index approximating the local energetic electron energy
-           distribution, dN/dE ~ E^{-p}.
-
-        XXX: we're baking in this power-law approximation pretty deeply!
+    def trace_one (self, x, y):
+        """Trace a ray starting at the specified 2D observer coordinates. Returns an
+        array of shape (4,) giving the resulting Stoke IQUV intensities in erg
+        / (s Hz sr cm^2).
 
         """
-        from scipy.misc import derivative
-
-        def ne_spindex (lne, L, theta, blat):
-            e = np.exp (lne)
-            ne = self.distrib (L, theta, blat, e)
-            return -np.log (np.maximum (ne, 1))
-
-        bc = self.o2b (x, y, z)
-        bhat = self.bfield.bhat (*bc)
-        theta = self.o2b.theta_zhat (x, y, z, *bhat)
-        bmag = self.bfield.bmag (*bc)
-        blat, blon, L = self.bfield (*bc)
-
-        # gamma values that we expect to dominate emission at nu:
-        gamma_ref = np.maximum (np.sqrt (4 * np.pi * cgs.me * cgs.c * self.nu / (3 * cgs.e * bmag)), 1.001)
-        # corresponding electron energies (in MeV; using Goertz+ convention,
-        # which is not the total relativistic energy!)
-        e_ref = (gamma_ref - 1) * 0.511
-        # number densities given the distribution:
-        n_e = self.distrib (L, theta, blat, e_ref)
-        ###print_numbers (L, theta, blat, e_ref, n_e, header='PHYS ')
-        # spectral indices:
-        p = derivative (ne_spindex, np.log (e_ref), dx=1e-3, args=(L, theta, blat))
-
-        return n_e, bmag, theta, p
-
-
-    @broadcastize(3,(0,0))
-    def oc_to_coeffs (self, x, y, z):
-        return self.synch_calc.coeffs (x, y, z, self)
-
-
-    ne0_cutoff = 1
-
-    def _define_integration (self, x, y):
-        """Figure out the limits of the integration that we need to perform.
-
-        x
-          The horizontal position, in units of the body's radius. The x axis
-          is perpendicular to the body's rotation axis.
-        y
-          The vertical position, in units of the body's radius. The body's
-          inclination angle is relative to the y axis.
-
-        Returns a tuple (z0, z1, i0)
-
-        z0
-          The depth of the integration start point, in units of the body's radius.
-          The z axis is aligned with the line of sight in an orthographic projection.
-        z1
-          The depth of the integration end point.
-        i0
-          The specific intensity at z0, in units of erg/s/cm^2/sr/Hz. This is
-          always zero right now, but might be non-zero if we allow the body to have
-          an intrinsic luminosity.
-
-        """
-        if x**2 + y**2 <= 1:
-            # Start just above body's surface.
-            z0 = np.sqrt (1 - (x**2 + y**2)) + 0.05
-            i0 = 0.
-        else:
-            # Start behind object. XXX: this value is made up!
-            z0 = -15.
-            i0 = 0.
-
-        z1 = 15 # XXX: also made up!
-
-        # If ne(z0) = 0, which happens when we're in a loss cone, the emission
-        # and absorption coefficients are zero and the ODE integrator gives
-        # really bad answers. So we patch up the bounds to find a start point
-        # with a very small but nonzero density to make sure we get going. z1
-        # doesn't matter since by then we've integrated everything and it's OK
-        # if we blaze through 'z' values. TODO: cope with nonzero i0, if
-        # implemented. TODO: the density cutoff is sharp, so continuous
-        # methods might have problems. I'm trying to avoid these with some
-        # homebrewed logic.
-
-        zstart = z0
-
-        while self.oc_to_physical (x, y, zstart)[0] <= self.ne0_cutoff:
-            zstart += 1 # one unit of radius should be a reasonable scale here
-            if zstart >= z1:
-                # no particles at all along this line of sight!
-                return 0., 0., 0.
-
-        if zstart != z0:
-            # z0 does not contain any particles.
-            from scipy.optimize import brentq
-            ofs_n_e = lambda z: (self.oc_to_physical (x, y, z)[0] - self.ne0_cutoff)
-            z0, info = brentq (ofs_n_e, z0, zstart, full_output=True)
-            if not info.converged:
-                raise RuntimeError ('could not find suitable starting point: %r %r %r'
-                                    % (z0, zstart, info))
-
-        # All done.
-
-        return z0, z1, i0
-
-
-    def raytrace_ode (self, x, y, verbose=0):
-        # TODO/FIXME: out of date!
-        """Compute the synchrotron intensity at the given location in observer
-        coordinates by integrating the radiative transfer equation as an ODE.
-
-        x
-          The horizontal position, in units of the body's radius. The x axis
-          is perpendicular to the body's rotation axis.
-        y
-          The vertical position, in units of the body's radius. The body's
-          inclination angle is relative to the y axis.
-
-        Returns a specific intensity in erg / (s Hz cm^2 sr).
-
-        """
-        z0, z1, i0 = self._define_integration (x, y)
-
-        if z0 == z1:
-            # This implies that there is no emission along this ray.
-            return 0.
-
-        self.synch_calc.prep_ray (x, y, z0, z1, self)
-
-        def func (z, i):
-            jnu, alphanu = self.synch_calc.coeffs (x, y, z, self, verbose=verbose)
-            result = self.radius * (jnu - i * alphanu) # dI/dm -> dI/d(radius)
-            if verbose >= 2:
-                print_numbers (z, i, jnu, alphanu, result, header='RAYT ')
-            return result
-
-        def jac (z, i):
-            jnu, alphanu = self.synch_calc.coeffs (x, y, z, self)
-            if verbose:
-                print ('(jac)')
-            return -self.radius * alphanu
-
-        from scipy.integrate import ode
-        r = ode (func, jac)
-        r.set_integrator ('lsoda', nsteps=10000, max_step=0.1)
-        #r.set_integrator ('vode', nsteps=10000)
-        #r.set_integrator ('dopri5', nsteps=10000)
-        r.set_initial_value (i0, z0)
-        return r.integrate (z1)
+        x, B, theta, n_e, p = self.ray_tracer.calc_ray_params (x, y, self)
+        j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, theta, n_e, p)
+        return self.rad_trans.integrate (x, j, alpha, rho)
 
 
 class Sample (object):
@@ -781,12 +724,12 @@ class Sample (object):
     xrange = (-12, 12)
     yrange = (-12, 12)
     nu = 5e9
-    sc_class = ApproximateSynchrotronCalculator
     lat_of_cen = 0.01
     cml = 0.01
     dipole_tilt = 0.02
     bsurf = 3000
-    ne0 = 1e8
+    ne0 = 1e5
+    p = 3.
     rjup = 1.1
 
     def __init__ (self, **kwargs):
@@ -794,14 +737,24 @@ class Sample (object):
             setattr (self, k, v)
 
 
+    @property
+    def radius (self):
+        from pwkit import cgs
+        return self.rjup * cgs.rjup
+
+
     def _setup (self):
         from pwkit import cgs
 
         o2b = ObserverToBodycentric (self.lat_of_cen, self.cml)
-        tdf = TiltedDipoleField (self.dipole_tilt, self.bsurf)
-        td = TestDistribution (self.ne0)
-        sc = self.sc_class ()
-        return VanAllenSetup (o2b, tdf, td, sc, self.rjup * cgs.rjup, self.nu)
+        bfield = TiltedDipoleField (self.dipole_tilt, self.bsurf)
+        distrib = FakeSphereDistribution (5, self.ne0, self.p) # XXX
+        ray_tracer = BasicRayTracer ()
+        synch_calc = GrtransSynchrotronCalculator ()
+        rad_trans = GrtransRTIntegrator ()
+
+        return VanAllenSetup (o2b, bfield, distrib, ray_tracer, synch_calc,
+                              rad_trans, self.radius, self.nu)
 
 
     def compute (self, printiter=False, **kwargs):
@@ -809,18 +762,19 @@ class Sample (object):
 
         xvals = np.linspace (self.xrange[0], self.xrange[1], self.nx)
         yvals = np.linspace (self.yrange[0], self.yrange[1], self.ny)
-        data = np.zeros ((self.ny, self.nx))
+        data = np.zeros ((4, self.ny, self.nx))
 
         for iy in xrange (self.ny):
             for ix in xrange (self.nx):
                 if printiter:
                     print (ix, iy, xvals[ix], yvals[iy])
-                data[iy,ix] = setup.raytrace_ode (xvals[ix], yvals[iy], **kwargs)
+                data[:,iy,ix] = setup.trace_one (xvals[ix], yvals[iy], **kwargs)
 
         return data
 
 
     def map_pixel (self, ix, iy):
+        # lame
         x = np.linspace (self.xrange[0], self.xrange[1], self.nx)[ix]
         y = np.linspace (self.yrange[0], self.yrange[1], self.ny)[iy]
         return x, y
@@ -829,7 +783,7 @@ class Sample (object):
     def raytrace_one_pixel (self, ix, iy, **kwargs):
         setup = self._setup ()
         x, y = self.map_pixel (ix, iy)
-        return setup.raytrace_ode (x, y, **kwargs)
+        return setup.trace_one (x, y, **kwargs)
 
 
     def view (self, data, **kwargs):

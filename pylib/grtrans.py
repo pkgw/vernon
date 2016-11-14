@@ -75,6 +75,21 @@ def calc_powerlaw_synchrotron_coefficients (nu, n_e, B, theta, p, gamma_min, gam
     j = chunk[:,:4] # emission coefficients
     a = chunk[:,4:8] # absorption coefficients
     rho = chunk[:,8:] # Faraday mixing coefficients
+
+    # HAAACK. Avoid blowups where I^2 < Q^2 + U^2 + V^2 by reducing QUV by
+    # the amount needed to keep them from violating this constraint.
+
+    q = (j[:,1:]**2).sum (axis=1)
+    w = (j[:,0] == 0) # where zero intensity
+    j[w,0] = 1.
+    r = q / j[:,0]**2 # (Q^2 + U^2 + V^2) / I^2
+    r = np.maximum (r, 1.)
+    j[:,1:] /= r.reshape ((-1, 1))
+    j[w,:] = 0.
+
+    # Errr ... do we need to do anthing with the absorption or Faraday
+    # coefficients?
+
     return j, a, rho
 
 
