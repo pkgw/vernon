@@ -717,73 +717,92 @@ class VanAllenSetup (object):
         return self.rad_trans.integrate (x, j, alpha, rho)
 
 
-class Sample (object):
-    # TODO/FIXME: out of date!
+def basic_setup (
+        nu = 95,
+        lat_of_cen = 10,
+        cml = 20,
+        dipole_tilt = 15,
+        bsurf = 3000,
+        ne0 = 1e5,
+        p = 3.,
+        sphsize = 5,
+        radius = 1.1):
+    """Create and return a fairly basic VanAllenSetup object.
+
+    nu
+      The observing frequency, in GHz.
+    lat_of_cen
+      The body's latitude-of-center, in degrees.
+    cml
+      The body's central meridian longitude, in degrees.
+    dipole_tilt
+      The tilt of the dipole relative to the rotation axis, in degrees.
+    bsurf
+      The field at the north magnetic pole, in Gauss.
+    ne0
+      The mean energetic electron density of the synchrotron particles, in cm^-3.
+    p
+      The power-law index of the synchrotron particles.
+    sphsize
+      The size of the sphere of synchrotron electrons, in body radii.
+    radius
+      The body's radius, in Jupiter radii.
+
+    """
+    # Unit conversions:
+    nu *= 1e9
+    lat_of_cen *= astutil.D2R
+    cml *= astutil.D2R
+    dipole_tilt *= astutil.D2R
+    radius *= cgs.rjup
+
+    o2b = ObserverToBodycentric (lat_of_cen, cml)
+    bfield = TiltedDipoleField (dipole_tilt, bsurf)
+    distrib = FakeSphereDistribution (sphsize, ne0, p)
+    ray_tracer = BasicRayTracer ()
+    synch_calc = GrtransSynchrotronCalculator ()
+    rad_trans = GrtransRTIntegrator ()
+
+    return VanAllenSetup (o2b, bfield, distrib, ray_tracer, synch_calc,
+                          rad_trans, radius, nu)
+
+
+class ImageMaker (object):
+    setup = None
     nx = 23
     ny = 23
-    xrange = (-12, 12)
-    yrange = (-12, 12)
-    nu = 5e9
-    lat_of_cen = 0.01
-    cml = 0.01
-    dipole_tilt = 0.02
-    bsurf = 3000
-    ne0 = 1e5
-    p = 3.
-    rjup = 1.1
+    xhalfsize = 6
+    yhalfsize = 6
 
     def __init__ (self, **kwargs):
         for k, v in kwargs.iteritems ():
             setattr (self, k, v)
 
 
-    @property
-    def radius (self):
-        from pwkit import cgs
-        return self.rjup * cgs.rjup
-
-
-    def _setup (self):
-        from pwkit import cgs
-
-        o2b = ObserverToBodycentric (self.lat_of_cen, self.cml)
-        bfield = TiltedDipoleField (self.dipole_tilt, self.bsurf)
-        distrib = FakeSphereDistribution (5, self.ne0, self.p) # XXX
-        ray_tracer = BasicRayTracer ()
-        synch_calc = GrtransSynchrotronCalculator ()
-        rad_trans = GrtransRTIntegrator ()
-
-        return VanAllenSetup (o2b, bfield, distrib, ray_tracer, synch_calc,
-                              rad_trans, self.radius, self.nu)
-
-
     def compute (self, printiter=False, **kwargs):
-        setup = self._setup ()
-
-        xvals = np.linspace (self.xrange[0], self.xrange[1], self.nx)
-        yvals = np.linspace (self.yrange[0], self.yrange[1], self.ny)
+        xvals = np.linspace (-self.xhalfsize, self.xhalfsize, self.nx)
+        yvals = np.linspace (-self.yhalfsize, self.yhalfsize, self.ny)
         data = np.zeros ((4, self.ny, self.nx))
 
         for iy in xrange (self.ny):
             for ix in xrange (self.nx):
                 if printiter:
                     print (ix, iy, xvals[ix], yvals[iy])
-                data[:,iy,ix] = setup.trace_one (xvals[ix], yvals[iy], **kwargs)
+                data[:,iy,ix] = self.setup.trace_one (xvals[ix], yvals[iy], **kwargs)
 
         return data
 
 
     def map_pixel (self, ix, iy):
         # lame
-        x = np.linspace (self.xrange[0], self.xrange[1], self.nx)[ix]
-        y = np.linspace (self.yrange[0], self.yrange[1], self.ny)[iy]
+        x = np.linspace (-self.xhalfsize, self.xhalfsize, self.nx)[ix]
+        y = np.linspace (-self.yhalfsize, self.yhalfsize, self.ny)[iy]
         return x, y
 
 
     def raytrace_one_pixel (self, ix, iy, **kwargs):
-        setup = self._setup ()
         x, y = self.map_pixel (ix, iy)
-        return setup.trace_one (x, y, **kwargs)
+        return self.setup.trace_one (x, y, **kwargs)
 
 
     def view (self, data, **kwargs):
@@ -792,17 +811,16 @@ class Sample (object):
 
 
     def test_lines (self):
-        setup = self._setup ()
         mlat = np.linspace (-halfpi, halfpi, 200)
 
-        p = setup.o2b.test_proj ()
+        p = self.setup.o2b.test_proj ()
         dsn = 2
 
         for hour in 0, 6, 12, 18:
             for L in 2, 3, 4:
                 lon = hour * np.pi / 12
-                bc = setup.bfield._from_dc (mlat, lon, L * np.cos (mlat)**2)
-                obs = setup.o2b.inverse (*bc)
+                bc = self.setup.bfield._from_dc (mlat, lon, L * np.cos (mlat)**2)
+                obs = self.setup.o2b.inverse (*bc)
                 hidden = ((np.array (obs)**2).sum (axis=0) < 1) # inside body
                 hidden |= ((obs[0]**2 + obs[1]**2) < 1) & (obs[2] < 0) # behind body
                 ok = ~hidden
