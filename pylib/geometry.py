@@ -433,26 +433,24 @@ class TiltedDipoleField (object):
         view (coord[::-1], yflip=True, **kwargs)
 
 
-class FakeSphereDistribution (object):
-    """Class holding information about the distribution of electrons in the body's
-    magnetosphere. This particular information just implements a uniformly
-    filled sphere where the parameters of the electron energy distribution are
-    fixed.
+class FakeTorusDistribution (object):
+    """A uniformly filled torus where the parameters of the electron energy
+    distribution are fixed.
 
-    TODO: one day we will probably have to be smarter and/or more flexible
-    about how we describe the electron energy distribution at each point.
-
-    radius
-      The radius of the electron-filled sphere, in units of the body's radius.
+    r1
+      "Major radius", I guess, in units of the body's radius.
+    r2
+      "Minor radius", I guess, in units of the body's radius.
     n_e
-      The density of energetic electrons within the sphere, in units of total
+      The density of energetic electrons in the torus, in units of total
       electrons per cubic centimeter.
     p
       The power-law index of the energetic electrons, such that N(>E) ~ E^(-p).
 
     """
-    def __init__ (self, radius, n_e, p):
-        self.radius = float (radius)
+    def __init__ (self, r1, r2, n_e, p):
+        self.r1 = float (r1)
+        self.r2 = float (r2)
         self.n_e = float (n_e)
         self.p = float (p)
 
@@ -473,7 +471,14 @@ class FakeSphereDistribution (object):
 
         """
         r = L * np.cos (mlat)**2
-        inside = (r < self.radius)
+        x, y, z = sph_to_cart (mlat, mlon, r)
+
+        # Thanks, Internet:
+
+        a = self.r1
+        b = self.r2
+        q = (x**2 + y**2 + z**2 - (a**2 + b**2))**2 - 4 * a * b * (b**2 - z**2)
+        inside = (q < 0)
 
         n_e = np.zeros (mlat.shape)
         n_e[inside] = self.n_e
@@ -680,7 +685,7 @@ class VanAllenSetup (object):
       must be an instance of TiltedDipoleField.
     distrib
       An object defining the distribution of electrons around the object. Currently
-      this must be an instance of FakeSphereDistribution.
+      this must be an instance of FakeTorusDistribution.
     ray_tracer
       An object used to trace out ray paths.
     synch_calc
@@ -725,7 +730,8 @@ def basic_setup (
         bsurf = 3000,
         ne0 = 1e5,
         p = 3.,
-        sphsize = 5,
+        r1 = 5,
+        r2 = 2,
         radius = 1.1):
     """Create and return a fairly basic VanAllenSetup object.
 
@@ -743,8 +749,10 @@ def basic_setup (
       The mean energetic electron density of the synchrotron particles, in cm^-3.
     p
       The power-law index of the synchrotron particles.
-    sphsize
-      The size of the sphere of synchrotron electrons, in body radii.
+    r1
+      Major radius of electron torus, in body radii.
+    r2
+      Minor radius of electron torus, in body radii.
     radius
       The body's radius, in Jupiter radii.
 
@@ -758,7 +766,7 @@ def basic_setup (
 
     o2b = ObserverToBodycentric (lat_of_cen, cml)
     bfield = TiltedDipoleField (dipole_tilt, bsurf)
-    distrib = FakeSphereDistribution (sphsize, ne0, p)
+    distrib = FakeTorusDistribution (r1, r2, ne0, p)
     ray_tracer = BasicRayTracer ()
     synch_calc = GrtransSynchrotronCalculator ()
     rad_trans = GrtransRTIntegrator ()
@@ -771,8 +779,8 @@ class ImageMaker (object):
     setup = None
     nx = 23
     ny = 23
-    xhalfsize = 6
-    yhalfsize = 6
+    xhalfsize = 7
+    yhalfsize = 7
 
     def __init__ (self, **kwargs):
         for k, v in kwargs.iteritems ():
