@@ -1,4 +1,3 @@
-#! /usr/bin/env python
 # -*- mode: python; coding: utf-8 -*-
 
 """Polarized radiative transfer with Jason Dexter's grtrans code.
