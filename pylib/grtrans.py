@@ -33,14 +33,33 @@ def integrate_ray (x, j, a, rho, atol=1e-8, rtol=1e-6):
 
     """
 
-    # I don't know what this parameter means. The demo uses 0 or 3. I needed
-    # to change it to 2 in order to be able to trace rays up to (realistic)
-    # "x" ~ 1e10; other methods only worked with max(x) ~ 1e5.
+    # Different integration methods:
+    #
+    #   0 - LSODA with IS_LINEAR_STOKES=1
+    #   1 - DELO method from Rees+ (1989ApJ...339.1093R)
+    #   2 - "formal" method; may be "matricant (O-matrix) method from Landi Degl'Innocenti"?
+    #   3 - LSODA with IS_LINEAR_STOKES=0
+    #
+    # The demo uses 0 or 3. I needed to change it to 2 in order to be able to
+    # trace rays up to (realistic) "x" ~ 1e10; other methods only worked with
+    # max(x) ~ 1e5.
     method = 2
 
     n = x.size
 
-    radtrans_integrate.init_radtrans_integrate_data (method, 4, n, n, 10., 0.1, atol, rtol, 1e-2, 100000)
+    radtrans_integrate.init_radtrans_integrate_data (
+        method, # method selector
+        4, # number of equations
+        n, # number of input data points
+        n, # number of output data points
+        10., # maximum optical depth
+        0.1, # maximum absolute step size
+        atol, # absolute tolerance
+        rtol, # relative tolerance
+        1e-2, # "thin" parameter for DELO method ... to be researched
+        100000, # maximum number of steps
+    )
+
     K = np.append (a, rho, axis=1) # shape (n, 7)
     tau = np.append (0., scipy.integrate.cumtrapz (K[:,0], x)) # shape (n,)
     # tau is the optical depth along the ray I guess? K[:,0] is the Stokes
