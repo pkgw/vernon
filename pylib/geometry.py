@@ -716,10 +716,34 @@ class VanAllenSetup (object):
         array of shape (4,) giving the resulting Stoke IQUV intensities in erg
         / (s Hz sr cm^2).
 
+        x and y are the origin of the ray in units of the body's radius.
+
         """
         x, B, theta, n_e, p = self.ray_tracer.calc_ray_params (x, y, self)
         j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, theta, n_e, p)
         return self.rad_trans.integrate (x, j, alpha, rho)
+
+
+    def coeffs_for_one (self, x, y):
+        """Diagnostic routine: calculate the various parameters that go into the
+        radiative transfor solution for a particular ray.
+
+        x and y are the origin of the ray in units of the body's radius.
+
+        """
+        from pwkit import Holder
+        x, B, theta, n_e, p = self.ray_tracer.calc_ray_params (x, y, self)
+        j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, theta, n_e, p)
+        return Holder (
+            x = x / self.radius,
+            B = B,
+            theta = theta * astutil.R2D,
+            n_e = n_e,
+            p = p,
+            j = j,
+            alpha = alpha,
+            rho = rho,
+        )
 
 
 def basic_setup (
