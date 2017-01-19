@@ -33,7 +33,7 @@ def compute_coefficient (
         p = 2.,
         gamma_min = 1.,
         gamma_max = 1000.,
-        gamma_cutoff = 1e10,
+        gamma_cutoff = 1e7,
         approximate = False
 ):
     """If you read the discussion in Pandya+2016, the Kappa distribution looks
