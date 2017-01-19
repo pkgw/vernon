@@ -648,6 +648,18 @@ class GrtransSynchrotronCalculator (object):
         return cpsc (nu, n_e, B, theta, p, self.gamma_min, self.gamma_max)
 
 
+class SymphonySynchrotronCalculator (object):
+    """Compute synchrotron coefficients using the `symphony` code.
+
+    """
+    approximate = False
+
+    def get_coeffs (self, nu, B, theta, n_e, p):
+        "(See GrtransSynchrotronCalculator for argument definitions.)"
+        from .symphony import calc_all_coefficients as cac
+        return cac (nu, n_e, B, theta, p, approximate=self.approximate)
+
+
 class GrtransRTIntegrator (object):
     """Perform radiative-transfer integration along a ray using the integrator in
     `grtrans`.
