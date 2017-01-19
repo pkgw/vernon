@@ -133,7 +133,7 @@ def calc_all_coefficients (nu, n_e, B, theta, p, approximate=False):
 
     for i in xrange (n):
         for j, stokes in enumerate ([STOKES_I, STOKES_Q, STOKES_U, STOKES_V]):
-            j_nu[i] = compute_coefficient (
+            j_nu[i,j] = compute_coefficient (
                 EMISSION,
                 stokes,
                 ghz[i],
@@ -144,7 +144,7 @@ def calc_all_coefficients (nu, n_e, B, theta, p, approximate=False):
                 approximate = approximate,
             )
 
-            alpha_nu[i] = compute_coefficient (
+            alpha_nu[i,j] = compute_coefficient (
                 ABSORPTION,
                 stokes,
                 ghz[i],
