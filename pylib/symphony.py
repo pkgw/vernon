@@ -41,6 +41,12 @@ def compute_coefficient (
     coefficients for it.
 
     """
+    if ne == 0:
+        # My code sometimes tries to get coefficients with n_e = p = 0, which
+        # makes symphony barf; fortunately, if there's nothing there we know
+        # exactly what every radiative transfer coefficient is:
+        return 0.
+
     if rttype == EMISSION:
         if approximate:
             func = symphonyPy.j_nu_fit_py
