@@ -116,6 +116,9 @@ def calc_rted_frac_pols (x, nu, n_e, B, theta, p, gamma_min, gamma_max):
     """Trace a ray through a synchrotron medium and compute the percentage
     circular and linear polarization where it emerges.
 
+    NOTE: results disagree with symphony when gamma_min >~ 0.5; extremely good
+    agreement for gamma_min ~ 0.1.
+
     """
     assert x.ndim == 1
     j, a, rho = calc_powerlaw_synchrotron_coefficients (nu, n_e, B, theta,
@@ -141,7 +144,7 @@ def demo_along_ray ():
 
     nu = 95e9 # 1 GHz
     p = 3. # index of electron distribution power law
-    gmin = 10
+    gmin = 0.1
     gmax = 1e5
 
     j, a, rho = calc_powerlaw_synchrotron_coefficients (nu, n_e, B, theta, p, gmin, gmax)
@@ -182,6 +185,9 @@ def calc_gyrotropic_frac_pols (nu, n_e, B, p, gamma_min, gamma_max, x_max, n_x=1
     We vectorize over different parameter combinations but not along rays --- we assume
     that properties are uniform along the ray. Therefore the "x" ray distance array is not
     an argument — we just assume
+
+    NOTE: the underyling RT coefficient results disagree with symphony when
+    gamma_min >~ 0.5; agreement is extremely good for gamma_min ~ 0.1.
 
     """
     assert nu.ndim == 1
@@ -226,7 +232,7 @@ def demo_across_theta ():
     B = 3000 # G
     nu = 95e9 # Hz
     p = 3 # index of electron distribution power law
-    gmin = 10
+    gmin = 0.1
     gmax = 1e5
 
     n_theta = 30
@@ -258,7 +264,7 @@ def demo ():
     B = 5000 # np.logspace (1, 4.5, 30) # G
     nu = np.linspace (10e9, 100e9, 30) # 95e9 # Hz
     p = 3 # index of electron distribution power law
-    gmin = 3
+    gmin = 0.1
     gmax = 1e5
     xmax = 1e11
 

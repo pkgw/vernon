@@ -613,7 +613,7 @@ class GrtransSynchrotronCalculator (object):
     """Compute synchrotron coefficients using the `grtrans` code.
 
     """
-    gamma_min = 3
+    gamma_min = 0.1
     gamma_max = 1e5
 
     @broadcastize(5,(0,0,0))

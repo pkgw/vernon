@@ -31,7 +31,7 @@ def compute_coefficient (
         ne = 1e3,
         theta = 1.,
         p = 2.,
-        gamma_min = 1.,
+        gamma_min = 0.1,
         gamma_max = 1000.,
         gamma_cutoff = 1e7,
         approximate = False
