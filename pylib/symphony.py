@@ -66,7 +66,7 @@ def compute_coefficient (
         ne,
         theta,
         symphonyPy.POWER_LAW,
-        symphonyPy.STOKES_I,
+        stokes,
         10., # Max/Jutt distribution: \Theta_e, dimensionless electron temperature
         p,
         gamma_min, # powerlaw distribution: gamma_min
