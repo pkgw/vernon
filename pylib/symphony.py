@@ -17,6 +17,7 @@ __all__ = str ('''
 
 import numpy as np
 from pwkit import cgs
+from pwkit.numutil import broadcastize
 import symphonyPy
 
 from symphonyPy import STOKES_I, STOKES_Q, STOKES_U, STOKES_V
@@ -91,3 +92,67 @@ def compute_faraday_coefficients (nu, n_e, p, B, theta, gamma_min, gamma_max):
     rho_perp = cgs.e**2 * n_e * (p - 1) / (cgs.me * cgs.c * nu_B * sinth * (gamma_min**(1 - p) - gamma_max**(1 - p)))
     #rho_Q = -rho_perp * (nu_B * sinth / nu)**3 * gamma_min**(2 - p) * (1 - (
     assert False, 'unfinished code!!!'
+
+
+@broadcastize(5,(0,0,0))
+def calc_all_coefficients (nu, n_e, B, theta, p, approximate=False):
+    """NOTE: Faraday mixing coefficients ARE NOT IMPLEMENTED! Just zeros!
+
+    This function mirrors grtrans.calc_powerlaw_synchrotron_coefficients().
+
+    nu
+      Array of observing frequencies, in Hz.
+    n_e
+      Array of electron densities, in cm^-3.
+    B
+      Array of magnetic field strengths, in Gauss.
+    theta
+      Array of field-to-(line-of-sight) angles, in radians.
+    p
+      Array of electron energy distribution power-law indices.
+
+    Returns (j_nu, alpha_nu, rho):
+
+    j_nu
+       Array of shape (X, 4), where X is the input shape. The emission
+       coefficients for Stokes IQUV, in erg/s/Hz/sr/cm^3.
+    alpha_nu
+       Array of shape (X, 4), where X is the input shape. The absorption
+       coefficients, in cm^-1.
+    rho_nu
+       Array of shape (X, 3), where X is the input shape. Faraday mixing
+       coefficients, in units that I haven't checked.
+
+    """
+    n = nu.size
+    j_nu = np.empty ((n, 4))
+    alpha_nu = np.empty ((n, 4))
+    rho_nu = np.zeros ((n, 3)) # NOTE: left as zeros!!!
+
+    ghz = nu * 1e-9
+
+    for i in xrange (n):
+        for j, stokes in enumerate ([STOKES_I, STOKES_Q, STOKES_U, STOKES_V]):
+            j_nu[i] = compute_coefficient (
+                EMISSION,
+                stokes,
+                ghz[i],
+                B[i],
+                n_e[i],
+                theta[i],
+                p[i],
+                approximate = approximate,
+            )
+
+            alpha_nu[i] = compute_coefficient (
+                ABSORPTION,
+                stokes,
+                ghz[i],
+                B[i],
+                n_e[i],
+                theta[i],
+                p[i],
+                approximate = approximate,
+            )
+
+    return j_nu, alpha_nu, rho_nu
