@@ -616,7 +616,7 @@ class GrtransSynchrotronCalculator (object):
     gamma_min = 3
     gamma_max = 1e5
 
-    @broadcastize(3,(0,0,0))
+    @broadcastize(5,(0,0,0))
     def get_coeffs (self, nu, B, theta, n_e, p):
         """Arguments:
 
