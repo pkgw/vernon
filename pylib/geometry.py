@@ -651,13 +651,24 @@ class GrtransSynchrotronCalculator (object):
 class SymphonySynchrotronCalculator (object):
     """Compute synchrotron coefficients using the `symphony` code.
 
+    Symphony doesn't calculate Faraday coefficients for us. If
+    `faraday_calculator` is not None, we use that object (presumed to be a
+    SynchrotronCalculator) to get them instead.
+
     """
     approximate = False
+    faraday_calculator = None
 
     def get_coeffs (self, nu, B, theta, n_e, p):
         "(See GrtransSynchrotronCalculator for argument definitions.)"
         from .symphony import calc_all_coefficients as cac
-        return cac (nu, n_e, B, theta, p, approximate=self.approximate)
+        j, alpha, rho = cac (nu, n_e, B, theta, p, approximate=self.approximate)
+
+        if self.faraday_calculator is not None:
+            alt_j, alt_alpha, alt_rho = self.faraday_calculator.get_coeffs(nu, B, theta, n_e, p)
+            rho = alt_rho
+
+        return j, alpha, rho
 
 
 class GrtransRTIntegrator (object):
