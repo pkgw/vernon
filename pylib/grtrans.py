@@ -85,11 +85,19 @@ def calc_powerlaw_synchrotron_coefficients (nu, n_e, B, theta, p, gamma_min, gam
     rho
        Array of shape (X, 3), where X is the input shape; Faraday mixing coefficients.
 
+    NOTE: results disagree with symphony when gamma_min >~ 0.5; extremely good
+    agreement for gamma_min ~ 0.1.
+
     """
     assert nu.ndim == 1
-    polsynchemis.initialize_polsynchpl (nu.size)
+
+    # segfault if size = 1, but everything seems to work OK if we just lie to
+    # grtrans ...
+    size = max(nu.size, 2)
+
+    polsynchemis.initialize_polsynchpl (size)
     chunk = polsynchemis.polsynchpl (nu, n_e, B, theta, p, gamma_min, gamma_max)
-    polsynchemis.del_polsynchpl (nu.size)
+    polsynchemis.del_polsynchpl (size)
     j = chunk[:,:4] # emission coefficients
     a = chunk[:,4:8] # absorption coefficients
     rho = chunk[:,8:] # Faraday mixing coefficients
