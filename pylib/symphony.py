@@ -60,7 +60,7 @@ def compute_coefficient (
     else:
         raise ValueError ('unexpected value of "rttype": %r' % (rttype,))
 
-    return func (
+    result = func (
         ghz * 1e9,
         B,
         ne,
@@ -75,6 +75,17 @@ def compute_coefficient (
         3.5, # kappa distribution: kappa
         10, # kappa distribution: kappa_width
     )
+
+    # grtrans and symphony report values with opposite signs for the QUV
+    # coefficients. I think this is probably due to some handedness convention
+    # or something inoffensive like that. But, grtrans is the only code that
+    # computes Faraday coefficients, so I flip the signs of Symphony to be
+    # consistent with grtrans rather than the other way around.
+
+    if stokes in (STOKES_Q, STOKES_U, STOKES_V):
+        result = -result
+
+    return result
 
 
 def compute_faraday_coefficients (nu, n_e, p, B, theta, gamma_min, gamma_max):
