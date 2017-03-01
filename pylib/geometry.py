@@ -489,6 +489,60 @@ class SimpleTorusDistribution (object):
         return n_e, p
 
 
+class SimpleWasherDistribution (object):
+    """A uniformly filled "washer" shape where the parameters of the electron
+    energy distribution are fixed.
+
+    r_inner
+      Inner radius, in units of the body's radius.
+    r_outer
+      Outer radius, in units of the body's radius.
+    thickness
+      Washer thickness, in units of the body's radius.
+    n_e
+      The density of energetic electrons in the washer, in units of total
+      electrons per cubic centimeter.
+    p
+      The power-law index of the energetic electrons, such that N(>E) ~ E^(-p).
+
+    """
+    def __init__ (self, r_inner, r_outer, thickness, n_e, p):
+        self.r_inner = float (r_inner)
+        self.r_outer = float (r_outer)
+        self.thickness = float (thickness)
+        self.n_e = float (n_e)
+        self.p = float (p)
+
+
+    @broadcastize(3,(0,0))
+    def get_samples (self, mlat, mlon, L):
+        """Sample properties of the electron distribution at the specified locations
+        in magnetic field coordinates. Arguments are magnetic latitude,
+        longitude, and McIlwain L parameter.
+
+        Returns: (n_e, p), where
+
+        n_e
+           Array of electron densities corresponding to the provided coordinates.
+           Units of electrons per cubic centimeter.
+        p
+           Array of power-law indices of the electrons at the provided coordinates.
+
+        """
+        r = L * np.cos (mlat)**2
+        x, y, z = sph_to_cart (mlat, mlon, r)
+        r2 = x**2 + y**2
+        inside = (r2 > self.r_inner**2) & (r2 < self.r_outer**2) & (np.abs(z) < 0.5 * self.thickness)
+
+        n_e = np.zeros (mlat.shape)
+        n_e[inside] = self.n_e
+
+        p = np.zeros (mlat.shape)
+        p[inside] = self.p
+
+        return n_e, p
+
+
 class BasicRayTracer (object):
     """Class the implements the definition of a ray through the magnetosphere. By
     definition, rays end at a specified X/Y location in observer coordinates,
@@ -707,8 +761,8 @@ class VanAllenSetup (object):
       An object defining the body's magnetic field configuration. Currently this
       must be an instance of TiltedDipoleField.
     distrib
-      An object defining the distribution of electrons around the object. Currently
-      this must be an instance of SimpleTorusDistribution.
+      An object defining the distribution of electrons around the object. (Instance
+      of SimpleTorusDistribution, SimpleWasherDistribution, etc.)
     ray_tracer
       An object used to trace out ray paths.
     synch_calc
@@ -780,7 +834,8 @@ def basic_setup (
         r1 = 5,
         r2 = 2,
         radius = 1.1):
-    """Create and return a fairly basic VanAllenSetup object.
+    """Create and return a fairly basic VanAllenSetup object. Defaults to using
+    TiltedDipoleField, SimpleTorusDistribution, GrtransSynchrotronCalculator.
 
     nu
       The observing frequency, in GHz.
