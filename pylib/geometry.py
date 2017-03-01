@@ -433,7 +433,7 @@ class TiltedDipoleField (object):
         view (coord[::-1], yflip=True, **kwargs)
 
 
-class FakeTorusDistribution (object):
+class SimpleTorusDistribution (object):
     """A uniformly filled torus where the parameters of the electron energy
     distribution are fixed.
 
@@ -708,7 +708,7 @@ class VanAllenSetup (object):
       must be an instance of TiltedDipoleField.
     distrib
       An object defining the distribution of electrons around the object. Currently
-      this must be an instance of FakeTorusDistribution.
+      this must be an instance of SimpleTorusDistribution.
     ray_tracer
       An object used to trace out ray paths.
     synch_calc
@@ -813,7 +813,7 @@ def basic_setup (
 
     o2b = ObserverToBodycentric (lat_of_cen, cml)
     bfield = TiltedDipoleField (dipole_tilt, bsurf)
-    distrib = FakeTorusDistribution (r1, r2, ne0, p)
+    distrib = SimpleTorusDistribution (r1, r2, ne0, p)
     ray_tracer = BasicRayTracer ()
     synch_calc = GrtransSynchrotronCalculator ()
     rad_trans = GrtransRTIntegrator ()
