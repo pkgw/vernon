@@ -558,7 +558,7 @@ class BasicRayTracer (object):
 
     surface_delta_radius = 0.03
     """Rays emerging from the body's surface start this far above it, measured in
-    units of the body's radius. Needed to avoid blows up various coordinates
+    units of the body's radius. Needed to avoid problems with various coordinates
     that blow up at R = 1.
 
     """
@@ -823,6 +823,17 @@ class VanAllenSetup (object):
         )
 
 
+    def total_ne_for_ray (self, x, y):
+        """A diagnostic function. Sum up the electron density, following a ray
+        starting at the specified 2D observer coordinates.
+
+        x and y are the origin of the ray in units of the body's radius.
+
+        """
+        x, B, theta, n_e, p = self.ray_tracer.calc_ray_params (x, y, self)
+        return n_e.sum()
+
+
 def basic_setup (
         nu = 95,
         lat_of_cen = 10,
@@ -899,6 +910,18 @@ class ImageMaker (object):
                 if printiter:
                     print (ix, iy, xvals[ix], yvals[iy])
                 data[:,iy,ix] = self.setup.trace_one (xvals[ix], yvals[iy], **kwargs)
+
+        return data
+
+
+    def compute_total_ne (self, **kwargs):
+        xvals = np.linspace (-self.xhalfsize, self.xhalfsize, self.nx)
+        yvals = np.linspace (-self.yhalfsize, self.yhalfsize, self.ny)
+        data = np.zeros ((self.ny, self.nx))
+
+        for iy in xrange (self.ny):
+            for ix in xrange (self.nx):
+                data[iy,ix] = self.setup.total_ne_for_ray (xvals[ix], yvals[iy], **kwargs)
 
         return data
 
