@@ -490,8 +490,7 @@ class SimpleTorusDistribution (object):
 
 
 class SimpleWasherDistribution (object):
-    """A uniformly filled "washer" shape where the parameters of the electron
-    energy distribution are fixed.
+    """A hard-edged "washer" shape.
 
     r_inner
       Inner radius, in units of the body's radius.
@@ -504,15 +503,38 @@ class SimpleWasherDistribution (object):
       electrons per cubic centimeter.
     p
       The power-law index of the energetic electrons, such that N(>E) ~ E^(-p).
+    radial_concentration
+      A power-law index giving the degree to which n_e increases toward the
+      inner edge of the washer:
+
+        n_e(r) \propto [(r_out - r) / (r_out - r_in)]^radial_concentration
+
+      Zero implies a flat distribution; 1 implies a linear increase from outer
+      to inner. The total number of electrons in the washer is conserved.
 
     """
-    def __init__ (self, r_inner, r_outer, thickness, n_e, p):
+    def __init__ (self, r_inner=2, r_outer=7, thickness=0.7, n_e=1e5, p=3, radial_concentration=0.):
         self.r_inner = float (r_inner)
         self.r_outer = float (r_outer)
         self.thickness = float (thickness)
-        self.n_e = float (n_e)
         self.p = float (p)
+        self.radial_concentration = float(radial_concentration)
 
+        # We want the total number of electrons to stay constant if
+        # radial_concentration changes. In the simplest case,
+        # radial_concentration is zero, n_e is spatially uniform, and
+        #   N = n_e * thickness * pi * (r_outer**2 - r_inner**2).
+        # In the less trivial case, n_e(r) ~ ((r_out - r)/(r_out - r_in))**c.
+        # Denote the constant of proportionality `density_factor`. If you work
+        # out the integral for N in the generic case and simplify, you get the
+        # following. Note that if c = 0, you get density_factory = n_e as you
+        # would hope.
+
+        c = self.radial_concentration
+        numer = float(n_e) * (self.r_outer**2 - self.r_inner**2)
+        denom = (2 * (self.r_outer - self.r_inner) * \
+                 ((c + 1) * self.r_inner + self.r_outer) / ((c + 1) * (c + 2)))
+        self._density_factor = numer / denom
 
     @broadcastize(3,(0,0))
     def get_samples (self, mlat, mlon, L):
@@ -535,7 +557,8 @@ class SimpleWasherDistribution (object):
         inside = (r2 > self.r_inner**2) & (r2 < self.r_outer**2) & (np.abs(z) < 0.5 * self.thickness)
 
         n_e = np.zeros (mlat.shape)
-        n_e[inside] = self.n_e
+        n_e[inside] = self._density_factor * ((self.r_outer - r[inside]) /
+                                              (self.r_outer - self.r_inner))**self.radial_concentration
 
         p = np.zeros (mlat.shape)
         p[inside] = self.p
