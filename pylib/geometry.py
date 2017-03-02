@@ -623,7 +623,7 @@ class BasicRayTracer (object):
 
         nesamps = z_to_ne (zsamps)
 
-        if not np.any (nesamps > 0):
+        if not np.any (nesamps > self.ne0_cutoff):
             # Doesn't seem like we have any particles along this line of sight!
             retx = np.linspace (z0, z1, 2) * setup.radius
             retx -= retx.min ()
