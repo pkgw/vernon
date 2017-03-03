@@ -82,7 +82,7 @@ def compute_coefficient (
     # computes Faraday coefficients, so I flip the signs of Symphony to be
     # consistent with grtrans rather than the other way around.
 
-    if stokes in (STOKES_Q, STOKES_U, STOKES_V):
+    if rttype == EMISSION and stokes in (STOKES_Q, STOKES_U, STOKES_V):
         result = -result
 
     return result
