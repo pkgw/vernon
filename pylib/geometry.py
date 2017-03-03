@@ -811,17 +811,33 @@ class VanAllenSetup (object):
         self.nu = nu
 
 
-    def trace_one (self, x, y):
-        """Trace a ray starting at the specified 2D observer coordinates. Returns an
-        array of shape (4,) giving the resulting Stoke IQUV intensities in erg
-        / (s Hz sr cm^2).
+    def trace_one (self, x, y, extras=False):
+        """Trace a ray starting at the specified 2D observer coordinates.
+
+        If `extras` is False, returns an array of shape (4,) giving the
+        resulting Stoke IQUV intensities in erg / (s Hz sr cm^2).
+
+        If `extras` is True, the array has shape (6,). `retval[4]` is the
+        Stokes I optical depth integrated along the ray and `retval[5]` is the
+        total electron column along the ray.
 
         x and y are the origin of the ray in units of the body's radius.
 
         """
         x, B, theta, n_e, p = self.ray_tracer.calc_ray_params (x, y, self)
         j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, theta, n_e, p)
-        return self.rad_trans.integrate (x, j, alpha, rho)
+
+        if not extras:
+            return self.rad_trans.integrate (x, j, alpha, rho)
+        else:
+            from scipy.integrate import trapz
+
+            rv = np.empty((6,))
+            rv[:4] = self.rad_trans.integrate (x, j, alpha, rho)
+            rv[4] = trapz (alpha[:,0], x)
+            rv[5] = n_e.sum()
+            return rv
+
 
 
     def coeffs_for_one (self, x, y):
@@ -855,6 +871,21 @@ class VanAllenSetup (object):
         """
         x, B, theta, n_e, p = self.ray_tracer.calc_ray_params (x, y, self)
         return n_e.sum()
+
+
+    def optical_depth_for_ray (self, x, y):
+        """Trace a ray starting at the specified 2D observer coordinates and compute
+        the optical depth in Stokes I of the electrons along the line of
+        sight.
+
+        x and y are the origin of the ray in units of the body's radius.
+
+        """
+        x, B, theta, n_e, p = self.ray_tracer.calc_ray_params (x, y, self)
+        j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, theta, n_e, p)
+
+        from scipy.integrate import trapz
+        return trapz (alpha[:,0], x)
 
 
 def basic_setup (
@@ -923,16 +954,17 @@ class ImageMaker (object):
             setattr (self, k, v)
 
 
-    def compute (self, printiter=False, **kwargs):
+    def compute (self, printiter=False, extras=False, **kwargs):
         xvals = np.linspace (-self.xhalfsize, self.xhalfsize, self.nx)
         yvals = np.linspace (-self.yhalfsize, self.yhalfsize, self.ny)
-        data = np.zeros ((4, self.ny, self.nx))
+        n_out = 6 if extras else 4
+        data = np.zeros ((n_out, self.ny, self.nx))
 
         for iy in xrange (self.ny):
             for ix in xrange (self.nx):
                 if printiter:
                     print (ix, iy, xvals[ix], yvals[iy])
-                data[:,iy,ix] = self.setup.trace_one (xvals[ix], yvals[iy], **kwargs)
+                data[:,iy,ix] = self.setup.trace_one (xvals[ix], yvals[iy], extras=extras, **kwargs)
 
         return data
 
@@ -945,6 +977,18 @@ class ImageMaker (object):
         for iy in xrange (self.ny):
             for ix in xrange (self.nx):
                 data[iy,ix] = self.setup.total_ne_for_ray (xvals[ix], yvals[iy], **kwargs)
+
+        return data
+
+
+    def compute_optical_depth (self, **kwargs):
+        xvals = np.linspace (-self.xhalfsize, self.xhalfsize, self.nx)
+        yvals = np.linspace (-self.yhalfsize, self.yhalfsize, self.ny)
+        data = np.zeros ((self.ny, self.nx))
+
+        for iy in xrange (self.ny):
+            for ix in xrange (self.nx):
+                data[iy,ix] = self.setup.optical_depth_for_ray (xvals[ix], yvals[iy], **kwargs)
 
         return data
 
