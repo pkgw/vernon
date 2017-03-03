@@ -13,7 +13,16 @@ from polsynchemis import polsynchemis
 from radtrans_integrate import radtrans_integrate
 
 
-def integrate_ray (x, j, a, rho, atol=1e-8, rtol=1e-6):
+# Different integration methods. The demo uses LSODA. I needed to use FORMAL
+# in order to be able to trace rays up to (realistic) "x" ~ 1e10; other
+# methods only worked with max(x) ~ 1e5.
+
+METHOD_LSODA_YES_LINEAR_STOKES = 0 # LSODA with IS_LINEAR_STOKES=1
+METHOD_DELO = 1 # DELO method from Rees+ (1989ApJ...339.1093R)
+METHOD_FORMAL = 2 # "formal" method; may be "matricant (O-matrix) method from Landi Degl'Innocenti"?
+METHOD_LSODA_NO_LINEAR_STOKES = 3 # LSODA with IS_LINEAR_STOKES=0
+
+def integrate_ray (x, j, a, rho, atol=1e-8, rtol=1e-6, method=METHOD_FORMAL):
     """Arguments:
 
     x
@@ -28,23 +37,12 @@ def integrate_ray (x, j, a, rho, atol=1e-8, rtol=1e-6):
       Some kind of tolerance parameter.
     rtol
       Some kind of tolerance parameter.
+    method
+      The integration method to use; see METHOD_* constants.
 
     Returns: Array of shape (4, n): Stokes intensities along the ray.
 
     """
-
-    # Different integration methods:
-    #
-    #   0 - LSODA with IS_LINEAR_STOKES=1
-    #   1 - DELO method from Rees+ (1989ApJ...339.1093R)
-    #   2 - "formal" method; may be "matricant (O-matrix) method from Landi Degl'Innocenti"?
-    #   3 - LSODA with IS_LINEAR_STOKES=0
-    #
-    # The demo uses 0 or 3. I needed to change it to 2 in order to be able to
-    # trace rays up to (realistic) "x" ~ 1e10; other methods only worked with
-    # max(x) ~ 1e5.
-    method = 2
-
     n = x.size
 
     radtrans_integrate.init_radtrans_integrate_data (
