@@ -693,7 +693,7 @@ class GrtransSynchrotronCalculator (object):
     gamma_min = 0.1
     gamma_max = 1e5
 
-    @broadcastize(5,(0,0,0))
+    @broadcastize(5,(None,None,None))
     def get_coeffs (self, nu, B, theta, n_e, p):
         """Arguments:
 
@@ -736,6 +736,7 @@ class SymphonySynchrotronCalculator (object):
     approximate = False
     faraday_calculator = None
 
+    @broadcastize(5,(None,None,None))
     def get_coeffs (self, nu, B, theta, n_e, p):
         "(See GrtransSynchrotronCalculator for argument definitions.)"
         from .symphony import calc_all_coefficients as cac
@@ -744,6 +745,61 @@ class SymphonySynchrotronCalculator (object):
         if self.faraday_calculator is not None:
             alt_j, alt_alpha, alt_rho = self.faraday_calculator.get_coeffs(nu, B, theta, n_e, p)
             rho = alt_rho
+
+        return j, alpha, rho
+
+
+class NeuroSynchrotronCalculator (object):
+    """Compute synchrotron coefficients using my neural network approximation
+    of the Symphony results, with Faraday coefficients from grtrans.
+
+    """
+    def __init__(self, model_dir):
+        from symphony import neuro
+
+        dr = neuro.DomainRange.from_config()
+        self.apsy = neuro.ApproximateSymphony(dr, model_dir)
+        self.faraday = GrtransSynchrotronCalculator()
+
+        # grtrans seems to use the Symphony fitting formulae and gives results
+        # that disagree with Symphony substantially when gamma_min is not 1.
+        # It therefore seems likely that its Faraday mixing coefficients
+        # should also only be trusted when gamma_min is 1 -- they also vary
+        # substantially depending on its value. Our current neural nets were
+        # computed with gamma_min = 0.1, but the results of the *full*
+        # Symphony computation don't seem to change much depending on
+        # gamma_min, so I think the mix-n-match is OK.
+
+        self.faraday.gamma_min = 1.
+
+
+    @broadcastize(5,(None,None,None))
+    def get_coeffs (self, nu, B, theta, n_e, p):
+        """(See GrtransSynchrotronCalculator for argument definitions.)
+
+        Ugggh we use like three different orderings of the 5 parameters in
+        different parts of this package.
+
+        """
+        nontriv = self.apsy.compute_all_nontrivial(nu, B, n_e, theta, p)
+
+        # We need to calculate all of the values with grtrans anyway, so we
+        # might as well reuse the arrays it allocates. grtrans seems to have a
+        # differing sign convention than Symphony for QUV, so we apply that,
+        # seeing as we are using grtrans' rho values to compute the mixing
+        # between the polarized components.
+
+        j, alpha, rho = self.faraday.get_coeffs(nu, B, theta, n_e, p)
+
+        j[...,0] = nontriv[...,0]
+        j[...,1] = -nontriv[...,2]
+        j[...,2] = 0.
+        j[...,3] = -nontriv[...,4]
+
+        alpha[...,0] = nontriv[...,1]
+        alpha[...,1] = -nontriv[...,3]
+        alpha[...,2] = 0.
+        alpha[...,3] = -nontriv[...,5]
 
         return j, alpha, rho
 
@@ -935,8 +991,10 @@ def basic_setup (
     bfield = TiltedDipoleField (dipole_tilt, bsurf)
     distrib = SimpleTorusDistribution (r1, r2, ne0, p)
     ray_tracer = BasicRayTracer ()
-    synch_calc = GrtransSynchrotronCalculator ()
     rad_trans = GrtransRTIntegrator ()
+
+    import os.path, symphony
+    synch_calc = NeuroSynchrotronCalculator (os.path.dirname(symphony.__file__))
 
     return VanAllenSetup (o2b, bfield, distrib, ray_tracer, synch_calc,
                           rad_trans, radius, nu)
