@@ -83,8 +83,11 @@ def calc_powerlaw_synchrotron_coefficients (nu, n_e, B, theta, p, gamma_min, gam
     rho
        Array of shape (X, 3), where X is the input shape; Faraday mixing coefficients.
 
-    NOTE: results disagree with symphony when gamma_min >~ 0.5; extremely good
-    agreement for gamma_min ~ 0.1.
+    NOTE: at some point I talked myself into believing that I couldn't get
+    grtrans and Symphony to agree for gamma_min >~ 0.5; I needed gamma_min 0.1
+    to get agreement. But now I find the opposite! There may be weird issues
+    about grtrans flipping between fitting formulae and more detailed
+    calculations or something?
 
     """
     assert nu.ndim == 1
@@ -115,6 +118,32 @@ def calc_powerlaw_synchrotron_coefficients (nu, n_e, B, theta, p, gamma_min, gam
     # coefficients?
 
     return j, a, rho
+
+
+@broadcastize(7, ret_spec=None)
+def calc_powerlaw_nontrivial (nu, B, n_e, theta, p, gamma_min, gamma_max):
+    """Like `calc_powerlaw_synchrotron_coefficients`, but packs the INPUT AND
+    OUTPUTS in the same way as used by my work with Symphony. Also, no hack to
+    avoid polarized blowups.
+
+    NOTE ARGUMENT ORDERING IS DIFFERENT!!!!
+
+    """
+    assert nu.ndim == 1
+    size = max(nu.size, 2)
+    polsynchemis.initialize_polsynchpl (size)
+    chunk = polsynchemis.polsynchpl (nu, n_e, B, theta, p, gamma_min, gamma_max)
+    polsynchemis.del_polsynchpl (size)
+
+    result = np.empty(nu.shape + (6,))
+    result[...,0] = chunk[...,0]
+    result[...,2] = chunk[...,1]
+    result[...,4] = chunk[...,3]
+    result[...,1] = chunk[...,4]
+    result[...,3] = chunk[...,5]
+    result[...,5] = chunk[...,7]
+
+    return result
 
 
 @broadcastize(8, ret_spec=None)
