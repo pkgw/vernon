@@ -527,7 +527,7 @@ class SimpleWasherDistribution (object):
         # In the less trivial case, n_e(r) ~ ((r_out - r)/(r_out - r_in))**c.
         # Denote the constant of proportionality `density_factor`. If you work
         # out the integral for N in the generic case and simplify, you get the
-        # following. Note that if c = 0, you get density_factory = n_e as you
+        # following. Note that if c = 0, you get density_factor = n_e as you
         # would hope.
 
         c = self.radial_concentration
@@ -721,8 +721,9 @@ class GrtransSynchrotronCalculator (object):
            coefficients, in units that I haven't checked.
 
         """
-        from .grtrans import calc_powerlaw_synchrotron_coefficients as cpsc
-        return cpsc (nu, n_e, B, theta, p, self.gamma_min, self.gamma_max)
+        from grtrans import calc_powerlaw_synchrotron_coefficients as cpsc
+        chunk = cpsc (nu, B, n_e, theta, p, self.gamma_min, self.gamma_max)
+        return chunk[...,:4], chunk[...,4:8], chunk[...,8:]
 
 
 class SymphonySynchrotronCalculator (object):
@@ -739,7 +740,7 @@ class SymphonySynchrotronCalculator (object):
     @broadcastize(5,(None,None,None))
     def get_coeffs (self, nu, B, theta, n_e, p):
         "(See GrtransSynchrotronCalculator for argument definitions.)"
-        from .symphony import calc_all_coefficients as cac
+        from symphony import calc_all_coefficients as cac
         j, alpha, rho = cac (nu, n_e, B, theta, p, approximate=self.approximate)
 
         if self.faraday_calculator is not None:
@@ -825,8 +826,9 @@ class GrtransRTIntegrator (object):
         erg/(s Hz sr cm^2).
 
         """
-        from .grtrans import integrate_ray
-        iquv = integrate_ray (x, j, a, rho)
+        from grtrans import integrate_ray
+        K = np.concatenate((a, rho), axis=1)
+        iquv = integrate_ray (x, j, K)
         return iquv[:,-1]
 
 
