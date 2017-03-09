@@ -690,8 +690,8 @@ class GrtransSynchrotronCalculator (object):
     """Compute synchrotron coefficients using the `grtrans` code.
 
     """
-    gamma_min = 0.1
-    gamma_max = 1e5
+    gamma_min = 1
+    gamma_max = 1e3
 
     @broadcastize(5,(None,None,None))
     def get_coeffs (self, nu, B, n_e, theta, p):
