@@ -612,7 +612,7 @@ class BasicRayTracer (object):
         setup
           A VanAllenSetup instance.
 
-        Returns: (x, B, theta, n_e, p), with the usual definitions. The output
+        Returns: (x, B, n_e, theta, p), with the usual definitions. The output
         x is a vector of displacements along the ray, measured in cm and
         starting at 0.
 
@@ -683,7 +683,7 @@ class BasicRayTracer (object):
         mc = setup.bfield (*bc)
         n_e, p = setup.distrib.get_samples (*mc)
 
-        return retx, bmag, theta, n_e, p
+        return retx, bmag, n_e, theta, p
 
 
 class GrtransSynchrotronCalculator (object):
@@ -694,17 +694,17 @@ class GrtransSynchrotronCalculator (object):
     gamma_max = 1e5
 
     @broadcastize(5,(None,None,None))
-    def get_coeffs (self, nu, B, theta, n_e, p):
+    def get_coeffs (self, nu, B, n_e, theta, p):
         """Arguments:
 
         nu
           Array of observing frequencies, in Hz.
         B
           Array of magnetic field strengths, in Gauss.
-        theta
-          Array of field-to-(line-of-sight) angles, in radians.
         n_e
           Array of electron densities, in cm^-3.
+        theta
+          Array of field-to-(line-of-sight) angles, in radians.
         p
           Array of electron energy distribution power-law indices.
 
@@ -738,13 +738,13 @@ class SymphonySynchrotronCalculator (object):
     faraday_calculator = None
 
     @broadcastize(5,(None,None,None))
-    def get_coeffs (self, nu, B, theta, n_e, p):
+    def get_coeffs (self, nu, B, n_e, theta, p):
         "(See GrtransSynchrotronCalculator for argument definitions.)"
         from symphony import calc_all_coefficients as cac
         j, alpha, rho = cac (nu, n_e, B, theta, p, approximate=self.approximate)
 
         if self.faraday_calculator is not None:
-            alt_j, alt_alpha, alt_rho = self.faraday_calculator.get_coeffs(nu, B, theta, n_e, p)
+            alt_j, alt_alpha, alt_rho = self.faraday_calculator.get_coeffs(nu, B, n_e, theta, p)
             rho = alt_rho
 
         return j, alpha, rho
@@ -775,7 +775,7 @@ class NeuroSynchrotronCalculator (object):
 
 
     @broadcastize(5,(None,None,None))
-    def get_coeffs (self, nu, B, theta, n_e, p):
+    def get_coeffs (self, nu, B, n_e, theta, p):
         """(See GrtransSynchrotronCalculator for argument definitions.)
 
         Ugggh we use like three different orderings of the 5 parameters in
@@ -790,7 +790,7 @@ class NeuroSynchrotronCalculator (object):
         # seeing as we are using grtrans' rho values to compute the mixing
         # between the polarized components.
 
-        j, alpha, rho = self.faraday.get_coeffs(nu, B, theta, n_e, p)
+        j, alpha, rho = self.faraday.get_coeffs(nu, B, n_e, theta, p)
 
         j[...,0] = nontriv[...,0]
         j[...,1] = -nontriv[...,2]
@@ -882,8 +882,8 @@ class VanAllenSetup (object):
         x and y are the origin of the ray in units of the body's radius.
 
         """
-        x, B, theta, n_e, p = self.ray_tracer.calc_ray_params (x, y, self)
-        j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, theta, n_e, p)
+        x, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self)
+        j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, n_e, theta, p)
 
         if not extras:
             return self.rad_trans.integrate (x, j, alpha, rho)
@@ -906,8 +906,8 @@ class VanAllenSetup (object):
 
         """
         from pwkit import Holder
-        x, B, theta, n_e, p = self.ray_tracer.calc_ray_params (x, y, self)
-        j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, theta, n_e, p)
+        x, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self)
+        j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, n_e, theta, p)
         return Holder (
             x = x / self.radius,
             B = B,
@@ -927,7 +927,7 @@ class VanAllenSetup (object):
         x and y are the origin of the ray in units of the body's radius.
 
         """
-        x, B, theta, n_e, p = self.ray_tracer.calc_ray_params (x, y, self)
+        x, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self)
         return n_e.sum()
 
 
@@ -939,8 +939,8 @@ class VanAllenSetup (object):
         x and y are the origin of the ray in units of the body's radius.
 
         """
-        x, B, theta, n_e, p = self.ray_tracer.calc_ray_params (x, y, self)
-        j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, theta, n_e, p)
+        x, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self)
+        j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, n_e, theta, p)
 
         from scipy.integrate import trapz
         return trapz (alpha[:,0], x)
