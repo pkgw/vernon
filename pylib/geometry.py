@@ -686,125 +686,6 @@ class BasicRayTracer (object):
         return retx, bmag, n_e, theta, p
 
 
-class GrtransSynchrotronCalculator (object):
-    """Compute synchrotron coefficients using the `grtrans` code.
-
-    """
-    gamma_min = 1
-    gamma_max = 1e3
-
-    @broadcastize(5,(None,None,None))
-    def get_coeffs (self, nu, B, n_e, theta, p):
-        """Arguments:
-
-        nu
-          Array of observing frequencies, in Hz.
-        B
-          Array of magnetic field strengths, in Gauss.
-        n_e
-          Array of electron densities, in cm^-3.
-        theta
-          Array of field-to-(line-of-sight) angles, in radians.
-        p
-          Array of electron energy distribution power-law indices.
-
-        Returns (j_nu, alpha_nu, rho):
-
-        j_nu
-           Array of shape (X, 4), where X is the input shape. The emission
-           coefficients for Stokes IQUV, in erg/s/Hz/sr/cm^3.
-        alpha_nu
-           Array of shape (X, 4), where X is the input shape. The absorption
-           coefficients, in cm^-1.
-        rho_nu
-           Array of shape (X, 3), where X is the input shape. Faraday mixing
-           coefficients, in units that I haven't checked.
-
-        """
-        from grtrans import calc_powerlaw_synchrotron_coefficients as cpsc
-        chunk = cpsc (nu, B, n_e, theta, p, self.gamma_min, self.gamma_max)
-        return chunk[...,:4], chunk[...,4:8], chunk[...,8:]
-
-
-class SymphonySynchrotronCalculator (object):
-    """Compute synchrotron coefficients using the `symphony` code.
-
-    Symphony doesn't calculate Faraday coefficients for us. If
-    `faraday_calculator` is not None, we use that object (presumed to be a
-    SynchrotronCalculator) to get them instead.
-
-    """
-    approximate = False
-    faraday_calculator = None
-
-    @broadcastize(5,(None,None,None))
-    def get_coeffs (self, nu, B, n_e, theta, p):
-        "(See GrtransSynchrotronCalculator for argument definitions.)"
-        from symphony import calc_all_coefficients as cac
-        j, alpha, rho = cac (nu, n_e, B, theta, p, approximate=self.approximate)
-
-        if self.faraday_calculator is not None:
-            alt_j, alt_alpha, alt_rho = self.faraday_calculator.get_coeffs(nu, B, n_e, theta, p)
-            rho = alt_rho
-
-        return j, alpha, rho
-
-
-class NeuroSynchrotronCalculator (object):
-    """Compute synchrotron coefficients using my neural network approximation
-    of the Symphony results, with Faraday coefficients from grtrans.
-
-    """
-    def __init__(self, model_dir):
-        from symphony import neuro
-
-        dr = neuro.DomainRange.from_config()
-        self.apsy = neuro.ApproximateSymphony(dr, model_dir)
-        self.faraday = GrtransSynchrotronCalculator()
-
-        # grtrans seems to use the Symphony fitting formulae and gives results
-        # that disagree with Symphony substantially when gamma_min is not 1.
-        # It therefore seems likely that its Faraday mixing coefficients
-        # should also only be trusted when gamma_min is 1 -- they also vary
-        # substantially depending on its value. Our current neural nets were
-        # computed with gamma_min = 0.1, but the results of the *full*
-        # Symphony computation don't seem to change much depending on
-        # gamma_min, so I think the mix-n-match is OK.
-
-        self.faraday.gamma_min = 1.
-
-
-    @broadcastize(5,(None,None,None))
-    def get_coeffs (self, nu, B, n_e, theta, p):
-        """(See GrtransSynchrotronCalculator for argument definitions.)
-
-        Ugggh we use like three different orderings of the 5 parameters in
-        different parts of this package.
-
-        """
-        nontriv = self.apsy.compute_all_nontrivial(nu, B, n_e, theta, p)
-
-        # We need to calculate all of the values with grtrans anyway, so we
-        # might as well reuse the arrays it allocates. grtrans seems to have a
-        # differing sign convention than Symphony for QUV, so we apply that,
-        # seeing as we are using grtrans' rho values to compute the mixing
-        # between the polarized components.
-
-        j, alpha, rho = self.faraday.get_coeffs(nu, B, n_e, theta, p)
-
-        j[...,0] = nontriv[...,0]
-        j[...,1] = -nontriv[...,2]
-        j[...,2] = 0.
-        j[...,3] = -nontriv[...,4]
-
-        alpha[...,0] = nontriv[...,1]
-        alpha[...,1] = -nontriv[...,3]
-        alpha[...,2] = 0.
-        alpha[...,3] = -nontriv[...,5]
-
-        return j, alpha, rho
-
-
 class GrtransRTIntegrator (object):
     """Perform radiative-transfer integration along a ray using the integrator in
     `grtrans`.
@@ -847,8 +728,8 @@ class VanAllenSetup (object):
     ray_tracer
       An object used to trace out ray paths.
     synch_calc
-      An object used to calculate synchrotron emission coefficients. Currenly this
-      must be an instance of GrtransSynchrotronCalculator.
+      An object used to calculate synchrotron emission coefficients; an
+      instance of synchrotron.SynchrotronCalculator.
     rad_trans
       An object used to perform the radiative transfer integration. Currenly this
       must be an instance of GrtransRTIntegrator.
@@ -958,7 +839,7 @@ def basic_setup (
         r2 = 2,
         radius = 1.1):
     """Create and return a fairly basic VanAllenSetup object. Defaults to using
-    TiltedDipoleField, SimpleTorusDistribution, GrtransSynchrotronCalculator.
+    TiltedDipoleField, SimpleTorusDistribution, NeuroSynchrotronCalculator.
 
     nu
       The observing frequency, in GHz.
@@ -995,8 +876,8 @@ def basic_setup (
     ray_tracer = BasicRayTracer ()
     rad_trans = GrtransRTIntegrator ()
 
-    import os.path, symphony
-    synch_calc = NeuroSynchrotronCalculator (os.path.dirname(symphony.__file__))
+    from .synchrotron import NeuroSynchrotronCalculator
+    synch_calc = NeuroSynchrotronCalculator()
 
     return VanAllenSetup (o2b, bfield, distrib, ray_tracer, synch_calc,
                           rad_trans, radius, nu)
