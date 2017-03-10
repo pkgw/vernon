@@ -803,8 +803,8 @@ class VanAllenSetup (object):
         return Holder (
             x = x / self.radius,
             B = B,
-            theta = theta * astutil.R2D,
             n_e = n_e,
+            theta = theta * astutil.R2D,
             p = p,
             j = j,
             alpha = alpha,
