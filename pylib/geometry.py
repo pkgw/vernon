@@ -600,7 +600,7 @@ class BasicRayTracer (object):
     nsamps = 300
     "Number of points to sample along the ray."
 
-    def calc_ray_params (self, x, y, setup):
+    def calc_ray_params (self, x, y, setup, zeropoint_s=True):
         """Figure out the limits of the integration that we need to perform.
 
         x
@@ -612,9 +612,9 @@ class BasicRayTracer (object):
         setup
           A VanAllenSetup instance.
 
-        Returns: (x, B, n_e, theta, p), with the usual definitions. The output
-        x is a vector of displacements along the ray, measured in cm and
-        starting at 0.
+        Returns: (s, B, n_e, theta, p), with the usual definitions. The output
+        s is a vector of displacements along the ray, measured in cm and
+        starting at 0, unless `zeropoint_s` is False.
 
         TODO: we could go back to having an 'i0' output giving the initial
         intensity (now in IQUV) at the ray start.
@@ -646,14 +646,15 @@ class BasicRayTracer (object):
 
         if not np.any (nesamps > self.ne0_cutoff):
             # Doesn't seem like we have any particles along this line of sight!
-            retx = np.linspace (z0, z1, 2) * setup.radius
-            retx -= retx.min ()
+            s = np.linspace (z0, z1, 2) * setup.radius
+            if zeropoint_s:
+                s -= s.min ()
 
             b = np.zeros (2)
             theta = np.zeros (2)
             n_e = np.zeros (2)
             p = np.zeros (2)
-            return retx, b, theta, n_e, p
+            return s, b, theta, n_e, p
 
         if nesamps[0] < self.ne0_cutoff:
             # The current starting point, z0, does not contain any particles.
@@ -682,7 +683,9 @@ class BasicRayTracer (object):
         # OK, we have good bounds. For now we just sample the ray idiotically:
 
         z = np.linspace (z0, z1, self.nsamps)
-        retx = (z - z.min ()) * setup.radius
+        s = z * setup.radius
+        if zeropoint_s:
+            s -= s.min()
 
         bc = setup.o2b (x, y, z)
         bhat = setup.bfield.bhat (*bc)
@@ -692,7 +695,7 @@ class BasicRayTracer (object):
         mc = setup.bfield (*bc)
         n_e, p = setup.distrib.get_samples (*mc)
 
-        return retx, bmag, n_e, theta, p
+        return s, bmag, n_e, theta, p
 
 
 class GrtransRTIntegrator (object):
@@ -774,20 +777,19 @@ class VanAllenSetup (object):
         x and y are the origin of the ray in units of the body's radius.
 
         """
-        x, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self)
+        s, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self)
         j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, n_e, theta, p)
 
         if not extras:
-            return self.rad_trans.integrate (x, j, alpha, rho)
+            return self.rad_trans.integrate (s, j, alpha, rho)
         else:
             from scipy.integrate import trapz
 
             rv = np.empty((6,))
-            rv[:4] = self.rad_trans.integrate (x, j, alpha, rho)
-            rv[4] = trapz (alpha[:,0], x)
-            rv[5] = trapz (n_e, x)
+            rv[:4] = self.rad_trans.integrate (s, j, alpha, rho)
+            rv[4] = trapz (alpha[:,0], s)
+            rv[5] = trapz (n_e, s)
             return rv
-
 
 
     def coeffs_for_one (self, x, y):
@@ -798,10 +800,10 @@ class VanAllenSetup (object):
 
         """
         from pwkit import Holder
-        x, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self)
+        s, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self, zeropoint_s=False)
         j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, n_e, theta, p)
         return Holder (
-            x = x / self.radius,
+            s = s / self.radius,
             B = B,
             n_e = n_e,
             theta = theta * astutil.R2D,
@@ -819,8 +821,8 @@ class VanAllenSetup (object):
         x and y are the origin of the ray in units of the body's radius.
 
         """
-        x, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self)
-        return trapz(n_e, x)
+        s, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self)
+        return trapz(n_e, s)
 
 
     def optical_depth_for_ray (self, x, y):
@@ -831,11 +833,11 @@ class VanAllenSetup (object):
         x and y are the origin of the ray in units of the body's radius.
 
         """
-        x, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self)
+        s, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self)
         j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, n_e, theta, p)
 
         from scipy.integrate import trapz
-        return trapz (alpha[:,0], x)
+        return trapz (alpha[:,0], s)
 
 
 def basic_setup (
