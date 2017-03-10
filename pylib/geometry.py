@@ -629,12 +629,10 @@ class BasicRayTracer (object):
 
         z1 = self.way_front_z
 
-        # If ne(z0) = 0, which happens when we're in a loss cone, the emission
-        # and absorption coefficients are zero and the ODE integrator gives
-        # really bad answers. So we patch up the bounds to find a start point
-        # with a very small but nonzero density to make sure we get going. z1
-        # doesn't matter since by then we've integrated everything and it's OK
-        # if we blaze through 'z' values.
+        # If ne(z0) = 0, the emission and absorption coefficients are zero,
+        # the ODE integrator take really big steps, and the results are bad.
+        # So we patch up the bounds to find a start point with a very small
+        # but nonzero density to make sure we get going.
 
         zsamps = np.arange (z0, z1, self.delta_z)
 
@@ -669,8 +667,19 @@ class BasicRayTracer (object):
                 raise RuntimeError ('could not find suitable starting point: %r %r %r'
                                     % (z0, zstart, info))
 
-        # OK, we have a good starting point. For now we just trace the ray
-        # idiotically:
+        if nesamps[-1] < self.ne0_cutoff:
+            # Likewise with the end point. This way we save our sampling resolution for
+            # where it counts.
+
+            from scipy.optimize import brentq
+            ofs_n_e = lambda z: (z_to_ne (z) - self.ne0_cutoff)
+            zstart = zsamps[nesamps > self.ne0_cutoff].max ()
+            z1, info = brentq (ofs_n_e, z1, zstart, full_output=True)
+            if not info.converged:
+                raise RuntimeError ('could not find suitable ending point: %r %r %r'
+                                    % (z1, zstart, info))
+
+        # OK, we have good bounds. For now we just sample the ray idiotically:
 
         z = np.linspace (z0, z1, self.nsamps)
         retx = (z - z.min ()) * setup.radius
