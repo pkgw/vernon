@@ -139,9 +139,6 @@ class ObserverToBodycentric (object):
             raise ValueError ('illegal latitude-of-center %r' % loc)
         self.cml = astutil.angcen (float (cml))
 
-        # precompute z-hat direction in the rotated coordinate system
-        self._zhat_bc = np.array (self._to_bc (0, 0, 1))
-
 
     @broadcastize(3,(0,0,0))
     def _to_bc (self, x, y, z):
@@ -206,13 +203,16 @@ class ObserverToBodycentric (object):
         dir_cart = np.array (sph_ofs_to_cart_ofs (bc_sph[0], bc_sph[1], bc_sph[2],
                                                   dir_blat, dir_blon, dir_r))
 
+        # z-hat direction in the rotated coordinate system
+        _zhat_bc = np.array (self._to_bc (0, 0, 1))
+
         # Now we just need to compute the angle between _zhat_bc and dir*.
         # _zhat_bc is known to be a unit vector so it doesn't contribute to
         # `scale`.
 
-        dot = (self._zhat_bc[0] * dir_cart[0] +
-               self._zhat_bc[1] * dir_cart[1] +
-               self._zhat_bc[2] * dir_cart[2]) # not sure how to do this better
+        dot = (_zhat_bc[0] * dir_cart[0] +
+               _zhat_bc[1] * dir_cart[1] +
+               _zhat_bc[2] * dir_cart[2]) # not sure how to do this better
         scale = np.sqrt ((dir_cart**2).sum (axis=0))
         arccos = dot / scale
         return np.arccos (arccos)
