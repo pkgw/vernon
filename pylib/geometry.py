@@ -785,7 +785,7 @@ class VanAllenSetup (object):
             rv = np.empty((6,))
             rv[:4] = self.rad_trans.integrate (x, j, alpha, rho)
             rv[4] = trapz (alpha[:,0], x)
-            rv[5] = n_e.sum()
+            rv[5] = trapz (n_e, x)
             return rv
 
 
@@ -820,7 +820,7 @@ class VanAllenSetup (object):
 
         """
         x, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self)
-        return n_e.sum()
+        return trapz(n_e, x)
 
 
     def optical_depth_for_ray (self, x, y):
