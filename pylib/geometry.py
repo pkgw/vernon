@@ -700,7 +700,7 @@ class GrtransRTIntegrator (object):
     `grtrans`.
 
     """
-    def integrate (self, x, j, a, rho):
+    def integrate (self, x, j, a, rho, **kwargs):
         """Arguments:
 
         x
@@ -711,6 +711,8 @@ class GrtransRTIntegrator (object):
           Array, shape (n, 4). Absorption coefficients, in cm^-1.
         rho
           Array, shape (n, 3). Faraday mixing coefficients.
+        kwargs
+          Forwarded on to grtrans.integrate_ray().
 
         Returns: Array of shape (4,): Stokes intensities at the end of the ray, in
         erg/(s Hz sr cm^2).
@@ -718,7 +720,7 @@ class GrtransRTIntegrator (object):
         """
         from grtrans import integrate_ray
         K = np.concatenate((a, rho), axis=1)
-        iquv = integrate_ray (x, j, K)
+        iquv = integrate_ray (x, j, K, **kwargs)
         return iquv[:,-1]
 
 
