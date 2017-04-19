@@ -764,7 +764,7 @@ class VanAllenSetup (object):
         self.nu = nu
 
 
-    def trace_one (self, x, y, extras=False):
+    def trace_one (self, x, y, extras=False, integrate_j_times_B=False):
         """Trace a ray starting at the specified 2D observer coordinates.
 
         If `extras` is False, returns an array of shape (4,) giving the
@@ -776,9 +776,20 @@ class VanAllenSetup (object):
 
         x and y are the origin of the ray in units of the body's radius.
 
+        If `integrate_j_times_B` is True, the emission coefficients (*j*) are
+        multiplied by the magnetic field strength (*B*). This setting is
+        useful if you want to determine the average strength of the magnetic
+        field in the regions where the emission is coming from: you can
+        calculate this integral, then divide by the value that you obtain with
+        `integrate_j_times_B` set to False. I *think* that calculation gives
+        you what I'm intending ...
+
         """
         s, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self)
         j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, n_e, theta, p)
+
+        if integrate_j_times_B:
+            j *= B.reshape((-1, 1))
 
         if not extras:
             return self.rad_trans.integrate (s, j, alpha, rho)
