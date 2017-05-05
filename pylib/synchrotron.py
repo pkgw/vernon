@@ -31,7 +31,7 @@ class SynchrotronCalculator (object):
     gamma_max = DEFAULT_GAMMA_MAX
 
     @broadcastize(5, ret_spec=(None, None, None))
-    def get_coeffs (self, nu, B, n_e, theta, p):
+    def get_coeffs (self, nu, B, n_e, theta, p, psi):
         """Arguments:
 
         nu
@@ -44,6 +44,8 @@ class SynchrotronCalculator (object):
           Array of field-to-(line-of-sight) angles, in radians.
         p
           Array of electron energy distribution power-law indices.
+        psi
+          Array of (projected-field)-to-(y-axis) angles, in radians.
 
         Returns (j_nu, alpha_nu, rho):
 
@@ -58,7 +60,9 @@ class SynchrotronCalculator (object):
            coefficients, in units that I haven't checked.
 
         """
-        return self._get_coeffs_inner(nu, B, n_e, theta, p)
+        j, alpha, rho = self._get_coeffs_inner(nu, B, n_e, theta, p)
+        # TODO: ROTATE LINEAR BITS BY 180 - psi!
+        return j, alpha, rho
 
 
     @broadcastize(5, ret_spec=None)
@@ -130,7 +134,7 @@ class SymphonySynchrotronCalculator (SynchrotronCalculator):
         if self.faraday_calculator is not None:
             self.faraday_calculator.gamma_min = self.gamma_min
             self.faraday_calculator.gamma_max = self.gamma_max
-            _, _, rho = self.faraday_calculator.get_coeffs(nu, B, n_e, theta, p)
+            _, _, rho = self.faraday_calculator.get_coeffs(nu, B, n_e, theta, p, np.pi)
 
         return j, alpha, rho
 
@@ -162,7 +166,7 @@ class NeuroSynchrotronCalculator (SynchrotronCalculator):
 
         self.faraday.gamma_min = self.gamma_min
         self.faraday.gamma_max = self.gamma_max
-        j, alpha, rho = self.faraday.get_coeffs(nu, B, n_e, theta, p)
+        j, alpha, rho = self.faraday.get_coeffs(nu, B, n_e, theta, p, np.pi)
 
         j[...,0] = nontriv[...,0]
         j[...,1] = -nontriv[...,2]

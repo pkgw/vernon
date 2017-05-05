@@ -173,13 +173,21 @@ class ObserverToBodycentric (object):
 
 
     @broadcastize(3,(0,0,0))
-    def inverse (self, lat, lon, r):
-        """The reverse of __call__ ()."""
-        x, y, z = sph_to_cart (lat, lon, r)
+    def _from_bc(self, x, y, z):
+        """Convert body-aligned rectangular coordinates to observer rectangular
+        coordinates. This is just the inverse of _to_bc().
+
+        """
         x, y = rot2d (x, y, -self.cml)
         x, z = rot2d (x, z, -self.loc)
         z, x, y = x, y, z
         return x, y, z
+
+
+    @broadcastize(3,(0,0,0))
+    def inverse (self, lat, lon, r):
+        """The inverse of __call__ ()."""
+        return self._from_bc(*sph_to_cart (lat, lon, r))
 
 
     @broadcastize(3,0)
@@ -216,6 +224,41 @@ class ObserverToBodycentric (object):
         scale = np.sqrt ((dir_cart**2).sum (axis=0))
         arccos = dot / scale
         return np.arccos (arccos)
+
+
+    @broadcastize(3,0)
+    def theta_yhat_projected(self, x, y, z, dir_blat, dir_blon, dir_r):
+        """For a set of observer coordinates, compute the signed angle between some
+        directional vector in *body-centric coordinates* and the
+        observer-centric y-hat vector, after projecting down to the x/y plane.
+
+        {x,y,z} define a set of positions at which to evaluate this value.
+        dir_{blat,blon,r} define a set of vectors at each of these positions.
+
+        We return the angle between those vectors and y-hat, measured in
+        radians.
+
+        This is used for calculating the angle between magnetic field Stokes Q
+        polarization axis, which is in the field/line-of-sight plane, and the
+        observer y axis, which is our common reference point for the linear
+        Stokes parameters.
+
+        """
+        bc_sph = self(x, y, z)
+        dir_bc = np.array(sph_ofs_to_cart_ofs(bc_sph[0], bc_sph[1], bc_sph[2],
+                                              dir_blat, dir_blon, dir_r))
+
+        # This is subtler than it looks because dir_bc is an infinitesimal
+        # offset vector rooted at (x,y,z). But the observer-to-bodycentric
+        # transform is linear and invertible, so it's OK to use _from_bc() on
+        # dir_bc itself.
+
+        dir_obs = self._from_bc(*dir_bc)
+
+        # In this frame, the projection and angle calculation are trivial --
+        # we just need to make sure to us arctan2 to get the right sign.
+
+        return np.arctan2(dir_obs[0], dir_obs[1])
 
 
     def test_viz (self, which_coord, **kwargs):
@@ -612,9 +655,11 @@ class BasicRayTracer (object):
         setup
           A VanAllenSetup instance.
 
-        Returns: (s, B, n_e, theta, p), with the usual definitions. The output
-        s is a vector of displacements along the ray, measured in cm and
-        starting at 0, unless `zeropoint_s` is False.
+        Returns: (s, B, n_e, theta, p, psi), with the usual definitions. The
+        output s is a vector of displacements along the ray, measured in cm
+        and starting at 0, unless `zeropoint_s` is False. `psi` is the angle
+        between the x/y-projected B field and the y axis, needed to put the
+        linear Stokes RT coefficients into a common observer frame.
 
         TODO: we could go back to having an 'i0' output giving the initial
         intensity (now in IQUV) at the ray start.
@@ -691,11 +736,12 @@ class BasicRayTracer (object):
         bhat = setup.bfield.bhat (*bc)
         theta = setup.o2b.theta_zhat (x, y, z, *bhat)
         bmag = setup.bfield.bmag (*bc)
+        psi = setup.o2b.theta_yhat_projected(x, y, z, *bhat)
 
         mc = setup.bfield (*bc)
         n_e, p = setup.distrib.get_samples (*mc)
 
-        return s, bmag, n_e, theta, p
+        return s, bmag, n_e, theta, p, psi
 
 
 class GrtransRTIntegrator (object):
@@ -785,8 +831,8 @@ class VanAllenSetup (object):
         you what I'm intending ...
 
         """
-        s, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self)
-        j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, n_e, theta, p)
+        s, B, n_e, theta, p, psi = self.ray_tracer.calc_ray_params(x, y, self)
+        j, alpha, rho = self.synch_calc.get_coeffs(self.nu, B, n_e, theta, p, psi)
 
         if integrate_j_times_B:
             j *= B.reshape((-1, 1))
@@ -811,8 +857,8 @@ class VanAllenSetup (object):
 
         """
         from pwkit import Holder
-        s, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self, zeropoint_s=False)
-        j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, n_e, theta, p)
+        s, B, n_e, theta, p, psi = self.ray_tracer.calc_ray_params(x, y, self, zeropoint_s=False)
+        j, alpha, rho = self.synch_calc.get_coeffs(self.nu, B, n_e, theta, p, psi)
         return Holder (
             s = s / self.radius,
             B = B,
@@ -832,7 +878,7 @@ class VanAllenSetup (object):
         x and y are the origin of the ray in units of the body's radius.
 
         """
-        s, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self)
+        s, B, n_e, theta, p, psi = self.ray_tracer.calc_ray_params(x, y, self)
         return trapz(n_e, s)
 
 
@@ -844,8 +890,8 @@ class VanAllenSetup (object):
         x and y are the origin of the ray in units of the body's radius.
 
         """
-        s, B, n_e, theta, p = self.ray_tracer.calc_ray_params (x, y, self)
-        j, alpha, rho = self.synch_calc.get_coeffs (self.nu, B, n_e, theta, p)
+        s, B, n_e, theta, p, psi = self.ray_tracer.calc_ray_params(x, y, self)
+        j, alpha, rho = self.synch_calc.get_coeffs(self.nu, B, n_e, theta, p, psi)
 
         from scipy.integrate import trapz
         return trapz (alpha[:,0], s)
