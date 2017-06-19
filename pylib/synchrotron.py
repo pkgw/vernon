@@ -61,7 +61,27 @@ class SynchrotronCalculator (object):
 
         """
         j, alpha, rho = self._get_coeffs_inner(nu, B, n_e, theta, p)
-        # TODO: ROTATE LINEAR BITS BY 180 - psi!
+
+        # Derived/cargo-culted from `rotate_emis` in grtrans.
+        twoxi = 2 * (np.pi - psi)
+        s2xi = np.sin(twoxi)
+        c2xi = np.cos(twoxi)
+
+        jq = j[...,1].copy()
+        ju = j[...,2].copy()
+        j[...,1] = c2xi * jq - s2xi * ju
+        j[...,2] = s2xi * jq + c2xi * ju
+
+        aq = alpha[...,1].copy()
+        au = alpha[...,2].copy()
+        alpha[...,1] = c2xi * aq - s2xi * au
+        alpha[...,2] = s2xi * aq + c2xi * au
+
+        rq = rho[...,0].copy()
+        ru = rho[...,1].copy()
+        rho[...,0] = c2xi * rq - s2xi * ru
+        rho[...,1] = s2xi * rq + c2xi * ru
+
         return j, alpha, rho
 
 

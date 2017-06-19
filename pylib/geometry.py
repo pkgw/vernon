@@ -256,7 +256,9 @@ class ObserverToBodycentric (object):
         dir_obs = self._from_bc(*dir_bc)
 
         # In this frame, the projection and angle calculation are trivial --
-        # we just need to make sure to us arctan2 to get the right sign.
+        # we just need to make sure to us arctan2 to get the right sign. NB:
+        # if we get NaN-y, the numbers that actually matter are cos/sin 2chi,
+        # so we could skip the arctan2.
 
         return np.arctan2(dir_obs[0], dir_obs[1])
 
@@ -699,7 +701,8 @@ class BasicRayTracer (object):
             theta = np.zeros (2)
             n_e = np.zeros (2)
             p = np.zeros (2)
-            return s, b, theta, n_e, p
+            psi = np.zeros (2)
+            return s, b, theta, n_e, p, psi
 
         if nesamps[0] < self.ne0_cutoff:
             # The current starting point, z0, does not contain any particles.
