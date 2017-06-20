@@ -62,25 +62,26 @@ class SynchrotronCalculator (object):
         """
         j, alpha, rho = self._get_coeffs_inner(nu, B, n_e, theta, p)
 
-        # Derived/cargo-culted from `rotate_emis` in grtrans.
-        twoxi = 2 * (np.pi - psi)
-        s2xi = np.sin(twoxi)
-        c2xi = np.cos(twoxi)
+        # From Shcherbakov & Huang (2011MNRAS.410.1052S), eqns 50-51:
+
+        twochi = 2 * (np.pi - psi)
+        s2chi = np.sin(twochi)
+        c2chi = np.cos(twochi)
 
         jq = j[...,1].copy()
         ju = j[...,2].copy()
-        j[...,1] = c2xi * jq - s2xi * ju
-        j[...,2] = s2xi * jq + c2xi * ju
+        j[...,1] = c2chi * jq - s2chi * ju
+        j[...,2] = s2chi * jq + c2chi * ju
 
         aq = alpha[...,1].copy()
         au = alpha[...,2].copy()
-        alpha[...,1] = c2xi * aq - s2xi * au
-        alpha[...,2] = s2xi * aq + c2xi * au
+        alpha[...,1] = c2chi * aq - s2chi * au
+        alpha[...,2] = s2chi * aq + c2chi * au
 
         rq = rho[...,0].copy()
         ru = rho[...,1].copy()
-        rho[...,0] = c2xi * rq - s2xi * ru
-        rho[...,1] = s2xi * rq + c2xi * ru
+        rho[...,0] = c2chi * rq + s2chi * ru
+        rho[...,1] = -s2chi * rq + c2chi * ru
 
         return j, alpha, rho
 
