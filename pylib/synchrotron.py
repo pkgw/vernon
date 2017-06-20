@@ -80,8 +80,8 @@ class SynchrotronCalculator (object):
 
         rq = rho[...,0].copy()
         ru = rho[...,1].copy()
-        rho[...,0] = c2chi * rq + s2chi * ru
-        rho[...,1] = -s2chi * rq + c2chi * ru
+        rho[...,0] = c2chi * rq - s2chi * ru
+        rho[...,1] = s2chi * rq + c2chi * ru
 
         return j, alpha, rho
 
