@@ -1,5 +1,5 @@
 # -*- mode: python; coding: utf-8 -*-
-# Copyright 2015-2016 Peter Williams and collaborators.
+# Copyright 2015-2017 Peter Williams and collaborators.
 # Licensed under the MIT License.
 
 """The 3D geometry of a tilted, rotating magnetic dipolar field, and
@@ -15,7 +15,7 @@ from pwkit.numutil import broadcastize
 
 
 @broadcastize(3,(0,0,0))
-def cart_to_sph (x, y, z):
+def cart_to_sph(x, y, z):
     """Convert Cartesian coordinates (x, y, z) to spherical (lat, lon, r).
 
     x
@@ -33,14 +33,14 @@ def cart_to_sph (x, y, z):
     same; `r` will be returned in the same units.
 
     """
-    r = np.sqrt (x**2 + y**2 + z**2)
-    lat = np.arcsin (np.clip (z / np.maximum (r, 1e-10), -1, 1))
-    lon = np.arctan2 (y, x)
+    r = np.sqrt(x**2 + y**2 + z**2)
+    lat = np.arcsin(np.clip(z / np.maximum(r, 1e-10), -1, 1))
+    lon = np.arctan2(y, x)
     return lat, lon, r
 
 
 @broadcastize(3,(0,0,0))
-def sph_to_cart (lat, lon, r):
+def sph_to_cart(lat, lon, r):
     """Convert spherical coordinates (lat, lon, r) to Cartesian (x, y, z).
 
     lat
@@ -56,14 +56,14 @@ def sph_to_cart (lat, lon, r):
     The +x direction points towards (lat=0, lon=0). The +y direction points
     towards (lat=0, lon=pi/2). The +z direction points towards lat=pi/2.
     """
-    x = r * np.cos (lat) * np.cos (lon)
-    y = r * np.cos (lat) * np.sin (lon)
-    z = r * np.sin (lat)
+    x = r * np.cos(lat) * np.cos(lon)
+    y = r * np.cos(lat) * np.sin(lon)
+    z = r * np.sin(lat)
     return x, y, z
 
 
 @broadcastize(6,(0,0,0))
-def sph_ofs_to_cart_ofs (lat0, lon0, r0, dlat, dlon, dr):
+def sph_ofs_to_cart_ofs(lat0, lon0, r0, dlat, dlon, dr):
     """Convert an infinitesimally small offset vector in spherical coordinates,
     (dlat, dlon, dr), to its equivalent in Cartesian coordinates, (dx, dy,
     dx), given that it is anchored at position (lat0, lon0, r0). The offset
@@ -71,10 +71,10 @@ def sph_ofs_to_cart_ofs (lat0, lon0, r0, dlat, dlon, dr):
     calculation as if it does.
 
     """
-    slat = np.sin (lat0)
-    clat = np.cos (lat0)
-    slon = np.sin (lon0)
-    clon = np.cos (lon0)
+    slat = np.sin(lat0)
+    clat = np.cos(lat0)
+    slon = np.sin(lon0)
+    clon = np.cos(lon0)
 
     dx = (-r0 * slat * clon) * dlat + (-r0 * clat * slon) * dlon + (clat * clon) * dr
     dy = (-r0 * slat * slon) * dlat + ( r0 * clat * clon) * dlon + (clat * slon) * dr
@@ -82,7 +82,7 @@ def sph_ofs_to_cart_ofs (lat0, lon0, r0, dlat, dlon, dr):
     return dx, dy, dz
 
 
-def rot2d (u, v, theta):
+def rot2d(u, v, theta):
     """Perform a simple 2D rotation of coordinates `u` and `v`. `theta` measures
     the rotation angle from `u` toward `v`. I.e., if theta is pi/2, `(u=1,
     v=0)` maps to `(u=0, v=1)` and `(u=0, v=1)` maps to `(u=-1, v=0)`.
@@ -90,14 +90,14 @@ def rot2d (u, v, theta):
     Negating `theta` is equivalent to swapping `u` and `v`.
 
     """
-    c = np.cos (theta)
-    s = np.sin (theta)
+    c = np.cos(theta)
+    s = np.sin(theta)
     uprime = c * u + -s * v
     vprime = s * u +  c * v
     return uprime, vprime
 
 
-class ObserverToBodycentric (object):
+class ObserverToBodycentric(object):
     """Return a callable object that maps the observer coordinate system to the
     body-centric coordinate system. This is always done with an orthographic
     projection.
@@ -129,19 +129,19 @@ class ObserverToBodycentric (object):
     transformation.
 
     """
-    def __init__ (self, loc, cml):
+    def __init__(self, loc, cml):
         # Negative LOCs would correspond to viewing the body's south pole
         # rather than its north pole, where "north" and "south" are defined by
         # the direction of rotation to agree with the Earth's. These are
         # indistinguishable since we can just roll the body 180 degrees.
-        self.loc = float (loc)
+        self.loc = float(loc)
         if self.loc < 0 or self.loc > halfpi:
-            raise ValueError ('illegal latitude-of-center %r' % loc)
-        self.cml = astutil.angcen (float (cml))
+            raise ValueError('illegal latitude-of-center %r' % loc)
+        self.cml = astutil.angcen(float(cml))
 
 
     @broadcastize(3,(0,0,0))
-    def _to_bc (self, x, y, z):
+    def _to_bc(self, x, y, z):
         """Convert observer rectangular coordinates to body-aligned rectangular
         coordinates. This is a matter of performing a permutation and two
         rotations.
@@ -157,19 +157,19 @@ class ObserverToBodycentric (object):
         # We're transforming the primed coordinate system, where +z is aligned
         # with lat = pi/2 - LOC, to body-centric coordinates where +z is
         # aligned with lat = pi/2.
-        x, z = rot2d (x, z, self.loc)
+        x, z = rot2d(x, z, self.loc)
 
         # Now spin on the rotation axis to transform from the system where +x is
         # aligned with -CML to one where it is aligned with the CML.
-        x, y = rot2d (x, y, self.cml)
+        x, y = rot2d(x, y, self.cml)
 
         # All done
         return x, y, z
 
 
     @broadcastize(3,(0,0,0))
-    def __call__ (self, x, y, z):
-        return cart_to_sph (*self._to_bc (x, y, z))
+    def __call__(self, x, y, z):
+        return cart_to_sph(*self._to_bc(x, y, z))
 
 
     @broadcastize(3,(0,0,0))
@@ -178,20 +178,20 @@ class ObserverToBodycentric (object):
         coordinates. This is just the inverse of _to_bc().
 
         """
-        x, y = rot2d (x, y, -self.cml)
-        x, z = rot2d (x, z, -self.loc)
+        x, y = rot2d(x, y, -self.cml)
+        x, z = rot2d(x, z, -self.loc)
         z, x, y = x, y, z
         return x, y, z
 
 
     @broadcastize(3,(0,0,0))
-    def inverse (self, lat, lon, r):
+    def inverse(self, lat, lon, r):
         """The inverse of __call__ ()."""
-        return self._from_bc(*sph_to_cart (lat, lon, r))
+        return self._from_bc(*sph_to_cart(lat, lon, r))
 
 
     @broadcastize(3,0)
-    def theta_zhat (self, x, y, z, dir_blat, dir_blon, dir_r):
+    def theta_zhat(self, x, y, z, dir_blat, dir_blon, dir_r):
         """For a set of observer coordinates, compute the angle between some
         directional vector in *body-centric coordinates* and the observer-centric
         z-hat vector.
@@ -207,12 +207,12 @@ class ObserverToBodycentric (object):
 
         """
 
-        bc_sph = self (x, y, z)
-        dir_cart = np.array (sph_ofs_to_cart_ofs (bc_sph[0], bc_sph[1], bc_sph[2],
-                                                  dir_blat, dir_blon, dir_r))
+        bc_sph = self(x, y, z)
+        dir_cart = np.array(sph_ofs_to_cart_ofs(bc_sph[0], bc_sph[1], bc_sph[2],
+                                                dir_blat, dir_blon, dir_r))
 
         # z-hat direction in the rotated coordinate system
-        _zhat_bc = np.array (self._to_bc (0, 0, 1))
+        _zhat_bc = np.array(self._to_bc(0, 0, 1))
 
         # Now we just need to compute the angle between _zhat_bc and dir*.
         # _zhat_bc is known to be a unit vector so it doesn't contribute to
@@ -221,9 +221,9 @@ class ObserverToBodycentric (object):
         dot = (_zhat_bc[0] * dir_cart[0] +
                _zhat_bc[1] * dir_cart[1] +
                _zhat_bc[2] * dir_cart[2]) # not sure how to do this better
-        scale = np.sqrt ((dir_cart**2).sum (axis=0))
+        scale = np.sqrt((dir_cart**2).sum(axis=0))
         arccos = dot / scale
-        return np.arccos (arccos)
+        return np.arccos(arccos)
 
 
     @broadcastize(3,0)
@@ -263,44 +263,44 @@ class ObserverToBodycentric (object):
         return np.arctan2(dir_obs[0], dir_obs[1])
 
 
-    def test_viz (self, which_coord, **kwargs):
-        plusminusone = np.linspace (-1, 1, 41)
-        x = plusminusone[None,:] * np.ones (plusminusone.size)[:,None]
-        y = plusminusone[:,None] * np.ones (plusminusone.size)[None,:]
-        z = np.sqrt (1 - np.minimum (x**2 + y**2, 1))
-        coord = self (x, y, z)[which_coord]
-        coord = np.ma.MaskedArray (coord, mask=(x**2 + y**2) > 1)
+    def test_viz(self, which_coord, **kwargs):
+        plusminusone = np.linspace(-1, 1, 41)
+        x = plusminusone[None,:] * np.ones(plusminusone.size)[:,None]
+        y = plusminusone[:,None] * np.ones(plusminusone.size)[None,:]
+        z = np.sqrt(1 - np.minimum(x**2 + y**2, 1))
+        coord = self(x, y, z)[which_coord]
+        coord = np.ma.MaskedArray(coord, mask=(x**2 + y**2) > 1)
         from pwkit.ndshow_gtk3 import view
-        view (coord[::-1], yflip=True, **kwargs)
+        view(coord[::-1], yflip=True, **kwargs)
 
 
-    def test_proj (self):
+    def test_proj(self):
         import omega as om
 
-        thetas = np.linspace (0, twopi, 200)
+        thetas = np.linspace(0, twopi, 200)
 
-        equ_xyz = self.inverse (0., thetas, 1)
+        equ_xyz = self.inverse(0., thetas, 1)
         front = (equ_xyz[2] > 0)
         ex = equ_xyz[0][front]
-        s = np.argsort (ex)
+        s = np.argsort(ex)
         ex = ex[s]
         ey = equ_xyz[1][front][s]
 
-        pm_xyz = self.inverse (np.linspace (-halfpi, halfpi, 200), 0, 1)
+        pm_xyz = self.inverse(np.linspace(-halfpi, halfpi, 200), 0, 1)
         front = (pm_xyz[2] > 0)
         pmx = pm_xyz[0][front]
         pmy = pm_xyz[1][front]
 
-        p = om.RectPlot ()
-        p.addXY (np.cos (thetas), np.sin (thetas), None) # body outline
-        p.addXY (ex, ey, None) # equator
-        p.addXY (pmx, pmy, None, lineStyle={'dashing': [3, 3]}) # prime meridian
-        p.setBounds (-2, 2, -2, 2)
+        p = om.RectPlot()
+        p.addXY(np.cos(thetas), np.sin(thetas), None) # body outline
+        p.addXY(ex, ey, None) # equator
+        p.addXY(pmx, pmy, None, lineStyle={'dashing': [3, 3]}) # prime meridian
+        p.setBounds(-2, 2, -2, 2)
         p.fieldAspect = 1
         return p
 
 
-class TiltedDipoleField (object):
+class TiltedDipoleField(object):
     """This is really a coordinate transform: it's callable as a function that
     transforms body-centric coordinates (lat, lon, r) into magnetic field
     coordinates (mlat, mlon, L).
@@ -327,16 +327,16 @@ class TiltedDipoleField (object):
     coordinate system that's rotated in the prime-meridian/north-pole plane.
 
     """
-    def __init__ (self, tilt, moment):
-        self.tilt = float (tilt)
+    def __init__(self, tilt, moment):
+        self.tilt = float(tilt)
         if self.tilt < 0 or self.tilt >= np.pi:
-            raise ValueError ('illegal tilt value %r' % tilt)
+            raise ValueError('illegal tilt value %r' % tilt)
 
-        self.moment = float (moment)
+        self.moment = float(moment)
 
 
     @broadcastize(3,(0,0,0))
-    def _to_dc (self, bc_lat, bc_lon, bc_r):
+    def _to_dc(self, bc_lat, bc_lon, bc_r):
         """Convert from body-centric spherical coordinates to dipole-centric. By our
         construction, this is a fairly trivial transform.
 
@@ -345,33 +345,33 @@ class TiltedDipoleField (object):
         axis. We need to map blat=(pi/2 - tilt) to lat=pi/2, so:
 
         """
-        x, y, z = sph_to_cart (bc_lat, bc_lon, bc_r)
-        ctilt = np.cos (self.tilt)
-        stilt = np.sin (self.tilt)
+        x, y, z = sph_to_cart(bc_lat, bc_lon, bc_r)
+        ctilt = np.cos(self.tilt)
+        stilt = np.sin(self.tilt)
         zprime = ctilt * z + stilt * x
         xprime = -stilt * z + ctilt * x
         x, z = xprime, zprime
-        return cart_to_sph (x, y, z)
+        return cart_to_sph(x, y, z)
 
 
     @broadcastize(3,(0,0,0))
-    def _from_dc (self, dc_lat, dc_lon, dc_r):
+    def _from_dc(self, dc_lat, dc_lon, dc_r):
         """Compute the inverse transform from dipole-centric spherical coordinates to
         body-centric coordinates. As one would hope, this is a simple inverse
         of _to_dc(). This function is needed for bhat().
 
         """
-        x, y, z = sph_to_cart (dc_lat, dc_lon, dc_r)
-        ctilt = np.cos (-self.tilt)
-        stilt = np.sin (-self.tilt)
+        x, y, z = sph_to_cart(dc_lat, dc_lon, dc_r)
+        ctilt = np.cos(-self.tilt)
+        stilt = np.sin(-self.tilt)
         zprime = ctilt * z + stilt * x
         xprime = -stilt * z + ctilt * x
         x, z = xprime, zprime
-        return cart_to_sph (x, y, z)
+        return cart_to_sph(x, y, z)
 
 
     @broadcastize(3,(0,0,0))
-    def __call__ (self, bc_lat, bc_lon, bc_r):
+    def __call__(self, bc_lat, bc_lon, bc_r):
         """Magnetic coordinates relevant to particle distribution calculations. I
         should figure out what the right quantities are; we want something
         that's meaningful for the underlying calculations even if the field
@@ -379,20 +379,20 @@ class TiltedDipoleField (object):
         that case.
 
         """
-        dc_lat, dc_lon, dc_r = self._to_dc (bc_lat, bc_lon, bc_r)
-        L = dc_r / np.cos (dc_lat)**2
+        dc_lat, dc_lon, dc_r = self._to_dc(bc_lat, bc_lon, bc_r)
+        L = dc_r / np.cos(dc_lat)**2
         return dc_lat, dc_lon, L
 
 
     @broadcastize(3,(0,0,0))
-    def bhat (self, pos_blat, pos_blon, pos_r, epsilon=1e-8):
+    def bhat(self, pos_blat, pos_blon, pos_r, epsilon=1e-8):
         """Compute the direction of the magnetic field at a set of body-centric
         coordinates, expressed as a set of unit vectors *also in body-centric
         coordinates*.
 
         """
         # Convert positions to mlat/mlon/r:
-        pos_mlat0, pos_mlon0, pos_mr0 = self._to_dc (pos_blat, pos_blon, pos_r)
+        pos_mlat0, pos_mlon0, pos_mr0 = self._to_dc(pos_blat, pos_blon, pos_r)
 
         # For a dipolar field:
         #  - B_r = 2M sin(pos_blat) / r**3
@@ -401,28 +401,28 @@ class TiltedDipoleField (object):
         # We renormalize the vector to have a tiny magnitude, so we can ignore
         # the r**3. But we need to include M since its sign matters!
 
-        bhat_r = 2 * self.moment * np.sin (pos_mlat0)
-        bhat_lat = -self.moment * np.cos (pos_mlat0)
-        scale = epsilon / np.sqrt (bhat_r**2 + bhat_lat**2)
+        bhat_r = 2 * self.moment * np.sin(pos_mlat0)
+        bhat_lat = -self.moment * np.cos(pos_mlat0)
+        scale = epsilon / np.sqrt(bhat_r**2 + bhat_lat**2)
         bhat_r *= scale
         bhat_lat *= scale
 
         # Body-centric coordinates offset in the bhat direction:
-        blat1, blon1, br1 = self._from_dc (pos_mlat0 + bhat_lat,
-                                           pos_mlon0,
-                                           pos_mr0 + bhat_r)
+        blat1, blon1, br1 = self._from_dc(pos_mlat0 + bhat_lat,
+                                          pos_mlon0,
+                                          pos_mr0 + bhat_r)
 
         # Unit offset vector. Here again the unit-ization doesn't really make
         # dimensional sense but seems reasonable anyway.
         dlat = blat1 - pos_blat
         dlon = blon1 - pos_blon
         dr = br1 - pos_r
-        scale = 1. / np.sqrt (dlat**2 + dlon**2 + dr**2)
+        scale = 1. / np.sqrt(dlat**2 + dlon**2 + dr**2)
         return scale * dlat, scale * dlon, scale * dr
 
 
     @broadcastize(3,0)
-    def theta_b (self, pos_blat, pos_blon, pos_r, dir_blat, dir_blon, dir_r, epsilon=1e-8):
+    def theta_b(self, pos_blat, pos_blon, pos_r, dir_blat, dir_blon, dir_r, epsilon=1e-8):
         """For a set of body-centric coordinates, compute the angle between some
         directional vector (also in body-centric coordinates) and the local
         magnetic field.
@@ -441,44 +441,44 @@ class TiltedDipoleField (object):
         """
         # Get unit vector pointing in direction of local magnetic field in
         # body-centric coordinates:
-        bhat_bsph = self.bhat (pos_blat, pos_blon, pos_r)
+        bhat_bsph = self.bhat(pos_blat, pos_blon, pos_r)
 
         # Now we just need to compute the angle between bhat* and dir*, both
         # of which are unit vectors in the body-centric radial coordinates.
         # For now, let's just be dumb and convert to cartesian.
 
-        bhat_xyz = np.array (sph_ofs_to_cart_ofs (pos_blat, pos_blon, pos_r, *bhat_bsph)) # convert to 2d
-        dir_xyz = np.array (sph_ofs_to_cart_ofs (pos_blat, pos_blon, pos_r, dir_blat, dir_blon, dir_r))
-        dot = np.sum (bhat_xyz * dir_xyz, axis=0) # non-matrixy dot product
-        scale = np.sqrt ((bhat_xyz**2).sum (axis=0) * (dir_xyz**2).sum (axis=0))
+        bhat_xyz = np.array(sph_ofs_to_cart_ofs(pos_blat, pos_blon, pos_r, *bhat_bsph)) # convert to 2d
+        dir_xyz = np.array(sph_ofs_to_cart_ofs(pos_blat, pos_blon, pos_r, dir_blat, dir_blon, dir_r))
+        dot = np.sum(bhat_xyz * dir_xyz, axis=0) # non-matrixy dot product
+        scale = np.sqrt((bhat_xyz**2).sum(axis=0) * (dir_xyz**2).sum(axis=0))
         arccos = dot / scale
-        return np.arccos (arccos)
+        return np.arccos(arccos)
 
 
     @broadcastize(3,0)
-    def bmag (self, blat, blon, r):
+    def bmag(self, blat, blon, r):
         """Compute the magnitude of the magnetic field at a set of body-centric
         coordinates. For a dipolar field, some pretty straightforward algebra
         gives the field strength expression used below.
 
         """
-        mlat, mlon, mr = self._to_dc (blat, blon, r)
-        return np.abs (self.moment) * np.sqrt (1 + 3 * np.sin (mlat)**2) / mr**3
+        mlat, mlon, mr = self._to_dc(blat, blon, r)
+        return np.abs(self.moment) * np.sqrt(1 + 3 * np.sin(mlat)**2) / mr**3
 
 
-    def test_viz (self, obs_to_body, which_coord, **kwargs):
-        plusminusone = np.linspace (-1, 1, 41)
-        x = plusminusone[None,:] * np.ones (plusminusone.size)[:,None]
-        y = plusminusone[:,None] * np.ones (plusminusone.size)[None,:]
-        z = np.sqrt (1 - np.minimum (x**2 + y**2, 1))
-        lat, lon, rad = obs_to_body (x, y, z)
-        coord = self (lat, lon, rad)[which_coord]
-        coord = np.ma.MaskedArray (coord, mask=(x**2 + y**2) > 1)
+    def test_viz(self, obs_to_body, which_coord, **kwargs):
+        plusminusone = np.linspace(-1, 1, 41)
+        x = plusminusone[None,:] * np.ones(plusminusone.size)[:,None]
+        y = plusminusone[:,None] * np.ones(plusminusone.size)[None,:]
+        z = np.sqrt(1 - np.minimum(x**2 + y**2, 1))
+        lat, lon, rad = obs_to_body(x, y, z)
+        coord = self(lat, lon, rad)[which_coord]
+        coord = np.ma.MaskedArray(coord, mask=(x**2 + y**2) > 1)
         from pwkit.ndshow_gtk3 import view
-        view (coord[::-1], yflip=True, **kwargs)
+        view(coord[::-1], yflip=True, **kwargs)
 
 
-class SimpleTorusDistribution (object):
+class SimpleTorusDistribution(object):
     """A uniformly filled torus where the parameters of the electron energy
     distribution are fixed.
 
@@ -493,15 +493,15 @@ class SimpleTorusDistribution (object):
       The power-law index of the energetic electrons, such that N(>E) ~ E^(-p).
 
     """
-    def __init__ (self, r1, r2, n_e, p):
-        self.r1 = float (r1)
-        self.r2 = float (r2)
-        self.n_e = float (n_e)
-        self.p = float (p)
+    def __init__(self, r1, r2, n_e, p):
+        self.r1 = float(r1)
+        self.r2 = float(r2)
+        self.n_e = float(n_e)
+        self.p = float(p)
 
 
     @broadcastize(3,(0,0))
-    def get_samples (self, mlat, mlon, L):
+    def get_samples(self, mlat, mlon, L):
         """Sample properties of the electron distribution at the specified locations
         in magnetic field coordinates. Arguments are magnetic latitude,
         longitude, and McIlwain L parameter.
@@ -515,8 +515,8 @@ class SimpleTorusDistribution (object):
            Array of power-law indices of the electrons at the provided coordinates.
 
         """
-        r = L * np.cos (mlat)**2
-        x, y, z = sph_to_cart (mlat, mlon, r)
+        r = L * np.cos(mlat)**2
+        x, y, z = sph_to_cart(mlat, mlon, r)
 
         # Thanks, Internet:
 
@@ -525,16 +525,16 @@ class SimpleTorusDistribution (object):
         q = (x**2 + y**2 + z**2 - (a**2 + b**2))**2 - 4 * a * b * (b**2 - z**2)
         inside = (q < 0)
 
-        n_e = np.zeros (mlat.shape)
+        n_e = np.zeros(mlat.shape)
         n_e[inside] = self.n_e
 
-        p = np.zeros (mlat.shape)
+        p = np.zeros(mlat.shape)
         p[inside] = self.p
 
         return n_e, p
 
 
-class SimpleWasherDistribution (object):
+class SimpleWasherDistribution(object):
     """A hard-edged "washer" shape.
 
     r_inner
@@ -558,11 +558,11 @@ class SimpleWasherDistribution (object):
       to inner. The total number of electrons in the washer is conserved.
 
     """
-    def __init__ (self, r_inner=2, r_outer=7, thickness=0.7, n_e=1e5, p=3, radial_concentration=0.):
-        self.r_inner = float (r_inner)
-        self.r_outer = float (r_outer)
-        self.thickness = float (thickness)
-        self.p = float (p)
+    def __init__(self, r_inner=2, r_outer=7, thickness=0.7, n_e=1e5, p=3, radial_concentration=0.):
+        self.r_inner = float(r_inner)
+        self.r_outer = float(r_outer)
+        self.thickness = float(thickness)
+        self.p = float(p)
         self.radial_concentration = float(radial_concentration)
 
         # We want the total number of electrons to stay constant if
@@ -582,7 +582,7 @@ class SimpleWasherDistribution (object):
         self._density_factor = numer / denom
 
     @broadcastize(3,(0,0))
-    def get_samples (self, mlat, mlon, L):
+    def get_samples(self, mlat, mlon, L):
         """Sample properties of the electron distribution at the specified locations
         in magnetic field coordinates. Arguments are magnetic latitude,
         longitude, and McIlwain L parameter.
@@ -596,22 +596,22 @@ class SimpleWasherDistribution (object):
            Array of power-law indices of the electrons at the provided coordinates.
 
         """
-        r = L * np.cos (mlat)**2
-        x, y, z = sph_to_cart (mlat, mlon, r)
+        r = L * np.cos(mlat)**2
+        x, y, z = sph_to_cart(mlat, mlon, r)
         r2 = x**2 + y**2
         inside = (r2 > self.r_inner**2) & (r2 < self.r_outer**2) & (np.abs(z) < 0.5 * self.thickness)
 
-        n_e = np.zeros (mlat.shape)
+        n_e = np.zeros(mlat.shape)
         n_e[inside] = self._density_factor * ((self.r_outer - r[inside]) /
                                               (self.r_outer - self.r_inner))**self.radial_concentration
 
-        p = np.zeros (mlat.shape)
+        p = np.zeros(mlat.shape)
         p[inside] = self.p
 
         return n_e, p
 
 
-class BasicRayTracer (object):
+class BasicRayTracer(object):
     """Class the implements the definition of a ray through the magnetosphere. By
     definition, rays end at a specified X/Y location in observer coordinates,
     with Z = infinity and traveling along the observer Z axis. They might not
@@ -645,7 +645,7 @@ class BasicRayTracer (object):
     nsamps = 300
     "Number of points to sample along the ray."
 
-    def calc_ray_params (self, x, y, setup, zeropoint_s=True):
+    def calc_ray_params(self, x, y, setup, zeropoint_s=True):
         """Figure out the limits of the integration that we need to perform.
 
         x
@@ -669,7 +669,7 @@ class BasicRayTracer (object):
         """
         if x**2 + y**2 <= 1:
             # Start just above body's surface.
-            z0 = np.sqrt ((1 + self.surface_delta_radius)**2 - (x**2 + y**2))
+            z0 = np.sqrt((1 + self.surface_delta_radius)**2 - (x**2 + y**2))
         else:
             # Start behind object.
             z0 = self.way_back_z
@@ -681,27 +681,27 @@ class BasicRayTracer (object):
         # So we patch up the bounds to find a start point with a very small
         # but nonzero density to make sure we get going.
 
-        zsamps = np.arange (z0, z1, self.delta_z)
+        zsamps = np.arange(z0, z1, self.delta_z)
 
-        def z_to_ne (z):
-            bc = setup.o2b (x, y, z)
-            mc = setup.bfield (*bc)
-            n_e, p = setup.distrib.get_samples (*mc)
+        def z_to_ne(z):
+            bc = setup.o2b(x, y, z)
+            mc = setup.bfield(*bc)
+            n_e, p = setup.distrib.get_samples(*mc)
             return n_e
 
-        nesamps = z_to_ne (zsamps)
+        nesamps = z_to_ne(zsamps)
 
-        if not np.any (nesamps > self.ne0_cutoff):
+        if not np.any(nesamps > self.ne0_cutoff):
             # Doesn't seem like we have any particles along this line of sight!
-            s = np.linspace (z0, z1, 2) * setup.radius
+            s = np.linspace(z0, z1, 2) * setup.radius
             if zeropoint_s:
-                s -= s.min ()
+                s -= s.min()
 
-            b = np.zeros (2)
-            theta = np.zeros (2)
-            n_e = np.zeros (2)
-            p = np.zeros (2)
-            psi = np.zeros (2)
+            b = np.zeros(2)
+            theta = np.zeros(2)
+            n_e = np.zeros(2)
+            p = np.zeros(2)
+            psi = np.zeros(2)
             return s, b, theta, n_e, p, psi
 
         if nesamps[0] < self.ne0_cutoff:
@@ -709,50 +709,50 @@ class BasicRayTracer (object):
             # Move it up to somewhere that does.
 
             from scipy.optimize import brentq
-            ofs_n_e = lambda z: (z_to_ne (z) - self.ne0_cutoff)
-            zstart = zsamps[nesamps > self.ne0_cutoff].min ()
-            z0, info = brentq (ofs_n_e, z0, zstart, full_output=True)
+            ofs_n_e = lambda z: (z_to_ne(z) - self.ne0_cutoff)
+            zstart = zsamps[nesamps > self.ne0_cutoff].min()
+            z0, info = brentq(ofs_n_e, z0, zstart, full_output=True)
             if not info.converged:
-                raise RuntimeError ('could not find suitable starting point: %r %r %r'
-                                    % (z0, zstart, info))
+                raise RuntimeError('could not find suitable starting point: %r %r %r'
+                                   % (z0, zstart, info))
 
         if nesamps[-1] < self.ne0_cutoff:
             # Likewise with the end point. This way we save our sampling resolution for
             # where it counts.
 
             from scipy.optimize import brentq
-            ofs_n_e = lambda z: (z_to_ne (z) - self.ne0_cutoff)
-            zstart = zsamps[nesamps > self.ne0_cutoff].max ()
-            z1, info = brentq (ofs_n_e, z1, zstart, full_output=True)
+            ofs_n_e = lambda z: (z_to_ne(z) - self.ne0_cutoff)
+            zstart = zsamps[nesamps > self.ne0_cutoff].max()
+            z1, info = brentq(ofs_n_e, z1, zstart, full_output=True)
             if not info.converged:
-                raise RuntimeError ('could not find suitable ending point: %r %r %r'
-                                    % (z1, zstart, info))
+                raise RuntimeError('could not find suitable ending point: %r %r %r'
+                                   % (z1, zstart, info))
 
         # OK, we have good bounds. For now we just sample the ray idiotically:
 
-        z = np.linspace (z0, z1, self.nsamps)
+        z = np.linspace(z0, z1, self.nsamps)
         s = z * setup.radius
         if zeropoint_s:
             s -= s.min()
 
-        bc = setup.o2b (x, y, z)
-        bhat = setup.bfield.bhat (*bc)
-        theta = setup.o2b.theta_zhat (x, y, z, *bhat)
-        bmag = setup.bfield.bmag (*bc)
+        bc = setup.o2b(x, y, z)
+        bhat = setup.bfield.bhat(*bc)
+        theta = setup.o2b.theta_zhat(x, y, z, *bhat)
+        bmag = setup.bfield.bmag(*bc)
         psi = setup.o2b.theta_yhat_projected(x, y, z, *bhat)
 
-        mc = setup.bfield (*bc)
-        n_e, p = setup.distrib.get_samples (*mc)
+        mc = setup.bfield(*bc)
+        n_e, p = setup.distrib.get_samples(*mc)
 
         return s, bmag, n_e, theta, p, psi
 
 
-class GrtransRTIntegrator (object):
+class GrtransRTIntegrator(object):
     """Perform radiative-transfer integration along a ray using the integrator in
     `grtrans`.
 
     """
-    def integrate (self, x, j, a, rho, **kwargs):
+    def integrate(self, x, j, a, rho, **kwargs):
         """Arguments:
 
         x
@@ -772,11 +772,11 @@ class GrtransRTIntegrator (object):
         """
         from grtrans import integrate_ray
         K = np.concatenate((a, rho), axis=1)
-        iquv = integrate_ray (x, j, K, **kwargs)
+        iquv = integrate_ray(x, j, K, **kwargs)
         return iquv[:,-1]
 
 
-class VanAllenSetup (object):
+class VanAllenSetup(object):
     """Object holding the whole simulation setup.
 
     o2b
@@ -802,7 +802,7 @@ class VanAllenSetup (object):
       The frequency for which to run the simulations, in Hz.
 
     """
-    def __init__ (self, o2b, bfield, distrib, ray_tracer, synch_calc, rad_trans, radius, nu):
+    def __init__(self, o2b, bfield, distrib, ray_tracer, synch_calc, rad_trans, radius, nu):
         self.o2b = o2b
         self.bfield = bfield
         self.distrib = distrib
@@ -813,7 +813,7 @@ class VanAllenSetup (object):
         self.nu = nu
 
 
-    def trace_one (self, x, y, extras=False, integrate_j_times_B=False):
+    def trace_one(self, x, y, extras=False, integrate_j_times_B=False):
         """Trace a ray starting at the specified 2D observer coordinates.
 
         If `extras` is False, returns an array of shape (4,) giving the
@@ -841,18 +841,18 @@ class VanAllenSetup (object):
             j *= B.reshape((-1, 1))
 
         if not extras:
-            return self.rad_trans.integrate (s, j, alpha, rho)
+            return self.rad_trans.integrate(s, j, alpha, rho)
         else:
             from scipy.integrate import trapz
 
             rv = np.empty((6,))
-            rv[:4] = self.rad_trans.integrate (s, j, alpha, rho)
-            rv[4] = trapz (alpha[:,0], s)
-            rv[5] = trapz (n_e, s)
+            rv[:4] = self.rad_trans.integrate(s, j, alpha, rho)
+            rv[4] = trapz(alpha[:,0], s)
+            rv[5] = trapz(n_e, s)
             return rv
 
 
-    def coeffs_for_one (self, x, y):
+    def coeffs_for_one(self, x, y):
         """Diagnostic routine: calculate the various parameters that go into the
         radiative transfor solution for a particular ray.
 
@@ -862,7 +862,7 @@ class VanAllenSetup (object):
         from pwkit import Holder
         s, B, n_e, theta, p, psi = self.ray_tracer.calc_ray_params(x, y, self, zeropoint_s=False)
         j, alpha, rho = self.synch_calc.get_coeffs(self.nu, B, n_e, theta, p, psi)
-        return Holder (
+        return Holder(
             s = s / self.radius,
             B = B,
             n_e = n_e,
@@ -874,7 +874,7 @@ class VanAllenSetup (object):
         )
 
 
-    def total_ne_for_ray (self, x, y):
+    def total_ne_for_ray(self, x, y):
         """A diagnostic function. Sum up the electron density, following a ray
         starting at the specified 2D observer coordinates.
 
@@ -885,7 +885,7 @@ class VanAllenSetup (object):
         return trapz(n_e, s)
 
 
-    def optical_depth_for_ray (self, x, y):
+    def optical_depth_for_ray(self, x, y):
         """Trace a ray starting at the specified 2D observer coordinates and compute
         the optical depth in Stokes I of the electrons along the line of
         sight.
@@ -897,10 +897,10 @@ class VanAllenSetup (object):
         j, alpha, rho = self.synch_calc.get_coeffs(self.nu, B, n_e, theta, p, psi)
 
         from scipy.integrate import trapz
-        return trapz (alpha[:,0], s)
+        return trapz(alpha[:,0], s)
 
 
-def basic_setup (
+def basic_setup(
         nu = 95,
         lat_of_cen = 10,
         cml = 20,
@@ -943,103 +943,103 @@ def basic_setup (
     dipole_tilt *= astutil.D2R
     radius *= cgs.rjup
 
-    o2b = ObserverToBodycentric (lat_of_cen, cml)
-    bfield = TiltedDipoleField (dipole_tilt, bsurf)
-    distrib = SimpleTorusDistribution (r1, r2, ne0, p)
-    ray_tracer = BasicRayTracer ()
-    rad_trans = GrtransRTIntegrator ()
+    o2b = ObserverToBodycentric(lat_of_cen, cml)
+    bfield = TiltedDipoleField(dipole_tilt, bsurf)
+    distrib = SimpleTorusDistribution(r1, r2, ne0, p)
+    ray_tracer = BasicRayTracer()
+    rad_trans = GrtransRTIntegrator()
 
     from .synchrotron import NeuroSynchrotronCalculator
     synch_calc = NeuroSynchrotronCalculator()
 
-    return VanAllenSetup (o2b, bfield, distrib, ray_tracer, synch_calc,
-                          rad_trans, radius, nu)
+    return VanAllenSetup(o2b, bfield, distrib, ray_tracer, synch_calc,
+                         rad_trans, radius, nu)
 
 
-class ImageMaker (object):
+class ImageMaker(object):
     setup = None
     nx = 23
     ny = 23
     xhalfsize = 7
     yhalfsize = 7
 
-    def __init__ (self, **kwargs):
-        for k, v in kwargs.iteritems ():
-            setattr (self, k, v)
+    def __init__(self, **kwargs):
+        for k, v in kwargs.iteritems():
+            setattr(self, k, v)
 
 
-    def compute (self, printiter=False, extras=False, **kwargs):
-        xvals = np.linspace (-self.xhalfsize, self.xhalfsize, self.nx)
-        yvals = np.linspace (-self.yhalfsize, self.yhalfsize, self.ny)
+    def compute(self, printiter=False, extras=False, **kwargs):
+        xvals = np.linspace(-self.xhalfsize, self.xhalfsize, self.nx)
+        yvals = np.linspace(-self.yhalfsize, self.yhalfsize, self.ny)
         n_out = 6 if extras else 4
-        data = np.zeros ((n_out, self.ny, self.nx))
+        data = np.zeros((n_out, self.ny, self.nx))
 
-        for iy in xrange (self.ny):
-            for ix in xrange (self.nx):
+        for iy in xrange(self.ny):
+            for ix in xrange(self.nx):
                 if printiter:
-                    print (ix, iy, xvals[ix], yvals[iy])
-                data[:,iy,ix] = self.setup.trace_one (xvals[ix], yvals[iy], extras=extras, **kwargs)
+                    print(ix, iy, xvals[ix], yvals[iy])
+                data[:,iy,ix] = self.setup.trace_one(xvals[ix], yvals[iy], extras=extras, **kwargs)
 
         return data
 
 
-    def compute_total_ne (self, **kwargs):
-        xvals = np.linspace (-self.xhalfsize, self.xhalfsize, self.nx)
-        yvals = np.linspace (-self.yhalfsize, self.yhalfsize, self.ny)
-        data = np.zeros ((self.ny, self.nx))
+    def compute_total_ne(self, **kwargs):
+        xvals = np.linspace(-self.xhalfsize, self.xhalfsize, self.nx)
+        yvals = np.linspace(-self.yhalfsize, self.yhalfsize, self.ny)
+        data = np.zeros((self.ny, self.nx))
 
-        for iy in xrange (self.ny):
-            for ix in xrange (self.nx):
-                data[iy,ix] = self.setup.total_ne_for_ray (xvals[ix], yvals[iy], **kwargs)
-
-        return data
-
-
-    def compute_optical_depth (self, **kwargs):
-        xvals = np.linspace (-self.xhalfsize, self.xhalfsize, self.nx)
-        yvals = np.linspace (-self.yhalfsize, self.yhalfsize, self.ny)
-        data = np.zeros ((self.ny, self.nx))
-
-        for iy in xrange (self.ny):
-            for ix in xrange (self.nx):
-                data[iy,ix] = self.setup.optical_depth_for_ray (xvals[ix], yvals[iy], **kwargs)
+        for iy in xrange(self.ny):
+            for ix in xrange(self.nx):
+                data[iy,ix] = self.setup.total_ne_for_ray(xvals[ix], yvals[iy], **kwargs)
 
         return data
 
 
-    def map_pixel (self, ix, iy):
+    def compute_optical_depth(self, **kwargs):
+        xvals = np.linspace(-self.xhalfsize, self.xhalfsize, self.nx)
+        yvals = np.linspace(-self.yhalfsize, self.yhalfsize, self.ny)
+        data = np.zeros((self.ny, self.nx))
+
+        for iy in xrange(self.ny):
+            for ix in xrange(self.nx):
+                data[iy,ix] = self.setup.optical_depth_for_ray(xvals[ix], yvals[iy], **kwargs)
+
+        return data
+
+
+    def map_pixel(self, ix, iy):
         # lame
-        x = np.linspace (-self.xhalfsize, self.xhalfsize, self.nx)[ix]
-        y = np.linspace (-self.yhalfsize, self.yhalfsize, self.ny)[iy]
+        x = np.linspace(-self.xhalfsize, self.xhalfsize, self.nx)[ix]
+        y = np.linspace(-self.yhalfsize, self.yhalfsize, self.ny)[iy]
         return x, y
 
 
-    def raytrace_one_pixel (self, ix, iy, **kwargs):
-        x, y = self.map_pixel (ix, iy)
-        return self.setup.trace_one (x, y, **kwargs)
+    def raytrace_one_pixel(self, ix, iy, **kwargs):
+        x, y = self.map_pixel(ix, iy)
+        return self.setup.trace_one(x, y, **kwargs)
 
 
-    def view (self, data, **kwargs):
+    def view(self, data, **kwargs):
         from pwkit import ndshow_gtk3
-        ndshow_gtk3.view (data[::-1], yflip=True, **kwargs)
+        ndshow_gtk3.view(data[::-1], yflip=True, **kwargs)
 
 
-    def test_lines (self):
-        mlat = np.linspace (-halfpi, halfpi, 200)
+    def test_lines(self):
+        mlat = np.linspace(-halfpi, halfpi, 200)
 
-        p = self.setup.o2b.test_proj ()
+        p = self.setup.o2b.test_proj()
         dsn = 2
 
         for hour in 0, 6, 12, 18:
             for L in 2, 3, 4:
                 lon = hour * np.pi / 12
-                bc = self.setup.bfield._from_dc (mlat, lon, L * np.cos (mlat)**2)
-                obs = self.setup.o2b.inverse (*bc)
-                hidden = ((np.array (obs)**2).sum (axis=0) < 1) # inside body
-                hidden |= ((obs[0]**2 + obs[1]**2) < 1) & (obs[2] < 0) # behind body
+                bc = self.setup.bfield._from_dc(mlat, lon, L * np.cos(mlat)**2)
+                obs = self.setup.o2b.inverse(*bc)
+                hidden = ((np.array(obs)**2).sum(axis=0) < 1) # inside body
+                hidden |= ((obs[0]**2 + obs[1]**2) < 1) &(obs[2] < 0) # behind body
                 ok = ~hidden
-                p.addXY (obs[0][ok], obs[1][ok], None, dsn=dsn)
+                p.addXY(obs[0][ok], obs[1][ok], None, dsn=dsn)
             dsn += 1
 
-        p.setBounds (-4, 4, -4, 4)
+        p.setBounds(-4, 4, -4, 4)
         return p
