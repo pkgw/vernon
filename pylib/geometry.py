@@ -62,13 +62,29 @@ def sph_to_cart(lat, lon, r):
     return x, y, z
 
 
-@broadcastize(6,(0,0,0))
-def sph_ofs_to_cart_ofs(lat0, lon0, r0, dlat, dlon, dr):
-    """Convert an infinitesimally small offset vector in spherical coordinates,
-    (dlat, dlon, dr), to its equivalent in Cartesian coordinates, (dx, dy,
-    dx), given that it is anchored at position (lat0, lon0, r0). The offset
-    vector does not actually need to have a small magnitude, but we do the
-    calculation as if it does.
+@broadcastize(5,(0,0,0))
+def sph_vec_to_cart_vec(lat0, lon0, Vlat, Vlon, Vr):
+    """Convert a vector in spherical coordinates to cartesian coordinates.
+
+    Note that we are converting *vectors*, not *positions*. If we think of the
+    vector as being defined by its contributions towards the basis vectors
+    (latitude-hat), (longitude-hat), and (r-hat), we have to convert its
+    components to (x-hat), (y-hat), and (z-hat). This conversion depends on
+    where you are: specifically, the latitude and longitude at which the
+    vector originates.
+
+    We consider the vector as being rooted at *lat0* and *lon0*, and its
+    components in the spherical basis are *Vlat*, *Vlon*, and *Vr*.
+
+    Equations derived after much suffering using the "Conversion between unit
+    vectors in Cartesian [..] and spherical coordinate systems in terms of
+    destination coordinates" from
+    https://en.wikipedia.org/wiki/Del_in_cylindrical_and_spherical_coordinates.
+
+    Wikipedia's equations are in math-style spherical coordinates (apparently
+    this is ISO 80000-2!), their their theta is the colatitude. Therefore
+    theta = pi/2 - lat0, cos(theta) = sin(lat0), sin(theta) = cos(lat0), and
+    theta-hat = -lat0-hat.
 
     """
     slat = np.sin(lat0)
@@ -76,10 +92,10 @@ def sph_ofs_to_cart_ofs(lat0, lon0, r0, dlat, dlon, dr):
     slon = np.sin(lon0)
     clon = np.cos(lon0)
 
-    dx = (-r0 * slat * clon) * dlat + (-r0 * clat * slon) * dlon + (clat * clon) * dr
-    dy = (-r0 * slat * slon) * dlat + ( r0 * clat * clon) * dlon + (clat * slon) * dr
-    dz = (r0 * clat) * dlat + slat * dr
-    return dx, dy, dz
+    Vx = (-slat * clon) * Vlat + (-slon) * Vlon + (clat * clon) * Vr
+    Vy = (-slat * slon) * Vlat + ( clon) * Vlon + (clat * slon) * Vr
+    Vz = clat * Vlat + slat * Vr
+    return Vx, Vy, Vz
 
 
 def rot2d(u, v, theta):
@@ -206,10 +222,8 @@ class ObserverToBodycentric(object):
         the magnetic field when ray-tracing.
 
         """
-
         bc_sph = self(x, y, z)
-        dir_cart = np.array(sph_ofs_to_cart_ofs(bc_sph[0], bc_sph[1], bc_sph[2],
-                                                dir_blat, dir_blon, dir_r))
+        dir_cart = np.array(sph_vec_to_cart_vec(bc_sph[0], bc_sph[1], dir_blat, dir_blon, dir_r))
 
         # z-hat direction in the rotated coordinate system
         _zhat_bc = np.array(self._to_bc(0, 0, 1))
@@ -245,8 +259,7 @@ class ObserverToBodycentric(object):
 
         """
         bc_sph = self(x, y, z)
-        dir_bc = np.array(sph_ofs_to_cart_ofs(bc_sph[0], bc_sph[1], bc_sph[2],
-                                              dir_blat, dir_blon, dir_r))
+        dir_bc = np.array(sph_vec_to_cart_vec(bc_sph[0], bc_sph[1], dir_blat, dir_blon, dir_r))
 
         # This is subtler than it looks because dir_bc is an infinitesimal
         # offset vector rooted at (x,y,z). But the observer-to-bodycentric
@@ -447,8 +460,8 @@ class TiltedDipoleField(object):
         # of which are unit vectors in the body-centric radial coordinates.
         # For now, let's just be dumb and convert to cartesian.
 
-        bhat_xyz = np.array(sph_ofs_to_cart_ofs(pos_blat, pos_blon, pos_r, *bhat_bsph)) # convert to 2d
-        dir_xyz = np.array(sph_ofs_to_cart_ofs(pos_blat, pos_blon, pos_r, dir_blat, dir_blon, dir_r))
+        bhat_xyz = np.array(sph_vec_to_cart_vec(pos_blat, pos_blon, *bhat_bsph)) # convert to 2d
+        dir_xyz = np.array(sph_vec_to_cart_vec(pos_blat, pos_blon, dir_blat, dir_blon, dir_r))
         dot = np.sum(bhat_xyz * dir_xyz, axis=0) # non-matrixy dot product
         scale = np.sqrt((bhat_xyz**2).sum(axis=0) * (dir_xyz**2).sum(axis=0))
         arccos = dot / scale
