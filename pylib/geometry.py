@@ -82,9 +82,9 @@ def sph_vec_to_cart_vec(lat0, lon0, Vlat, Vlon, Vr):
     https://en.wikipedia.org/wiki/Del_in_cylindrical_and_spherical_coordinates.
 
     Wikipedia's equations are in math-style spherical coordinates (apparently
-    this is ISO 80000-2!), their their theta is the colatitude. Therefore
-    theta = pi/2 - lat0, cos(theta) = sin(lat0), sin(theta) = cos(lat0), and
-    theta-hat = -lat0-hat.
+    this is ISO 80000-2!), so their theta is the colatitude. Therefore theta =
+    pi/2 - lat0, cos(theta) = sin(lat0), sin(theta) = cos(lat0), and theta-hat
+    = -(lat0-hat).
 
     """
     slat = np.sin(lat0)
