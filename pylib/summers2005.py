@@ -161,12 +161,19 @@ def get_bounce_averaged(which_coeff, E, alpha0, Omega_e, s, alpha_star, R, x_m, 
     # 10.1007/978-3-642-65675-0), equation 1.23, we can get the field strength
     # as a function of (co)latitude, which lets us compute alpha as a function
     # of latitude.
+    #
+    # TODO: not clear from Shprits if they acount for Omega_e varying with
+    # magnetic latitude, which it definitely should ... I'm going to include
+    # it as an effect.
 
-    def sin_alpha(lat):
-        if lat >= lambda_m:
-            return 0.
+    def do_geometry(lat):
         colat = 0.5 * np.pi - lat
-        return f0 * (1 + 3 * np.cos(colat)**2)**0.25 / np.sin(colat)**3
+        r = np.sqrt(1 + 3 * np.cos(colat)**2) / np.sin(colat)**6 # = B(lam)/B_eq
+        return f0 * np.sqrt(r), Omega_e * r
+
+    # Test -- dimensionless momentum?
+
+    p_nodim = np.sqrt(E * (E + 2))
 
     # Ready to integrate.
 
@@ -174,26 +181,26 @@ def get_bounce_averaged(which_coeff, E, alpha0, Omega_e, s, alpha_star, R, x_m, 
         f1 = 1. / (s0 * np.cos(alpha0)**2)
 
         def integrand(lam):
-            sa = sin_alpha(lam)
+            sa, Oe = do_geometry(lam)
             ca = np.sqrt(1 - sa**2)
             f2 = ca * np.cos(lam)**7
-            return f2 * get_coeff(which_coeff, E, sa, Omega_e, s, alpha_star, R, x_m, delta_x)
+            return f2 * get_coeff(which_coeff, E, sa, Oe, s, alpha_star, R, x_m, delta_x)
     elif which_coeff == AP:
-        f1 = np.tan(alpha0) / s0
+        f1 = np.tan(alpha0) / s0 * p_nodim
 
         def integrand(lam):
-            sa = sin_alpha(lam)
+            sa, Oe = do_geometry(lam)
             ca = np.sqrt(1 - sa**2)
             f2 = np.cos(lam) * np.sqrt(1 + 3 * np.sin(lam)**2) / sa
-            return f2 * get_coeff(which_coeff, E, sa, Omega_e, s, alpha_star, R, x_m, delta_x)
+            return f2 * get_coeff(which_coeff, E, sa, Oe, s, alpha_star, R, x_m, delta_x)
     elif which_coeff == PP:
-        f1 = 1. / s0
+        f1 = 1. / s0 * p_nodim**2
 
         def integrand(lam):
-            sa = sin_alpha(lam)
+            sa, Oe = do_geometry(lam)
             ca = np.sqrt(1 - sa**2)
             f2 = np.cos(lam) * np.sqrt(1 + 3 * np.sin(lam)**2) / ca
-            return f2 * get_coeff(which_coeff, E, sa, Omega_e, s, alpha_star, R, x_m, delta_x)
+            return f2 * get_coeff(which_coeff, E, sa, Oe, s, alpha_star, R, x_m, delta_x)
 
     return quad(integrand, 0, lambda_m)[0]
 
