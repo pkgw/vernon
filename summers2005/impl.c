@@ -28,6 +28,12 @@ typedef enum handedness_t {
 } handedness_t;
 
 
+typedef enum integration_type_t {
+    ITYPE_BOUNCE_AVERAGED,
+    ITYPE_LOCAL,
+} integration_type_t;
+
+
 typedef struct parameters_t {
     double E; /* dimensionless kinetic energy */
     double sin_alpha; /* sine of the pitch angle */
@@ -42,6 +48,7 @@ typedef struct parameters_t {
 
 typedef struct state_t {
     parameters_t p;
+    integration_type_t itype;
     result_t last_error;
 
     double gamma; /* Lorentz factor */
@@ -130,7 +137,7 @@ apply_latitude(double latitude, state_t *state)
 
     if (state->mu == 0.) /* happens at the very top of our bounce trajectory */
         state->mu = 1e-20;
-    
+
     /* Find the critical `x` and `y` values. We do this following Appendix A
      * and Equation 24 of Summers 2005. */
 
@@ -222,7 +229,10 @@ daa_integrand(double latitude, state_t *state)
     for (i = 0; i < state->n_xy; i++)
         v += state->R[i] * pow(state->Q[i], 2);
 
-    return v * state->Omega_e * state->mu * pow(cos(state->latitude), 7);
+    if (state->itype == ITYPE_BOUNCE_AVERAGED)
+        v *= state->mu * pow(cos(state->latitude), 7);
+
+    return v * state->Omega_e;
 }
 
 
@@ -246,11 +256,15 @@ dap_on_p_integrand(double latitude, state_t *state)
         v += state->R[i] * state->Q[i] * state->x[i] / state->y[i];
 
     /* Here we transform the sqrt(1 + 3 sin^2 lambda) term to use the cos
-     * instead; also note that a sin(alpha) from Equation 4 cancels in Eqn
-     * 8. */
+     * instead */
 
     double cos_lam = cos(state->latitude);
-    return v * state->Omega_e * state->mu * cos_lam * sqrt(4 - 3 * cos_lam * cos_lam);
+    double sa = state->sin_alpha;
+
+    if (state->itype == ITYPE_BOUNCE_AVERAGED)
+        v *= state->mu * cos_lam * sqrt(4 - 3 * cos_lam * cos_lam) / sa;
+
+    return v * state->Omega_e * sa;
 }
 
 
@@ -277,7 +291,11 @@ dpp_on_p2_integrand(double latitude, state_t *state)
 
     double cos_lam = cos(state->latitude);
     double sa = state->sin_alpha;
-    return v * state->Omega_e * sa*sa * cos_lam * sqrt(4 - 3 * cos_lam * cos_lam) / state->mu;
+
+    if (state->itype == ITYPE_BOUNCE_AVERAGED)
+        v *= cos_lam * sqrt(4 - 3 * cos_lam * cos_lam) / state->mu;
+
+    return v * state->Omega_e * sa * sa;
 }
 
 
@@ -303,6 +321,7 @@ calc_coefficients(parameters_t *params, coefficients_t *coeffs)
     }
 
     state.p = *params;
+    state.itype = ITYPE_BOUNCE_AVERAGED;
     state.last_error = RESULT_OK;
 
     /* Figure out the mirroring latitude; Shprits (2006) equation 10. */
@@ -442,14 +461,95 @@ calc_coefficients(parameters_t *params, coefficients_t *coeffs)
 }
 
 
+static result_t
+calc_unaveraged_coefficients(parameters_t *params, coefficients_t *coeffs)
+{
+    gsl_error_handler_t *prev_handler;
+    state_t state;
+
+    global_context = &state;
+    prev_handler = gsl_set_error_handler(s05_error_handler);
+
+    if (integ_workspace == NULL) {
+        integ_workspace = gsl_integration_workspace_alloc(INTEG_WS_SIZE);
+        poly5_workspace = gsl_poly_complex_workspace_alloc(5);
+        poly7_workspace = gsl_poly_complex_workspace_alloc(7);
+    }
+
+    state.p = *params;
+    state.itype = ITYPE_LOCAL;
+    state.last_error = RESULT_OK;
+
+    /* The structure here is paralleling calc_coefficients for maintainability. */
+
+    state.gamma = state.p.E + 1;
+    state.a = ((int) state.p.handedness) * lambda / state.gamma;
+    state.b = (1 + epsilon) / state.p.alpha_star;
+    state.beta = sqrt(state.p.E * (state.p.E + 2)) / (state.p.E + 1);
+    coeffs->dimensionless_p = state.gamma * state.beta;
+
+    double f1 = pi_on_2nu / pow(state.p.E + 1, 2);
+
+    /* Compute! It all works if we pretend latitude = 0 and set `itype` to LOCAL. */
+
+    coeffs->Daa = daa_integrand(0., &state);
+
+    if (state.last_error != RESULT_OK) {
+        strncat(global_err_msg, " (while computing Daa)", COUNT(global_err_msg));
+        gsl_set_error_handler(prev_handler);
+        global_context = NULL;
+        return state.last_error;
+    }
+
+    coeffs->Daa *= f1;
+    coeffs->err_Daa = 0;
+
+    /* D_ap/p. */
+
+    coeffs->Dap_on_p = dap_on_p_integrand(0., &state);
+
+    if (state.last_error != RESULT_OK) {
+        strncat(global_err_msg, " (while computing Dap)", COUNT(global_err_msg));
+        gsl_set_error_handler(prev_handler);
+        global_context = NULL;
+        return state.last_error;
+    }
+
+    coeffs->Dap_on_p *= f1 / state.beta;
+    coeffs->err_Dap_on_p = 0;
+
+    /* D_pp/p^2. */
+
+    coeffs->Dpp_on_p2 = dpp_on_p2_integrand(0., &state);
+
+    if (state.last_error != RESULT_OK) {
+        strncat(global_err_msg, " (while computing Dpp)", COUNT(global_err_msg));
+        gsl_set_error_handler(prev_handler);
+        global_context = NULL;
+        return state.last_error;
+    }
+
+    coeffs->Dpp_on_p2 *= f1 * pow(state.beta, -2);
+    coeffs->err_Dpp_on_p2 = 0.;
+
+    /* Huzzah, all done. */
+
+    gsl_set_error_handler(prev_handler);
+    global_context = NULL;
+    return RESULT_OK;
+}
+
+
 static PyObject*
 get_coeffs(PyObject *self, PyObject* args)
 {
+    int modespec;
     int handspec;
     parameters_t params;
     coefficients_t coeffs = { 0 };
+    result_t r;
 
-    if (!PyArg_ParseTuple(args, "iddddddd", &handspec,
+    if (!PyArg_ParseTuple(args, "iiddddddd", &modespec, &handspec,
                           &params.E,
                           &params.sin_alpha,
                           &params.Omega_e,
@@ -468,7 +568,16 @@ get_coeffs(PyObject *self, PyObject* args)
         return NULL;
     }
 
-    if (calc_coefficients(&params, &coeffs) != RESULT_OK) {
+    if (modespec == 0)
+        r = calc_coefficients(&params, &coeffs);
+    else if (modespec == 1)
+        r = calc_unaveraged_coefficients(&params, &coeffs);
+    else {
+        PyErr_SetString(PyExc_RuntimeError, "unexpected mode magic constant");
+        return NULL;
+    }
+
+    if (r != RESULT_OK) {
         PyErr_SetString(PyExc_RuntimeError, global_err_msg);
         return NULL;
     }
@@ -481,7 +590,8 @@ get_coeffs(PyObject *self, PyObject* args)
 
 
 static PyMethodDef methods[] = {
-    { "get_coeffs", get_coeffs, METH_VARARGS|METH_KEYWORDS, "() -> ()" },
+    { "get_coeffs", get_coeffs, METH_VARARGS|METH_KEYWORDS,
+      "(mode, handedness, E, sa, Oe, a*, R, xm dx) -> (dp, daa, udaa, dap/p, udap/p, dpp/p2, udpp/p2)" },
     { NULL, NULL, METH_NOARGS, NULL },
 };
 

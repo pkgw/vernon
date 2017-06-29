@@ -16,12 +16,17 @@ from pwkit.numutil import broadcastize
 
 from ._impl import get_coeffs
 
+_MODE_BOUNCE_AVERAGED_CODE = 0
+_MODE_LOCAL_CODE = 1
+
+_HANDEDNESS_R_CODE = 0
+_HANDEDNESS_L_CODE = 1
 
 def _handedness(a):
     if a == 'R':
-        return 0
+        return _HANDEDNESS_R_CODE
     if a == 'L':
-        return 1
+        return _HANDEDNESS_L_CODE
     raise ValueError('"handedness" parameter must be either "R" or "L"; got %r' % (a,))
 
 
@@ -41,13 +46,13 @@ def demo():
 
 
 @broadcastize(7,ret_spec=1)
-def compute(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, handedness, p_scaled=False):
-    h = _handedness(handedness)
+def _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, handedness, mode, p_scaled):
     coeffs = np.empty((3,) + E.shape)
     dps = np.empty(E.shape)
 
     for i in range(E.size):
-        dp, Daa, _, Dap_on_p, _, Dpp_on_p2, _ = get_coeffs(h, E.flat[i], sin_alpha.flat[i],
+        dp, Daa, _, Dap_on_p, _, Dpp_on_p2, _ = get_coeffs(mode, handedness,
+                                                           E.flat[i], sin_alpha.flat[i],
                                                            Omega_e.flat[i], alpha_star.flat[i],
                                                            R.flat[i], x_m.flat[i], delta_x.flat[i])
         dps.flat[i] = dp
@@ -62,6 +67,54 @@ def compute(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, handedness, p_sc
         coeffs[2] *= p**2
 
     return coeffs
+
+
+def compute(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, handedness, p_scaled=False):
+    h = _handedness(handedness)
+    return _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, h,
+                          _MODE_BOUNCE_AVERAGED_CODE, p_scaled)
+
+
+def compute_local(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, handedness, p_scaled=False):
+    h = _handedness(handedness)
+    return _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, h,
+                          _MODE_LOCAL_CODE, p_scaled)
+
+
+def summers05_figure_1():
+    import omega as om
+
+    alpha_star = 0.16
+    x_m = 0.35
+    delta_x = 0.15
+    R = 8.5e-8
+    Omega_e = 59941 # = 2 * np.pi * 9540
+
+    degrees = np.linspace(0.1, 89.9, 100)
+    sinas = np.sin(degrees * np.pi / 180)
+
+    vb = om.layout.VBox(3)
+    vb[0] = paa = om.RectPlot()
+    vb[1] = pap = om.RectPlot()
+    vb[2] = ppp = om.RectPlot()
+
+    for kev in 100, 300, 1000, 3000:
+        E = kev / 511. # normalized to mc^2 = 511 keV
+        Daa, Dap, Dpp = compute_local(E, sinas, Omega_e, alpha_star, R, x_m, delta_x, 'R', p_scaled=True)
+        paa.addXY(degrees, Daa, str(kev))
+        pap.addXY(degrees, np.abs(Dap), str(kev))
+        ppp.addXY(degrees, Dpp, str(kev))
+
+    for p in paa, pap, ppp:
+        p.setLinLogAxes(False, True)
+        p.setBounds(0, 90, 1e-8, 0.1)
+        p.setXLabel('Pitch angle (degrees)')
+
+    paa.setYLabel('D_aa')
+    pap.setYLabel('|D_ap|/p')
+    ppp.setYLabel('D_pp/p^2')
+
+    return vb
 
 
 def shprits06_figure_1():
@@ -88,7 +141,7 @@ def shprits06_figure_1():
 
     degrees = np.linspace(10., 80, 100)
     sinas = np.sin(degrees * np.pi / 180)
-    Daa = compute(E, sinas, Omega_e, alpha_star, R, x_m, delta_x, 'R', p_scaled=False)[0]
+    Daa = compute(E, sinas, Omega_e, alpha_star, R, x_m, delta_x, 'R', p_scaled=True)[0]
 
     p = om.quickXY(degrees, Daa, 'Daa', ylog=True)
     p.setBounds(0, 90, 1e-7, 0.1)
