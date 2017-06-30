@@ -31,23 +31,8 @@ def _handedness(a):
     raise ValueError('"handedness" parameter must be either "R" or "L"; got %r' % (a,))
 
 
-def demo():
-    import numpy as np
-
-    handedness = _handedness('R')
-    E = 300. / 511
-    sin_alpha = 0.866 # sqrt(3)/2 <=> 60 degr
-    Omega_e = 2 * np.pi * 9540
-    alpha_star = 0.16
-    R = 8.5e-8
-    x_m = 0.35
-    delta_x = 0.3
-
-    print(get_coeffs(0, E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x))
-
-
-@broadcastize(7,ret_spec=1)
-def _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, handedness, mode, p_scaled):
+@broadcastize(8,ret_spec=1)
+def _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, max_wave_lat, handedness, mode, p_scaled):
     coeffs = np.empty((3,) + E.shape)
     dps = np.empty(E.shape)
 
@@ -56,15 +41,17 @@ def _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, handednes
             dp, Daa, _, Dap_on_p, _, Dpp_on_p2, _ = get_coeffs(mode, handedness,
                                                                E.flat[i], sin_alpha.flat[i],
                                                                Omega_e.flat[i], alpha_star.flat[i],
-                                                               R.flat[i], x_m.flat[i], delta_x.flat[i])
+                                                               R.flat[i], x_m.flat[i], delta_x.flat[i],
+                                                               max_wave_lat.flat[i])
             dps.flat[i] = dp
             coeffs[0].flat[i] = Daa
             coeffs[1].flat[i] = Dap_on_p
             coeffs[2].flat[i] = Dpp_on_p2
     except RuntimeError as e:
-        reraise_context('with (mode=%d, h=%r, E=%f, sin_alpha=%f, Omega_e=%f, alpha*=%f, R=%e, x_m=%f, dx=%f)',
+        reraise_context('with (mode=%d, h=%r, E=%f, sin_alpha=%f, Omega_e=%f, alpha*=%f, '
+                        'R=%e, x_m=%f, dx=%f, mwl=%f)',
                         mode, handedness, E.flat[i], sin_alpha.flat[i], Omega_e.flat[i], alpha_star.flat[i],
-                        R.flat[i], x_m.flat[i], delta_x.flat[i])
+                        R.flat[i], x_m.flat[i], delta_x.flat[i], max_wave_lat.flat[i])
 
     if not p_scaled:
         from pwkit import cgs
@@ -75,15 +62,15 @@ def _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, handednes
     return coeffs
 
 
-def compute(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, handedness, p_scaled=False):
+def compute(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, max_wave_lat, handedness, p_scaled=False):
     h = _handedness(handedness)
-    return _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, h,
+    return _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, max_wave_lat, h,
                           _MODE_BOUNCE_AVERAGED_CODE, p_scaled)
 
 
-def compute_local(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, handedness, p_scaled=False):
+def compute_local(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, max_wave_lat, handedness, p_scaled=False):
     h = _handedness(handedness)
-    return _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, h,
+    return _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, max_wave_lat, h,
                           _MODE_LOCAL_CODE, p_scaled)
 
 
@@ -95,6 +82,7 @@ def summers05_figure_1():
     delta_x = 0.15
     R = 8.5e-8
     Omega_e = 59941 # = 2 * np.pi * 9540
+    max_wave_lat = 15 * np.pi / 180
 
     degrees = np.linspace(0.1, 89.9, 100)
     sinas = np.sin(degrees * np.pi / 180)
@@ -106,7 +94,8 @@ def summers05_figure_1():
 
     for kev in 100, 300, 1000, 3000:
         E = kev / 511. # normalized to mc^2 = 511 keV
-        Daa, Dap, Dpp = compute_local(E, sinas, Omega_e, alpha_star, R, x_m, delta_x, 'R', p_scaled=True)
+        Daa, Dap, Dpp = compute_local(E, sinas, Omega_e, alpha_star, R, x_m, delta_x,
+                                      max_wave_lat, 'R', p_scaled=True)
         paa.addXY(degrees, Daa, str(kev))
         pap.addXY(degrees, np.abs(Dap), str(kev))
         ppp.addXY(degrees, Dpp, str(kev))
@@ -123,10 +112,10 @@ def summers05_figure_1():
     return vb
 
 
-def compute_dee_on_e2(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, handedness):
+def compute_dee_on_e2(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, max_wave_lat, handedness):
     h = _handedness(handedness)
-    dpp_on_p2 = _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, h,
-                               _MODE_LOCAL_CODE, True)[2]
+    dpp_on_p2 = _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x,
+                               max_wave_lat, h, _MODE_LOCAL_CODE, True)[2]
 
     # Shprits 2006, equation 11:
     dee_on_e2 = dpp_on_p2 * ((E + 2) / (E + 1))**2
@@ -141,6 +130,7 @@ def shprits06_figure_1(kev=300):
     x_m = 0.35
     delta_x = 0.15
     B_wave = 0.1 # nT
+    max_wave_lat = 15 * np.pi / 180
 
     # Omega_e = e B / m_e c for equatorial B at L = 3.5. B ~ B_surf * L**-3.
     #
@@ -157,8 +147,8 @@ def shprits06_figure_1(kev=300):
 
     degrees = np.linspace(2, 87, 100)
     sinas = np.sin(degrees * np.pi / 180)
-    Daa = compute(E, sinas, Omega_e, alpha_star, R, x_m, delta_x, 'R', p_scaled=True)[0]
-    Dee = compute_dee_on_e2(E, sinas, Omega_e, alpha_star, R, x_m, delta_x, 'R')
+    Daa = compute(E, sinas, Omega_e, alpha_star, R, x_m, delta_x, 'R', max_wave_lat, p_scaled=True)[0]
+    Dee = compute_dee_on_e2(E, sinas, Omega_e, alpha_star, R, x_m, delta_x, max_wave_lat, 'R')
 
     hb = om.layout.HBox(2)
     pee = hb[0] = om.quickXY(degrees, Dee, str(kev), ylog=True)
@@ -178,6 +168,7 @@ def summarize():
     delta_x = 0.15
     R = 8.5e-8
     Omega_e = 59941 # = 2 * np.pi * 9540
+    max_wave_lat = 15 * np.pi / 180
 
     degrees = np.linspace(0.1, 89.9, 100)
     sinas = np.sin(degrees * np.pi / 180)
@@ -191,7 +182,7 @@ def summarize():
 
     for kev in 100, 1000, 10000:
         E = kev / 511. # normalized to mc^2 = 511 keV
-        Daa, Dap, Dpp = compute(E, sinas, Omega_e, alpha_star, R, x_m, delta_x, 'R', p_scaled=True)
+        Daa, Dap, Dpp = compute(E, sinas, Omega_e, alpha_star, R, x_m, delta_x, max_wave_lat, 'R', p_scaled=True)
         Dap = np.abs(Dap)
 
         cmin = min(Daa.min(), Dap.min(), Dpp.min())

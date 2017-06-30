@@ -43,6 +43,7 @@ typedef struct parameters_t {
     double R; /* magnetic wave energy perturbation: (delta B / B)**2 */
     double x_m; /* center of wave frequency spectrum in units of cyclotron freq */
     double delta_x; /* width of wave frequency spectrum in units of cyclotron freq */
+    double max_wave_latitude; /* maximum latitude at which waves are found, in radians */
 } parameters_t;
 
 
@@ -394,10 +395,10 @@ calc_coefficients(parameters_t *params, coefficients_t *coeffs)
     if (sqrt(4 - 3 * cos_lat * cos_lat) / (pow(cos_lat, 6) * state.p.sin_alpha * state.p.sin_alpha) > 1.)
         lambda_m -= 1e-7;
 
-    /* TEMP lat limit of 15 degrees*/
+    /* If a latitude limit on waves is imposed, truncate lambda_m further. */
 
-    if (lambda_m > 0.2618)
-        lambda_m = 0.2618;
+    if (lambda_m > state.p.max_wave_latitude)
+        lambda_m = state.p.max_wave_latitude;
 
     /* Pre-compute quantities that do not depend on lambda. When lambda
      * changes, B and alpha change. Consequently Omega_e changes too. In our
@@ -596,14 +597,15 @@ get_coeffs(PyObject *self, PyObject* args)
     coefficients_t coeffs = { 0 };
     result_t r;
 
-    if (!PyArg_ParseTuple(args, "iiddddddd", &modespec, &handspec,
+    if (!PyArg_ParseTuple(args, "iidddddddd", &modespec, &handspec,
                           &params.E,
                           &params.sin_alpha,
                           &params.Omega_e,
                           &params.alpha_star,
                           &params.R,
                           &params.x_m,
-                          &params.delta_x))
+                          &params.delta_x,
+                          &params.max_wave_latitude))
         return NULL;
 
     if (handspec == 0)
