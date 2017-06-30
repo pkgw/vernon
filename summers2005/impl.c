@@ -115,7 +115,8 @@ const size_t INTEG_WS_SIZE = 512;
 const int lambda = -1; /* signifies that we're looking at electrons */
 const double epsilon = 0.0005446; /* electron-to-proton mass ratio */
 const double epsm1 =  -0.9994554; /* epsilon - 1; C is lame and can't do the math with consts! */
-const double pi_on_2nu = 0.89039; /* pi/2nu, nu = sqrt(pi)erf(2); see after Shprits 06 Eqn 5 */
+const double sigma = 2.; /* range of `x` that we consider */
+const double pi_on_2nu = 0.89039; /* pi/2nu, nu = sqrt(pi)erf(sigma); see after Shprits 06 Eqn 5 */
 
 
 static inline result_t
@@ -173,8 +174,8 @@ apply_latitude(double latitude, state_t *state)
         if (x < 0) /* Non-physical root? */
             continue;
 
-        if (x < 0.05 || x > 0.65) /* TEMP out of waveband? */
-            continue;
+        if (x < state->p.x_m - sigma * state->p.delta_x || x > state->p.x_m + sigma * state->p.delta_x)
+            continue; /* Out of waveband? */
 
         double y = (x + state->a) / (state->beta * state->mu);
 

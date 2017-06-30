@@ -117,6 +117,16 @@ def summers05_figure_1():
     return vb
 
 
+def compute_dee_on_e2(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, handedness):
+    h = _handedness(handedness)
+    dpp_on_p2 = _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, h,
+                               _MODE_LOCAL_CODE, True)[2]
+
+    # Shprits 2006, equation 11:
+    dee_on_e2 = dpp_on_p2 * ((E + 2) / (E + 1))**2
+    return dee_on_e2
+
+
 def shprits06_figure_1(kev=300):
     import omega as om
 
@@ -142,7 +152,13 @@ def shprits06_figure_1(kev=300):
     degrees = np.linspace(2, 87, 100)
     sinas = np.sin(degrees * np.pi / 180)
     Daa = compute(E, sinas, Omega_e, alpha_star, R, x_m, delta_x, 'R', p_scaled=True)[0]
+    Dee = compute_dee_on_e2(E, sinas, Omega_e, alpha_star, R, x_m, delta_x, 'R')
 
-    p = om.quickXY(degrees, Daa, 'Daa', ylog=True)
-    p.setBounds(0, 90, 1e-7, 0.1)
-    return p
+    hb = om.layout.HBox(2)
+    pee = hb[0] = om.quickXY(degrees, Dee, str(kev), ylog=True)
+    paa = hb[1] = om.quickXY(degrees, Daa, str(kev), ylog=True)
+
+    pee.setBounds(0, 90, 1e-7, 0.1)
+    paa.setBounds(0, 90, 1e-7, 0.1)
+
+    return hb
