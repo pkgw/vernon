@@ -593,9 +593,9 @@ class Numerical(object):
         self.f_Lmax_norm = 1e-20
         # END TEMP
 
-        self.nv = nv = 60
-        self.nk = nk = 61 # NB: keep odd to avoid blowups with y = 0!
-        self.nl = nl = 12
+        self.nv = 60
+        self.nk = 61 # NB: keep odd to avoid blowups with y = 0!
+        self.nl = 12
 
         self.lmin = 1.1
         self.lmax = 7.0
@@ -611,9 +611,9 @@ class Numerical(object):
         self.vk_mesh = d.RectangleMesh(
             d.Point(self.logvmin, self.khatmin),
             d.Point(self.logvmax, self.khatmax),
-            nv, nk
+            self.nv, self.nk
         )
-        self.l_mesh = d.IntervalMesh(nl, self.lmin, self.lmax)
+        self.l_mesh = d.IntervalMesh(self.nl, self.lmin, self.lmax)
 
         self.l_boundary = OneDWallExpression(degree=0).configure(0., self.lmax)
 
