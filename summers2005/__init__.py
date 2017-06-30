@@ -168,3 +168,55 @@ def shprits06_figure_1(kev=300):
     paa.setBounds(0, 90, 1e-7, 0.1)
 
     return hb
+
+
+def summarize():
+    import omega as om
+
+    alpha_star = 0.16
+    x_m = 0.35
+    delta_x = 0.15
+    R = 8.5e-8
+    Omega_e = 59941 # = 2 * np.pi * 9540
+
+    degrees = np.linspace(0.1, 89.9, 100)
+    sinas = np.sin(degrees * np.pi / 180)
+
+    hb = om.layout.HBox(3)
+    hb[0] = paa = om.RectPlot()
+    hb[1] = pap = om.RectPlot()
+    hb[2] = ppp = om.RectPlot()
+
+    dmin = dmax = None
+
+    for kev in 100, 1000, 10000:
+        E = kev / 511. # normalized to mc^2 = 511 keV
+        Daa, Dap, Dpp = compute(E, sinas, Omega_e, alpha_star, R, x_m, delta_x, 'R', p_scaled=True)
+        Dap = np.abs(Dap)
+
+        cmin = min(Daa.min(), Dap.min(), Dpp.min())
+        cmax = max(Daa.max(), Dap.max(), Dpp.max())
+
+        if dmin is None:
+            dmin, dmax = cmin, cmax
+        else:
+            dmin = min(dmin, cmin)
+            dmax = max(dmax, cmax)
+
+        paa.addXY(degrees, Daa, str(kev))
+        pap.addXY(degrees, Dap, str(kev))
+        ppp.addXY(degrees, Dpp, str(kev))
+
+    if dmin == 0:
+        dmin = 1e-12
+
+    for p in paa, pap, ppp:
+        p.setLinLogAxes(False, True)
+        p.setBounds(0, 90, dmin * 0.8, dmax / 0.8)
+        p.setXLabel('Pitch angle (degrees)')
+
+    paa.setYLabel('D_aa')
+    pap.setYLabel('|D_ap|/p')
+    ppp.setYLabel('D_pp/p^2')
+
+    return hb
