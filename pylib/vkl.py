@@ -860,4 +860,4 @@ class Numerical(object):
             print('   ... f: RMS = %f over %d points' % (rms, f.size))
             f, prev_f = prev_f, f
 
-        return f
+        return prev_f # since we just swapped ...
