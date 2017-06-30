@@ -83,7 +83,7 @@ class Symbolic(object):
         self.Khat = sympy.var('Khat')
         self.Ksigned = -self.Khat**5
         self.V = sympy.exp(self.logV)
-        self.K = sympy.sqrt(self.Ksigned**2)
+        self.K = sympy.Abs(self.Ksigned)
         self.L = sympy.var('L') # dropping the asterisk superscript
 
         self.Cg = sympy.var('Cg')
