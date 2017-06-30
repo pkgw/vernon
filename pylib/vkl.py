@@ -592,7 +592,7 @@ class Numerical(object):
         self.l_boundary = OneDWallExpression(degree=0).configure(0., self.lmax)
 
 
-    def summers_pa_coefficients(self, alpha_star, R, x_m, delta_x):
+    def summers_pa_coefficients(self, alpha_star, R, x_m, delta_x, max_wave_lat):
         from pwkit import cgs
         from summers2005 import compute
 
@@ -603,7 +603,8 @@ class Numerical(object):
             E = ekin_mev / E0
             sin_a = np.sin(alpha_deg * np.pi / 180)
             Omega_e = cgs.e * Beq / (self.m0 * np.sqrt(self.c_squared))
-            return compute(E, sin_a, Omega_e, alpha_star, R, x_m, delta_x, 'R')
+            return compute(E, sin_a, Omega_e, alpha_star, R, x_m, delta_x, max_wave_lat,
+                           'R', wave_filtering='f')
 
         self.sample_pa_coefficients = sample
         return self
