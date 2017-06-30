@@ -237,9 +237,6 @@ apply_latitude(double latitude, state_t *state)
         }
 
         state->R[i] = state->p.R * fabs(F) * exp(-k0) / (state->p.delta_x * k1);
-
-        if (!isfinite(state->R[i]))
-            summers2005_debug_hook();
     }
 
     return RESULT_OK;
