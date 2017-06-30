@@ -12,6 +12,7 @@ from __future__ import absolute_import, division, print_function
 
 from six.moves import range
 import numpy as np
+from pwkit import reraise_context
 from pwkit.numutil import broadcastize
 
 from ._impl import get_coeffs
@@ -50,15 +51,20 @@ def _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, handednes
     coeffs = np.empty((3,) + E.shape)
     dps = np.empty(E.shape)
 
-    for i in range(E.size):
-        dp, Daa, _, Dap_on_p, _, Dpp_on_p2, _ = get_coeffs(mode, handedness,
-                                                           E.flat[i], sin_alpha.flat[i],
-                                                           Omega_e.flat[i], alpha_star.flat[i],
-                                                           R.flat[i], x_m.flat[i], delta_x.flat[i])
-        dps.flat[i] = dp
-        coeffs[0].flat[i] = Daa
-        coeffs[1].flat[i] = Dap_on_p
-        coeffs[2].flat[i] = Dpp_on_p2
+    try:
+        for i in range(E.size):
+            dp, Daa, _, Dap_on_p, _, Dpp_on_p2, _ = get_coeffs(mode, handedness,
+                                                               E.flat[i], sin_alpha.flat[i],
+                                                               Omega_e.flat[i], alpha_star.flat[i],
+                                                               R.flat[i], x_m.flat[i], delta_x.flat[i])
+            dps.flat[i] = dp
+            coeffs[0].flat[i] = Daa
+            coeffs[1].flat[i] = Dap_on_p
+            coeffs[2].flat[i] = Dpp_on_p2
+    except RuntimeError as e:
+        reraise_context('with (mode=%d, h=%r, E=%f, sin_alpha=%f, Omega_e=%f, alpha*=%f, R=%e, x_m=%f, dx=%f)',
+                        mode, handedness, E.flat[i], sin_alpha.flat[i], Omega_e.flat[i], alpha_star.flat[i],
+                        R.flat[i], x_m.flat[i], delta_x.flat[i])
 
     if not p_scaled:
         from pwkit import cgs

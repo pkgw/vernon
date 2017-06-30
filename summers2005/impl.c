@@ -326,6 +326,21 @@ calc_coefficients(parameters_t *params, coefficients_t *coeffs)
     double result, abserr, k;
     int i;
 
+    if (params->sin_alpha == 1.0) {
+        /* Integration blows up in this case. */
+        state.gamma = params->E + 1;
+        state.beta = sqrt(params->E * (params->E + 2)) / (params->E + 1);
+        coeffs->dimensionless_p = state.gamma * state.beta;
+
+        coeffs->Daa = 0;
+        coeffs->err_Daa = 0;
+        coeffs->Dap_on_p = -0.;
+        coeffs->err_Dap_on_p = 0;
+        coeffs->Dpp_on_p2 = 0;
+        coeffs->err_Dpp_on_p2 = 0;
+        return RESULT_OK;
+    }
+
     global_context = &state;
     prev_handler = gsl_set_error_handler(s05_error_handler);
 
