@@ -31,24 +31,41 @@ def _handedness(a):
         return _HANDEDNESS_L_CODE
     raise ValueError('"handedness" parameter must be either "R" or "L"; got %r' % (a,))
 
+_WAVE_FILTERING_ALL = 0
+_WAVE_FILTERING_NO_FORWARD = 1 << 0
+_WAVE_FILTERING_NO_BACKWARD = 1 << 1
+
+def _wave_filtering(a):
+    spec = _WAVE_FILTERING_ALL
+
+    if 'f' in a:
+        spec |= _WAVE_FILTERING_NO_FORWARD
+
+    if 'b' in a:
+        spec |= _WAVE_FILTERING_NO_BACKWARD
+
+    return spec
+
 
 def _compute_core(i, fixed_arg, var_arg):
     """Note that this must be a freestanding function for parallelization to work
     using `multiprocessing`.
 
     """
-    mode, handedness = fixed_arg
+    mode, handedness, wave_filt = fixed_arg
     E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, max_wave_lat = var_arg
 
     try:
-        dp, Daa, _, Dap_on_p, _, Dpp_on_p2, _ = get_coeffs(mode, handedness, E,
+        dp, Daa, _, Dap_on_p, _, Dpp_on_p2, _ = get_coeffs(mode, handedness,
+                                                           wave_filt, E,
                                                            sin_alpha, Omega_e,
                                                            alpha_star, R, x_m,
-                                                           delta_x, max_wave_lat)
+                                                           delta_x,
+                                                           max_wave_lat)
     except RuntimeError as e:
-        reraise_context('with (mode=%d, h=%r, E=%f, sin_alpha=%f, Omega_e=%f, alpha*=%f, '
+        reraise_context('with (mode=%d, h=%r, wf=%r, E=%f, sin_alpha=%f, Omega_e=%f, alpha*=%f, '
                         'R=%e, x_m=%f, dx=%f, mwl=%f)',
-                        mode, handedness, E, sin_alpha, Omega_e, alpha_star,
+                        mode, handedness, wave_filt, E, sin_alpha, Omega_e, alpha_star,
                         R, x_m, delta_x, max_wave_lat)
 
     return (dp, Daa, Dap_on_p, Dpp_on_p2)
@@ -56,13 +73,13 @@ def _compute_core(i, fixed_arg, var_arg):
 
 @broadcastize(8,ret_spec=1)
 def _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x,
-                   max_wave_lat, handedness, mode, p_scaled, parallel):
+                   max_wave_lat, handedness, mode, wave_filt, p_scaled, parallel):
     coeffs = np.empty((3,) + E.shape)
     dps = np.empty(E.shape)
     phelp = make_parallel_helper(parallel)
 
     with phelp.get_ppmap() as ppmap:
-        data = np.array(ppmap(_compute_core, (mode, handedness),
+        data = np.array(ppmap(_compute_core, (mode, handedness, wave_filt),
                               zip(E.flat, sin_alpha.flat, Omega_e.flat, alpha_star.flat,
                                   R.flat, x_m.flat, delta_x.flat, max_wave_lat.flat)))
 
@@ -80,17 +97,19 @@ def _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x,
 
 
 def compute(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, max_wave_lat,
-            handedness, p_scaled=False, parallel=True):
+            handedness, wave_filtering='', p_scaled=False, parallel=True):
     h = _handedness(handedness)
+    wf = _wave_filtering(wave_filtering)
     return _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, max_wave_lat, h,
-                          _MODE_BOUNCE_AVERAGED_CODE, p_scaled, parallel)
+                          _MODE_BOUNCE_AVERAGED_CODE, wf, p_scaled, parallel)
 
 
 def compute_local(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, max_wave_lat,
-                  handedness, p_scaled=False, parallel=True):
+                  handedness, wave_filtering='', p_scaled=False, parallel=True):
     h = _handedness(handedness)
+    wf = _wave_filtering(wave_filtering)
     return _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x, max_wave_lat, h,
-                          _MODE_LOCAL_CODE, p_scaled, parallel)
+                          _MODE_LOCAL_CODE, wf, p_scaled, parallel)
 
 
 def summers05_figure_1():
@@ -114,7 +133,7 @@ def summers05_figure_1():
     for kev in 100, 300, 1000, 3000:
         E = kev / 511. # normalized to mc^2 = 511 keV
         Daa, Dap, Dpp = compute_local(E, sinas, Omega_e, alpha_star, R, x_m, delta_x,
-                                      max_wave_lat, 'R', p_scaled=True)
+                                      max_wave_lat, 'R', wave_filtering='f', p_scaled=True)
         paa.addXY(degrees, Daa, str(kev))
         pap.addXY(degrees, np.abs(Dap), str(kev))
         ppp.addXY(degrees, Dpp, str(kev))

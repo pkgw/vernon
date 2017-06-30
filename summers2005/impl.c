@@ -28,6 +28,13 @@ typedef enum handedness_t {
 } handedness_t;
 
 
+typedef enum wave_filtering_t {
+    WF_ALL_WAVES = 0,
+    WF_NO_FORWARD_MODES = 1 << 0,
+    WF_NO_BACKWARD_MODES = 1 << 1,
+} wave_filtering_t;
+
+
 typedef enum integration_type_t {
     ITYPE_BOUNCE_AVERAGED,
     ITYPE_LOCAL,
@@ -44,6 +51,7 @@ typedef struct parameters_t {
     double x_m; /* center of wave frequency spectrum in units of cyclotron freq */
     double delta_x; /* width of wave frequency spectrum in units of cyclotron freq */
     double max_wave_latitude; /* maximum latitude at which waves are found, in radians */
+    wave_filtering_t wave_filtering; /* which kinds of waves to filter out */
 } parameters_t;
 
 
@@ -182,7 +190,10 @@ apply_latitude(double latitude, state_t *state)
 
         double y = (x + state->a) / (state->beta * state->mu);
 
-        if (y > 0) /* TEMP ~"wave propagating in forward direction"? */
+        if ((state->p.wave_filtering & WF_NO_FORWARD_MODES) && y > 0)
+            continue;
+
+        if ((state->p.wave_filtering & WF_NO_BACKWARD_MODES) && y < 0)
             continue;
 
         state->x[state->n_xy] = x;
@@ -591,13 +602,12 @@ calc_unaveraged_coefficients(parameters_t *params, coefficients_t *coeffs)
 static PyObject*
 get_coeffs(PyObject *self, PyObject* args)
 {
-    int modespec;
-    int handspec;
+    int modespec, handspec, wave_filtering;
     parameters_t params;
     coefficients_t coeffs = { 0 };
     result_t r;
 
-    if (!PyArg_ParseTuple(args, "iidddddddd", &modespec, &handspec,
+    if (!PyArg_ParseTuple(args, "iiidddddddd", &modespec, &handspec, &wave_filtering,
                           &params.E,
                           &params.sin_alpha,
                           &params.Omega_e,
@@ -616,6 +626,8 @@ get_coeffs(PyObject *self, PyObject* args)
         PyErr_SetString(PyExc_RuntimeError, "unexpected handedness magic constant");
         return NULL;
     }
+
+    params.wave_filtering = (wave_filtering_t) wave_filtering;
 
     if (modespec == 0)
         r = calc_coefficients(&params, &coeffs);
@@ -640,7 +652,8 @@ get_coeffs(PyObject *self, PyObject* args)
 
 static PyMethodDef methods[] = {
     { "get_coeffs", get_coeffs, METH_VARARGS|METH_KEYWORDS,
-      "(mode, handedness, E, sa, Oe, a*, R, xm dx) -> (dp, daa, udaa, dap/p, udap/p, dpp/p2, udpp/p2)" },
+      "(mode, handedness, wfilt, E, sa, Oe, a*, R, xm, dx, mwl) -> "
+      "(dp, daa, udaa, dap/p, udap/p, dpp/p2, udpp/p2)" },
     { NULL, NULL, METH_NOARGS, NULL },
 };
 
