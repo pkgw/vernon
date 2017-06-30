@@ -392,7 +392,7 @@ calc_coefficients(parameters_t *params, coefficients_t *coeffs)
     if (!(lambda_m >= 0 && lambda_m <= M_PI_2)) {
         gsl_set_error_handler(prev_handler);
         global_context = NULL;
-        snprintf(global_err_msg, COUNT(global_err_msg), "failed to compute lambda_m");
+        snprintf(global_err_msg, COUNT(global_err_msg), "failed to compute lambda_m (%.16lf)", lambda_m);
         return RESULT_LAMBDA_FAILED;
     }
 
