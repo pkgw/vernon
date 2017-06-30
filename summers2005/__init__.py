@@ -93,6 +93,7 @@ def _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x,
         coeffs[1] *= p
         coeffs[2] *= p**2
 
+    coeffs = coeffs.reshape((3,) + E.shape)
     return coeffs
 
 
