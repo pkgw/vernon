@@ -7,7 +7,7 @@ from setuptools import setup
 from setuptools.extension import Extension
 import os.path
 
-prefixes = ['/a']
+prefixes = [os.path.join(os.environ['TOP'], 'stack')]
 include_dirs = [os.path.join(p, 'include') for p in prefixes]
 library_dirs = [os.path.join(p, 'lib') for p in prefixes]
 
