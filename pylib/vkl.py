@@ -302,6 +302,8 @@ class DolfinCoordinates(object):
 
 
     def do_dvk(self, saved_pa_coefficients=None):
+        patchup = False
+
         if saved_pa_coefficients is not None:
             with_pa = True
             self._current_pa_coeffs = saved_pa_coefficients
@@ -312,10 +314,34 @@ class DolfinCoordinates(object):
             B = self.compute(self.sym.B)
             daa, dap, dpp = self.num.sample_pa_coefficients(self.Ekin_mev, self.alpha_deg, B)
             self._current_pa_coeffs = (daa, dap, dap, dpp)
+            patchup = True
 
         self.D_VV = self.compute(self.sym.D_VV, with_pa)
         self.D_VK = self.compute(self.sym.D_VK, with_pa)
         self.D_KK = self.compute(self.sym.D_KK, with_pa)
+
+        if patchup:
+            # Patch up the arrays to not contain any zeros, since they seem to
+            # make the solver freak out. Note that we do this here since sometimes
+            # the zeros can come from our transformation expressions, not the
+            # underlying daa/dap/dpp returned from the Summers equations.
+
+            for i in range(self.D_VV.shape[0]):
+                for arr in self.D_VV, self.D_VK, self.D_KK:
+                    if arr[i].min() == 0.:
+                        z = (arr[i] == 0.)
+                        arr[i,z] = 0.1 * arr[i,~z].min()
+                    elif arr[i].max() == 0.:
+                        z = (arr[i] == 0.)
+                        arr[i,z] = 0.1 * arr[i,~z].max()
+
+            # Further patch to enforce positive definiteness
+
+            ratio = self.D_VV * self.D_KK / self.D_VK**2
+            bad = (ratio <= 1)
+            ratio[bad] = 1. / ratio[~bad].min()
+            ratio[~bad] = 1.
+            self.D_VK *= ratio
 
         return self
 
