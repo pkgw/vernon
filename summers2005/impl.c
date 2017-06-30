@@ -19,6 +19,7 @@ typedef enum result_t {
     RESULT_LAMBDA_FAILED = 1,
     RESULT_X_FAILED = 2,
     RESULT_GSL_ERROR = 3,
+    RESULT_HIT_CRITICAL_POINT = 4,
 } result_t;
 
 
@@ -226,8 +227,16 @@ apply_latitude(double latitude, state_t *state)
 
         state->Q[i] = 1 - x * state->mu / (y * state->beta);
 
-        double k = pow((x - state->p.x_m) / state->p.delta_x, 2);
-        state->R[i] = state->p.R * fabs(F) * exp(-k) / (state->p.delta_x * fabs(state->beta * state->mu - F));
+        double k0 = pow((x - state->p.x_m) / state->p.delta_x, 2);
+        double k1 = fabs(state->beta * state->mu - F);
+
+        if (k1 < 1e-5) {
+            snprintf(global_err_msg, COUNT(global_err_msg), "hit a critical point (%f, %f, %f)",
+                     state->sin_alpha, x, y);
+            return RESULT_HIT_CRITICAL_POINT;
+        }
+
+        state->R[i] = state->p.R * fabs(F) * exp(-k0) / (state->p.delta_x * k1);
 
         if (!isfinite(state->R[i]))
             summers2005_debug_hook();
