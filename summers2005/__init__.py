@@ -117,11 +117,11 @@ def summers05_figure_1():
     return vb
 
 
-def shprits06_figure_1():
+def shprits06_figure_1(kev=300):
     import omega as om
 
     alpha_star = 0.16 # = 2.5**-2
-    E = 300. / 511 # 0.3 MeV = 300 keV normalized by 511 keV
+    E = kev / 511 # normalized to 511 keV
     x_m = 0.35
     delta_x = 0.15
     B_wave = 0.1 # nT
@@ -139,7 +139,7 @@ def shprits06_figure_1():
 
     R = 1.9e-8
 
-    degrees = np.linspace(10., 80, 100)
+    degrees = np.linspace(2, 87, 100)
     sinas = np.sin(degrees * np.pi / 180)
     Daa = compute(E, sinas, Omega_e, alpha_star, R, x_m, delta_x, 'R', p_scaled=True)[0]
 

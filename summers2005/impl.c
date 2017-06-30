@@ -128,9 +128,9 @@ apply_latitude(double latitude, state_t *state)
 
     state->latitude = latitude;
 
-    double ccl = sin(latitude); /* cos of colatitude = sin of latitude */
     double scl = cos(latitude); /* sin of colatitude = cos of latitude */
-    double r = sqrt(1 + 3 * ccl*ccl) / pow(scl, 6); /* B(lam) / B_eq */
+    double r = sqrt(4 - 3 * scl * scl) / pow(scl, 6); /* B(lam) / B_eq */
+
     state->Omega_e = state->p.Omega_e * r;
     state->sin_alpha = state->p.sin_alpha * sqrt(r);
     state->mu = sqrt(1 - state->sin_alpha * state->sin_alpha); /* cos(alpha) */
@@ -165,15 +165,29 @@ apply_latitude(double latitude, state_t *state)
     }
 
     for (i = 0; i < 4; i++) {
-        if (z[2*i + 1] == 0. && z[2*i] > 0) {
-            state->x[state->n_xy] = z[2*i];
-            state->y[state->n_xy] = (state->x[state->n_xy] + state->a) / (state->beta * state->mu);
-            state->n_xy++;
-        }
+        if (z[2*i + 1] != 0.) /* Imaginary root? */
+            continue;
+
+        double x = z[2*i];
+
+        if (x < 0) /* Non-physical root? */
+            continue;
+
+        if (x < 0.05 || x > 0.65) /* TEMP out of waveband? */
+            continue;
+
+        double y = (x + state->a) / (state->beta * state->mu);
+
+        if (y > 0) /* TEMP ~"wave propagating in forward direction"? */
+            continue;
+
+        state->x[state->n_xy] = x;
+        state->y[state->n_xy] = y;
+        state->n_xy++;
     }
 
-    if (state->n_xy < 1 || state->n_xy > 3) {
-        snprintf(global_err_msg, COUNT(global_err_msg), "expect 1 to 3 X/Y solutions; got %d", state->n_xy);
+    if (state->n_xy > 3) {
+        snprintf(global_err_msg, COUNT(global_err_msg), "expect 0 to 3 X/Y solutions; got %d", state->n_xy);
         return RESULT_X_FAILED;
     }
 
@@ -351,6 +365,21 @@ calc_coefficients(parameters_t *params, coefficients_t *coeffs)
         snprintf(global_err_msg, COUNT(global_err_msg), "failed to compute lambda_m");
         return RESULT_LAMBDA_FAILED;
     }
+
+    /* It can happen that lambda_m is just a tiiiiiny bit too large such that
+     * when we compute the sine of the pitch angle at lambda_m, we get
+     * something bigger than one. Witness our beautiful workaround.
+     */
+
+    double cos_lat = cos(lambda_m);
+
+    if (sqrt(4 - 3 * cos_lat * cos_lat) / (pow(cos_lat, 6) * state.p.sin_alpha * state.p.sin_alpha) > 1.)
+        lambda_m -= 1e-7;
+
+    /* TEMP lat limit of 15 degrees*/
+
+    if (lambda_m > 0.2618)
+        lambda_m = 0.2618;
 
     /* Pre-compute quantities that do not depend on lambda. When lambda
      * changes, B and alpha change. Consequently Omega_e changes too. In our
