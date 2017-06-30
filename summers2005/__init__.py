@@ -204,10 +204,10 @@ def summarize():
 
     alpha_star = 0.16
     x_m = 0.35
-    delta_x = 0.15
+    delta_x = 0.20
     R = 8.5e-8
     Omega_e = 59941 # = 2 * np.pi * 9540
-    max_wave_lat = 15 * np.pi / 180
+    max_wave_lat = 30 * np.pi / 180
 
     degrees = np.linspace(0.1, 89.9, 100)
     sinas = np.sin(degrees * np.pi / 180)
@@ -221,7 +221,9 @@ def summarize():
 
     for kev in 100, 1000, 10000:
         E = kev / 511. # normalized to mc^2 = 511 keV
-        Daa, Dap, Dpp = compute(E, sinas, Omega_e, alpha_star, R, x_m, delta_x, max_wave_lat, 'R', p_scaled=True)
+        Daa, Dap, Dpp = compute(E, sinas, Omega_e, alpha_star, R, x_m, delta_x,
+                                max_wave_lat, 'R', wave_filtering='f', p_scaled=True,
+                                parallel=False)
         Dap = np.abs(Dap)
 
         cmin = min(Daa.min(), Dap.min(), Dpp.min())
