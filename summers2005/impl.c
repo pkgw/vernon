@@ -110,6 +110,8 @@ static gsl_poly_complex_workspace *poly5_workspace = NULL;
 static gsl_poly_complex_workspace *poly7_workspace = NULL;
 
 const size_t INTEG_WS_SIZE = 512;
+const double integ_abs_tol = 0.0;
+const double integ_rel_tol = 1e-6;
 
 
 const int lambda = -1; /* signifies that we're looking at electrons */
@@ -422,8 +424,8 @@ calc_coefficients(parameters_t *params, coefficients_t *coeffs)
         &integrand,
         0., /* lower limit */
         lambda_m, /* upper limit */
-        0., /* absolute error tolerance; zero means "don't apply" */
-        1e-6, /* relative error tolerance */
+        integ_abs_tol,
+        integ_rel_tol,
         INTEG_WS_SIZE, /* allocated workspace size */
         GSL_INTEG_GAUSS51, /* integration rule */
         integ_workspace, /* workspace */
@@ -450,8 +452,8 @@ calc_coefficients(parameters_t *params, coefficients_t *coeffs)
         &integrand,
         0., /* lower limit */
         lambda_m, /* upper limit */
-        0., /* absolute error tolerance; zero means "don't apply" */
-        1e-6, /* relative error tolerance */
+        integ_abs_tol,
+        integ_rel_tol,
         INTEG_WS_SIZE, /* allocated workspace size */
         GSL_INTEG_GAUSS51, /* integration rule */
         integ_workspace, /* workspace */
@@ -478,8 +480,8 @@ calc_coefficients(parameters_t *params, coefficients_t *coeffs)
         &integrand,
         0., /* lower limit */
         lambda_m, /* upper limit */
-        0., /* absolute error tolerance; zero means "don't apply" */
-        1e-6, /* relative error tolerance */
+        integ_abs_tol,
+        integ_rel_tol,
         INTEG_WS_SIZE, /* allocated workspace size */
         GSL_INTEG_GAUSS51, /* integration rule */
         integ_workspace, /* workspace */
