@@ -307,6 +307,7 @@ class DolfinCoordinates(object):
         if saved_pa_coefficients is not None:
             with_pa = True
             self._current_pa_coeffs = saved_pa_coefficients
+            patchup = True
         elif self.num.sample_pa_coefficients is None:
             with_pa = False
         else:
@@ -328,12 +329,33 @@ class DolfinCoordinates(object):
 
             for i in range(self.D_VV.shape[0]):
                 for arr in self.D_VV, self.D_VK, self.D_KK:
-                    if arr[i].min() == 0.:
-                        z = (arr[i] == 0.)
-                        arr[i,z] = 0.1 * arr[i,~z].min()
-                    elif arr[i].max() == 0.:
-                        z = (arr[i] == 0.)
-                        arr[i,z] = 0.1 * arr[i,~z].max()
+                    rect = self.vk_to_rect(arr[i])
+
+                    neg = (rect.min() < 0)
+                    if neg:
+                        rect = -rect
+
+                    for j in range(rect.shape[0]):
+                        z = (rect[j] == 0.)
+                        n = z.sum()
+
+                        if n:
+                            if n < rect.shape[1]:
+                                rect[j,z] = 0.9 * rect[j,~z].min()
+                            else:
+                                # Son of a ... this entire row is blanked!
+                                # We're going to hope that the first two rows
+                                # aren't zero'd in this plane.
+                                if j > 0:
+                                    k = j - 1
+                                else:
+                                    k = j + 1
+                                rect[j] = 0.9 * rect[k,rect[k] > 0].min()
+
+                    if neg:
+                        rect = -rect
+
+                    arr[i] = self.rect_to_vk(rect)
 
             # Further patch to enforce positive definiteness
 
