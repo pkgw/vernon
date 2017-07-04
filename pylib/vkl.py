@@ -886,7 +886,7 @@ class ThreeDCoordinates(object):
         # loss cone once again makes it so that y <~ 0.02 is not attainable,
         # but the numerics don't blow up here the way they do for `r`.
 
-        ny = nk // 2
+        ny = nk // 4
         ys = np.linspace(0., 1., ny)
 
         # Energies. The highest energies on the grid are often unpopulated so
