@@ -617,6 +617,220 @@ class DolfinCoordinates(object):
         return C_VK
 
 
+class ThreeDCoordinates(object):
+    def __init__(self, sym, num, fam, deg):
+        # Step 1. Basic coordinate properties.
+
+        self.sym = sym
+        self.num = num
+
+        self.scalar_element = se = d.FiniteElement('P', num.vkl_mesh.ufl_cell(), 2)
+        self.vector_element = ve = d.VectorElement('P', num.vkl_mesh.ufl_cell(), 2)
+        self.tensor_element = te = d.TensorElement('P', num.vkl_mesh.ufl_cell(), 2)
+        self.scalar_space = ss = d.FunctionSpace(num.vkl_mesh, se)
+        self.vector_space = vs = d.FunctionSpace(num.vkl_mesh, ve)
+        self.tensor_space = ts = d.FunctionSpace(num.vkl_mesh, te)
+
+        logvc, khatc, lc = ss.tabulate_dof_coordinates().reshape((-1, 3)).T
+        self.logv_coords, self.khat_coords, self.l_coords = logvc, khatc, lc
+        self.cube_shape = lc.shape
+
+        # Computing numbers
+
+        logv = logvc
+        khat = khatc
+        l = lc
+
+        Yony = -khat**5 * np.sqrt(l) / (num.R_E * np.sqrt(num.B0))
+        y, alpha = numerical_invert_Yony(Yony)
+        self.y = y
+        self.alpha_deg = alpha * 180 / np.pi
+
+        sym_args = (
+            sym.logV, sym.Khat, sym.L, sym.y,
+            sym.Cg, sym.m0, sym.B0, sym.R_E, sym.c_squared
+        )
+        lit_args = (
+            logv, khat, l, y,
+            num.Cg, num.m0, num.B0, num.R_E, num.c_squared
+        )
+
+        def compute(f, with_pa=False):
+            eff_sym_args = sym_args
+            eff_lit_args = lit_args
+
+            if with_pa:
+                eff_sym_args += (sym.Daa, sym.Dap, sym.Dpa, sym.Dpp)
+                eff_lit_args += self._current_pa_coeffs
+
+            return sympy.lambdify(eff_sym_args, f, 'numpy')(*eff_lit_args)
+
+        self.compute = compute
+
+        # Useful quantities.
+
+        from pwkit.cgs import evpererg
+        self.Ekin_mev = compute(sym.Ekin) * evpererg * 1e-6
+
+
+    def do_to_cube(self):
+        nv = self.num.nv * self.scalar_element.degree() + 1
+        nk = self.num.nk * self.scalar_element.degree() + 1
+        nl = self.num.nl * self.scalar_element.degree() + 1
+
+        self.logv_coords_unique = np.unique(self.logv_coords)
+        assert self.logv_coords_unique.shape == (nv,)
+
+        self.khat_coords_unique = np.unique(self.khat_coords)
+        assert self.khat_coords_unique.shape == (nk,)
+
+        self.l_coords_unique = np.unique(self.l_coords)
+        assert self.l_coords_unique.shape == (nl,)
+
+        logv_unpack = np.searchsorted(self.logv_coords_unique, self.logv_coords)
+        khat_unpack = np.searchsorted(self.khat_coords_unique, self.khat_coords)
+        l_unpack = np.searchsorted(self.l_coords_unique, self.l_coords)
+
+        self._to_cube_data = (l_unpack, khat_unpack, logv_unpack)
+        self._3d_cube_shape = (nl, nk, nv)
+        return self
+
+
+    def to_cube(self, data):
+        assert data.shape == self.l_coords.shape
+        buf = np.empty(self._3d_cube_shape)
+        buf[self._to_cube_data] = data
+        return buf
+
+
+    def from_cube(self, data):
+        assert data.shape == self._3d_cube_shape
+        buf = np.empty(self.khat_coords.shape)
+        buf = data[self._to_cube_data]
+        return buf
+
+
+    def do_dvk(self, saved_pa_coefficients=None):
+        patchup = False
+
+        if saved_pa_coefficients is not None:
+            with_pa = True
+            self._current_pa_coeffs = saved_pa_coefficients
+            patchup = True
+        elif self.num.sample_pa_coefficients is None:
+            with_pa = False
+        else:
+            with_pa = True
+            B = self.compute(self.sym.B)
+            daa, dap, dpp = self.num.sample_pa_coefficients(self.Ekin_mev, self.alpha_deg, B)
+            self._current_pa_coeffs = (daa, dap, dap, dpp)
+            patchup = True
+
+        self.D_VV = self.compute(self.sym.D_VV, with_pa)
+        self.D_VK = self.compute(self.sym.D_VK, with_pa)
+        self.D_KK = self.compute(self.sym.D_KK, with_pa)
+
+        if patchup:
+            # Patch up the arrays to not contain any zeros, since they seem to
+            # make the solver freak out. Note that we do this here since sometimes
+            # the zeros can come from our transformation expressions, not the
+            # underlying daa/dap/dpp returned from the Summers equations.
+
+            coeffs = [self.D_VV, self.D_VK, self.D_KK]
+
+            for i_dterm in range(3):
+                cube = self.to_cube(coeffs[i_dterm])
+
+                neg = (cube.min() < 0)
+                if neg:
+                    cube = -cube
+                    assert cube.min() >= 0
+
+                z = (cube == 0.)
+                n = z.sum(axis=-1) # sum along V axis; n.shape = (nl, nk)
+
+                for i in range(n.shape[0]):
+                    for j in range(n.shape[1]):
+                        if n[i,j] == 0:
+                            pass # no zeros in this V pencil
+                        elif n[i,j] != cube.shape[2]:
+                            # There are some zeros and some non-zeros.
+                            cube[i,j,z[i,j]] = 0.9 * cube[i,j,~z[i,j]].min()
+                        else:
+                            # Son of a ... this entire pencil is blanked!
+                            # We're going to hope that the first two pencils
+                            # aren't zero'd in the V/K plane.
+                            if j > 0:
+                                k = j - 1
+                            else:
+                                k = j + 1
+                            f = cube[i,k,~z[i,k]].min()
+                            assert f > 0
+                            cube[i,j] = 0.9 * f
+
+                if neg:
+                    cube = -cube
+
+                coeffs[i_dterm] = self.from_cube(cube)
+
+            self.D_VV, self.D_VK, self.D_KK = coeffs
+
+            # Further patch to enforce positive definiteness
+
+            ratio = self.D_VV * self.D_KK / self.D_VK**2
+            bad = (ratio <= 1)
+            ratio[bad] = 1. / ratio[~bad].min()
+            ratio[~bad] = 1.
+            self.D_VK *= ratio
+
+        return self
+
+
+    def do_dll(self):
+        self.D_LL = self.compute(self.sym.D_LL)
+        return self
+
+
+    def do_source_term(self):
+        """Based on SS12 equations 13 and 14, plus clamping to zero at the V and K
+        boundaries.
+
+        TODO: not quite sure how normalization "should" be set
+
+        """
+        norm = 1e-10 # ???
+
+        i_lsource = -2 # XXXX!!! evil hardcoding
+        l_unique = np.unique(self.l_coords)
+        is_source_l = (self.l_coords == l_unique[i_lsource])
+
+        Ek = self.Ekin_mev
+
+        # The numerics on opposite sides of alpha = 90 are such that we get a
+        # source term that's only exactly zero on one side of the loss cone.
+        alpha = self.alpha_deg * np.pi / 180
+        alpha_limit = 5 * np.pi / 180
+        alpha = np.clip(alpha, alpha_limit, np.pi - alpha_limit)
+        pa_term = np.sin(alpha) - np.sin(alpha_limit)
+        pa_term[alpha <= alpha_limit] = 0
+        pa_term[alpha >= (np.pi - alpha_limit)] = 0
+
+        mc2 = self.num.m0 * self.num.c_squared
+        p_squared = ((Ek + mc2)**2 - mc2**2) / self.num.c_squared
+        source = is_source_l * norm * np.exp(-10 * (Ek - 0.2)) * pa_term / p_squared
+
+        source[self.khat_coords == self.num.khatmin] = 0.
+        source[self.khat_coords == self.num.khatmax] = 0.
+        source[self.logv_coords == self.num.logvmin] = 0.
+        source[self.logv_coords == self.num.logvmax] = 0.
+        source[self.l_coords == self.num.lmin] = 0.
+        source[self.l_coords == self.num.lmax] = 0.
+
+        self.source_term = source
+        return self
+
+
+
 class Numerical(object):
     sample_pa_coefficients = None
 
@@ -627,9 +841,9 @@ class Numerical(object):
         self.R_E = R_E
         self.c_squared = c_squared
 
-        self.nv = 60
-        self.nk = 61 # NB: keep odd to avoid blowups with y = 0!
-        self.nl = 12
+        self.nv = 40
+        self.nk = 45 # NB: keep odd to avoid blowups with y = 0!
+        self.nl = 8
 
         self.lmin = 1.1
         self.lmax = 7.0
@@ -650,6 +864,17 @@ class Numerical(object):
         self.l_mesh = d.IntervalMesh(self.nl, self.lmin, self.lmax)
 
         self.l_boundary = OneDWallExpression(degree=0).configure(0., self.lmax)
+
+
+    def do_3d(self, sym, saved_ccube_pa=None):
+        self.vkl_mesh = d.BoxMesh(
+            d.Point(self.logvmin, self.khatmin, self.lmin),
+            d.Point(self.logvmax, self.khatmax, self.lmax),
+            self.nv, self.nk, self.nl
+        )
+        self.ccube = ThreeDCoordinates(sym, self, 'P', 1)
+        self.ccube.do_to_cube().do_dvk(saved_ccube_pa).do_dll().do_source_term()
+        return self
 
 
     def summers_pa_coefficients(self, alpha_star, R, x_m, delta_x, max_wave_lat):
@@ -880,6 +1105,43 @@ class Numerical(object):
             dest_dfdK_11[i_l] = self.c21.vk_downsample(s_sigma[:,1])
 
         return dest_f_11, dest_dfdV_11, dest_dfdK_11
+
+
+    def solve_3d(self, vkscale=1., lscale=1., sscale=1.):
+        """This approach only works for small grids since the memory requirements
+        rapidly become prohibitive. (nl, nk, nv) = (8, 45, 40) is just barely
+        doable on my laptop. If the memory is available, computation time is
+        not significant.
+
+        """
+        gridding = self.ccube
+
+        D = d.Function(gridding.tensor_space) # diffusion tensor
+        Q = d.Function(gridding.scalar_space) # source term
+        u = d.TrialFunction(gridding.scalar_space) # u is my 'f'
+        v = d.TestFunction(gridding.scalar_space)
+        soln = d.Function(gridding.scalar_space)
+
+        a = d.dot(d.dot(D, d.grad(u)), d.grad(v)) * d.dx
+        L = Q * v * d.dx
+        equation = (a == L)
+        soln = d.Function(gridding.scalar_space)
+
+        bc = d.DirichletBC(gridding.scalar_space, d.Constant(0), direct_boundary)
+
+        dbuf = np.zeros(D.vector().size()).reshape((-1, 3, 3))
+        dbuf[:,0,0] = gridding.D_VV * vkscale
+        dbuf[:,1,0] = gridding.D_VK * vkscale
+        dbuf[:,0,1] = gridding.D_VK * vkscale
+        dbuf[:,1,1] = gridding.D_KK * vkscale
+        dbuf[:,2,2] = gridding.D_LL * lscale
+        D.vector()[:] = dbuf.reshape((-1,))
+
+        Q.vector()[:] = gridding.source_term * sscale
+
+        d.solve(equation, soln, bc)
+
+        return gridding.to_cube(soln.vector().array())
 
 
     def iterate(self, initial_C_VK, n):
