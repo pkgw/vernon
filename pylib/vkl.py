@@ -475,6 +475,18 @@ class DolfinCoordinates(object):
         return buf
 
 
+    def rect_to_vk(self, data):
+        """Map from the packed VK axis to a 2D rectangle in sorted (khat, logv)
+        coordinates.
+
+        (Note: khat ~ pitch angle ~ Y axis, logv ~ energy ~ X axis.)
+
+        """
+        buf = np.empty(self.khat_coords.shape)
+        buf = data[self.vk_to_rect_data]
+        return buf
+
+
     def view_vk(self, data, log=False, abs=False, **kwargs):
         from pwkit.ndshow_gtk3 import view
 
