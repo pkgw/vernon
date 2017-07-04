@@ -373,26 +373,30 @@ class DolfinCoordinates(object):
         return self
 
 
-    def do_bcs(self):
-        """Outer L boundary condition. SS12 equations 13 and 14, plus clamping to zero
-        at the V and K boundaries.
+    def do_source_term(self):
+        """Based on SS12 equations 13 and 14, plus clamping to zero at the V and K
+        boundaries.
+
+        TODO: not quite sure how normalization "should" be set
 
         """
-        i_lmax = np.argmax(self.l_coords)
-        Ek = self.Ekin_mev[i_lmax]
-        alpha = np.clip(self.alpha_deg[i_lmax], 5, 175)
+        norm = 1e-10 # ???
+
+        self.i_lmax = 2 # XXX evil hardcoding
+        Ek = self.Ekin_mev[self.i_lmax]
+        alpha = np.clip(self.alpha_deg[self.i_lmax], 4, 176)
 
         C = np.pi / 180
         mc2 = self.num.m0 * self.num.c_squared
         p_squared = ((Ek + mc2)**2 - mc2**2) / self.num.c_squared
-        bc = self.num.f_Lmax_norm * np.exp(-10 * (Ek - 0.2)) * (np.sin(C*alpha) - np.sin(C*5)) / p_squared
+        source = norm * np.exp(-10 * (Ek - 0.2)) * (np.sin(C*alpha) - np.sin(C*4)) / p_squared
 
-        bc[self.khat_coords == self.num.khatmin] = 0.
-        bc[self.khat_coords == self.num.khatmax] = 0.
-        bc[self.logv_coords == self.num.logvmin] = 0.
-        bc[self.logv_coords == self.num.logvmax] = 0.
+        source[self.khat_coords == self.num.khatmin] = 0.
+        source[self.khat_coords == self.num.khatmax] = 0.
+        source[self.logv_coords == self.num.logvmin] = 0.
+        source[self.logv_coords == self.num.logvmax] = 0.
 
-        self.bc_lmax = bc
+        self.source_term = source
         return self
 
 
@@ -623,10 +627,6 @@ class Numerical(object):
         self.R_E = R_E
         self.c_squared = c_squared
 
-        # TEMP: things that should become parameters
-        self.f_Lmax_norm = 1e-20
-        # END TEMP
-
         self.nv = 60
         self.nk = 61 # NB: keep odd to avoid blowups with y = 0!
         self.nl = 12
@@ -672,13 +672,13 @@ class Numerical(object):
 
     def fill_matrices(self, sym, saved_c11_pa=None, saved_c21_pa=None):
         self.c11 = DolfinCoordinates(sym, self, 'P', 1, 'P', 1)
-        self.c11.do_dll().do_dvk(saved_c11_pa).do_bcs().do_vk_to_rect()
+        self.c11.do_vk_to_rect().do_dll().do_dvk(saved_c11_pa).do_source_term()
 
         self.c12 = DolfinCoordinates(sym, self, 'P', 1, 'P', 2)
         self.c12.do_dll().do_l_downsample(self.c11)
 
         self.c21 = DolfinCoordinates(sym, self, 'P', 2, 'P', 1)
-        self.c21.do_dvk(saved_c21_pa).do_vk_to_rect().do_vk_downsample(self.c11)
+        self.c21.do_vk_to_rect().do_dvk(saved_c21_pa).do_vk_downsample(self.c11)
 
         return self
 
@@ -699,7 +699,7 @@ class Numerical(object):
         tau, v = d.TestFunctions(W)
         soln = d.Function(W)
 
-        bc = [d.DirichletBC(W.sub(1), self.l_boundary, direct_boundary)]
+        bc = [d.DirichletBC(W.sub(1), d.Constant(0), direct_boundary)]
 
         a = (u * tau.dx(0) + d.dot(sigma, tau) + D * sigma * v.dx(0)) * d.dx
         L = C_VK * v * d.dx
@@ -711,8 +711,7 @@ class Numerical(object):
         D.vector()[:] = ddata
 
         C_VK.vector()[:] = C_VK_data
-
-        self.l_boundary.kwall = self.c11.bc_lmax[i_vk]
+        C_VK.vector()[self.i_lmax] += self.c11.source_term[:,i_vk]
 
         d.solve(equation, soln, bc)
 
@@ -746,7 +745,7 @@ class Numerical(object):
         tau, v = d.TestFunctions(W)
         soln = d.Function(W)
 
-        bc = [d.DirichletBC(W.sub(1), self.l_boundary, direct_boundary)]
+        bc = [d.DirichletBC(W.sub(1), d.Constant(0), direct_boundary)]
 
         a = (u * tau.dx(0) + d.dot(sigma, tau) + D * sigma * v.dx(0)) * d.dx
         L = C_VK * v * d.dx
@@ -764,9 +763,8 @@ class Numerical(object):
             D.vector()[:] = buf12
 
             buf11[:] = C_VK_data[:,i_vk]
+            buf11[self.i_lmax] += self.c11.source_term
             C_VK.vector()[:] = buf11
-
-            self.l_boundary.kwall = self.c11.bc_lmax[i_vk]
 
             d.solve(equation, soln, bc)
             s_sigma, s_u = soln.split(deepcopy=True)
@@ -809,7 +807,10 @@ class Numerical(object):
         dbuf[:,1,1] = self.c21.D_KK[i_l]
         D.vector()[:] = dbuf.reshape((-1,))
 
-        C_L.vector()[:] = C_L_data
+        if i_l == self.i_lmax:
+            C_L.vector()[:] = C_L_data + self.c11.source_term
+        else:
+            C_L.vector()[:] = C_L_data
 
         d.solve(equation, soln, bc)
 
@@ -866,7 +867,10 @@ class Numerical(object):
             dbuf[:,1,1] = self.c21.D_KK[i_l]
             D.vector()[:] = dbuf.reshape((-1,))
 
-            C_L.vector()[:] = C_L_data[i_l]
+            if i_l == self.i_lmax:
+                C_L.vector()[:] = C_L_data[i_l] + self.c11.source_term
+            else:
+                C_L.vector()[:] = C_L_data[i_l]
 
             d.solve(equation, soln, bc)
             s_sigma, s_u = soln.split(deepcopy=True)
