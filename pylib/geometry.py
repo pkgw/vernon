@@ -9,6 +9,8 @@ ray-tracing thereof.
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import numpy as np
+import six
+from six.moves import range
 from pwkit import astutil, cgs
 from pwkit.astutil import halfpi, twopi
 from pwkit.numutil import broadcastize
@@ -977,7 +979,7 @@ class ImageMaker(object):
     yhalfsize = 7
 
     def __init__(self, **kwargs):
-        for k, v in kwargs.iteritems():
+        for k, v in six.iteritems(kwargs):
             setattr(self, k, v)
 
 
@@ -987,8 +989,8 @@ class ImageMaker(object):
         n_out = 6 if extras else 4
         data = np.zeros((n_out, self.ny, self.nx))
 
-        for iy in xrange(self.ny):
-            for ix in xrange(self.nx):
+        for iy in range(self.ny):
+            for ix in range(self.nx):
                 if printiter:
                     print(ix, iy, xvals[ix], yvals[iy])
                 data[:,iy,ix] = self.setup.trace_one(xvals[ix], yvals[iy], extras=extras, **kwargs)
@@ -1001,8 +1003,8 @@ class ImageMaker(object):
         yvals = np.linspace(-self.yhalfsize, self.yhalfsize, self.ny)
         data = np.zeros((self.ny, self.nx))
 
-        for iy in xrange(self.ny):
-            for ix in xrange(self.nx):
+        for iy in range(self.ny):
+            for ix in range(self.nx):
                 data[iy,ix] = self.setup.total_ne_for_ray(xvals[ix], yvals[iy], **kwargs)
 
         return data
@@ -1013,8 +1015,8 @@ class ImageMaker(object):
         yvals = np.linspace(-self.yhalfsize, self.yhalfsize, self.ny)
         data = np.zeros((self.ny, self.nx))
 
-        for iy in xrange(self.ny):
-            for ix in xrange(self.nx):
+        for iy in range(self.ny):
+            for ix in range(self.nx):
                 data[iy,ix] = self.setup.optical_depth_for_ray(xvals[ix], yvals[iy], **kwargs)
 
         return data
