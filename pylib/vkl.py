@@ -830,6 +830,41 @@ class ThreeDCoordinates(object):
         return self
 
 
+    def solve(self, vkscale=1., lscale=1., sscale=1.):
+        """This approach only works for small grids since the memory requirements
+        rapidly become prohibitive. (nl, nk, nv) = (8, 45, 40) is just barely
+        doable on my laptop. If the memory is available, computation time is
+        not significant.
+
+        """
+        D = d.Function(self.tensor_space) # diffusion tensor
+        Q = d.Function(self.scalar_space) # source term
+        u = d.TrialFunction(self.scalar_space) # u is my 'f'
+        v = d.TestFunction(self.scalar_space)
+        soln = d.Function(self.scalar_space)
+
+        a = d.dot(d.dot(D, d.grad(u)), d.grad(v)) * d.dx
+        L = Q * v * d.dx
+        equation = (a == L)
+        soln = d.Function(self.scalar_space)
+
+        bc = d.DirichletBC(self.scalar_space, d.Constant(0), direct_boundary)
+
+        dbuf = np.zeros(D.vector().size()).reshape((-1, 3, 3))
+        dbuf[:,0,0] = self.D_VV * vkscale
+        dbuf[:,1,0] = self.D_VK * vkscale
+        dbuf[:,0,1] = self.D_VK * vkscale
+        dbuf[:,1,1] = self.D_KK * vkscale
+        dbuf[:,2,2] = self.D_LL * lscale
+        D.vector()[:] = dbuf.reshape((-1,))
+
+        Q.vector()[:] = self.source_term * sscale
+
+        d.solve(equation, soln, bc)
+
+        return self.to_cube(soln.vector().array())
+
+
 
 class Numerical(object):
     sample_pa_coefficients = None
@@ -1105,43 +1140,6 @@ class Numerical(object):
             dest_dfdK_11[i_l] = self.c21.vk_downsample(s_sigma[:,1])
 
         return dest_f_11, dest_dfdV_11, dest_dfdK_11
-
-
-    def solve_3d(self, vkscale=1., lscale=1., sscale=1.):
-        """This approach only works for small grids since the memory requirements
-        rapidly become prohibitive. (nl, nk, nv) = (8, 45, 40) is just barely
-        doable on my laptop. If the memory is available, computation time is
-        not significant.
-
-        """
-        gridding = self.ccube
-
-        D = d.Function(gridding.tensor_space) # diffusion tensor
-        Q = d.Function(gridding.scalar_space) # source term
-        u = d.TrialFunction(gridding.scalar_space) # u is my 'f'
-        v = d.TestFunction(gridding.scalar_space)
-        soln = d.Function(gridding.scalar_space)
-
-        a = d.dot(d.dot(D, d.grad(u)), d.grad(v)) * d.dx
-        L = Q * v * d.dx
-        equation = (a == L)
-        soln = d.Function(gridding.scalar_space)
-
-        bc = d.DirichletBC(gridding.scalar_space, d.Constant(0), direct_boundary)
-
-        dbuf = np.zeros(D.vector().size()).reshape((-1, 3, 3))
-        dbuf[:,0,0] = gridding.D_VV * vkscale
-        dbuf[:,1,0] = gridding.D_VK * vkscale
-        dbuf[:,0,1] = gridding.D_VK * vkscale
-        dbuf[:,1,1] = gridding.D_KK * vkscale
-        dbuf[:,2,2] = gridding.D_LL * lscale
-        D.vector()[:] = dbuf.reshape((-1,))
-
-        Q.vector()[:] = gridding.source_term * sscale
-
-        d.solve(equation, soln, bc)
-
-        return gridding.to_cube(soln.vector().array())
 
 
     def iterate(self, initial_C_VK, n):
