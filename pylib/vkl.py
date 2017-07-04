@@ -11,7 +11,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import numpy as np
 import dolfin as d
-from six.moves import range
+from six.moves import range, zip
 import sympy
 from pwkit import astutil, cgs
 from pwkit.numutil import broadcastize
@@ -864,6 +864,96 @@ class ThreeDCoordinates(object):
 
         return self.to_cube(soln.vector().array())
 
+
+    def to_particles(self, f_cube):
+        from .particles import ParticleDistribution
+
+        Ek_cube = self.to_cube(self.Ekin_mev)
+        y_cube = self.to_cube(self.y)
+
+        nl, nk, nv = self._3d_cube_shape
+
+        # Latitudes traversed by the particles. Because we have a loss cone,
+        # large latitudes are not attainable. The limit scales pretty
+        # strongly: for a conservative loss cone that only includes alpha < 1
+        # degree, the maximum attainable latitude is < 74 degrees. (See
+        # Shprits [2006], equation 10.).
+
+        nlat = nk // 2
+        lats = np.linspace(0, 75 * np.pi / 180, nlat)
+
+        # Similar to above for `y = sin(alpha)` traversed by particles. The
+        # loss cone once again makes it so that y <~ 0.02 is not attainable,
+        # but the numerics don't blow up here the way they do for `r`.
+
+        ny = nk // 2
+        ys = np.linspace(0., 1., ny)
+
+        # Energies. The highest energies on the grid are often unpopulated so
+        # we set the bounds here dynamically.
+
+        E_any = Ek_cube[f_cube > 0]
+
+        ne = nv // 2
+        emin = E_any.min()
+        emax = E_any.max()
+        energies = np.linspace(emin, emax, ne)
+
+        # `r**2` is the ratio of the magnetic field strength at latitude `lat`
+        # to the strength at `lat = 0`. By conservation of the invariant `mu ~
+        # B(lat) / sin^2(alpha(lat))`, we can use `r` to determine how pitch
+        # angle varies with magnetic latitude for a given bouncing particle.
+
+        cl = np.cos(lats)
+        r = np.sqrt(np.sqrt(4 - 3 * cl**2) / cl**6)
+
+        # Figure out how we'll interpolate each particle onto the energy grid.
+        # Energy is conserved over a bounce so we just split the contribution
+        # between two adjacent energy cells in standard fashion.
+
+        xe_cube = (Ek_cube - emin) / (emax - emin) * (ne - 1)
+        fe_cube = np.floor(xe_cube).astype(np.int)
+        re_cube = xe_cube - fe_cube
+
+        w = (fe_cube == ne - 1) # patch up to interpolate correctly at emax
+        fe_cube[w] = ne - 2
+        re_cube[w] = 1.
+
+        # The big loop.
+
+        mapped = np.zeros((nl, nlat, ny, ne))
+
+        for i_l in range(nl):
+            bigiter = zip(f_cube[i_l].flat, y_cube[i_l].flat, fe_cube[i_l].flat, re_cube[i_l].flat)
+
+            for f, y, fe, re in bigiter:
+                if f <= 0:
+                    continue
+
+                bounce_ys = y * r
+                max_lat_idx = np.searchsorted(bounce_ys, 1)
+                max_lat_idx = np.maximum(max_lat_idx, 1) # hack for `y = 1` precisely
+                assert np.all(max_lat_idx < nlat)
+                norm = 1. / max_lat_idx
+
+                # Figure out how to interpolate each `y` value onto its grid
+
+                xy_bounce = bounce_ys[:max_lat_idx] * (ny - 1)
+                fy_bounce = np.floor(xy_bounce).astype(np.int)
+                ry_bounce = xy_bounce - fy_bounce
+
+                w = (fy_bounce == ny - 1)
+                fy_bounce[w] = ny - 2
+                ry_bounce[w] = 1.
+
+                # Ready to go.
+
+                mapped[i_l,:max_lat_idx,fy_bounce  ,fe  ] += norm * (1 - ry_bounce) * (1 - re) * f
+                mapped[i_l,:max_lat_idx,fy_bounce  ,fe+1] += norm * (1 - ry_bounce) * re * f
+                mapped[i_l,:max_lat_idx,fy_bounce+1,fe  ] += norm * ry_bounce * (1 - re) * f
+                mapped[i_l,:max_lat_idx,fy_bounce+1,fe+1] += norm * ry_bounce * re * f
+
+        return ParticleDistribution(np.unique(self.l_coords), lats, ys, energies, mapped)
 
 
 class Numerical(object):
