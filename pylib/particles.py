@@ -10,6 +10,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import io
 import numpy as np
+from pwkit import cgs
 from six.moves import range
 
 
@@ -25,12 +26,13 @@ class ParticleDistribution(object):
     "The number of grid elements in the sin(pitch-angle) direction"
 
     ne = None
-    "The numebr of grid elements in the energy direction."
+    "The number of grid elements in the energy direction."
 
     L = None
-    """The coordinate values in the L direction. L is dimensionless
-    but is measured in units of the body's radius."""
+    """The coordinate values in the L direction. L is dimensionless but
+    effectively measures distance in units of the body's radius.
 
+    """
     lat = None
     """The coordinate values in the latitude direction, measured in radians.
     Latitudes from zero to pi/2 radians; the distribution is assumed to be
@@ -102,3 +104,28 @@ class ParticleDistribution(object):
             distrib = np.load(f)
 
         return cls(L, lat, y, E, distrib)
+
+
+    @property
+    def cosxi(self):
+        """The coordinate values of the `y` axis translated into the `cos(xi)`
+        coordinate system used by Symphony and various synchrotron formalisms.
+        `y = sin(xi)` so the transformation is simple.
+
+        `cos(xi)` is sometimes called `x` in the radiation-belt literature.
+
+        """
+        return np.sqrt(1 - self.y**2)
+
+
+    @property
+    def gamma(self):
+        """The coordinate values of the `Ekin` axis translatted into gammas, that
+        is, Lorentz factors. This is an affine transform of the `Ekin` axis:
+
+          gamma = 1 + Ekin / E0
+
+        """
+        Ekin = self.Ekin_mev * 1e6 * cgs.ergperev
+        mc2 = cgs.me * cgs.c**2
+        return 1 + Ekin / mc2
