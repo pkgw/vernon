@@ -400,6 +400,11 @@ class DolfinCoordinates(object):
         return self
 
 
+    def get_nu_cyc_ghz(self):
+        B = self.compute(self.sym.B)
+        return cgs.e * B / (2 * np.pi * cgs.me * cgs.c) * 1e-9
+
+
     def do_l_downsample(self, other):
         """Set up this system to be able to quickly downsample its measurements
         into a less-populated gridding of the L coordinate system.
@@ -708,6 +713,11 @@ class ThreeDCoordinates(object):
         buf = np.empty(self.khat_coords.shape)
         buf = data[self._to_cube_data]
         return buf
+
+
+    def get_nu_cyc_ghz(self):
+        B = self.compute(self.sym.B)
+        return cgs.e * B / (2 * np.pi * cgs.me * cgs.c) * 1e-9
 
 
     def do_dvk(self, saved_pa_coefficients=None):
