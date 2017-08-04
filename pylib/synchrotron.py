@@ -165,15 +165,14 @@ class NeuroSynchrotronCalculator (SynchrotronCalculator):
     of the Symphony results, with Faraday coefficients from grtrans.
 
     """
-    def __init__(self, model_dir=None):
+    def __init__(self, nn_dir=None):
         import symphony.neuro
 
-        if model_dir is None:
+        if nn_dir is None:
             import os.path
-            model_dir = os.path.dirname(symphony.__file__)
+            nn_dir = os.path.join(os.path.dirname(symphony.__file__), 'nn_powerlaw')
 
-        dr = symphony.neuro.DomainRange.from_config()
-        self.apsy = symphony.neuro.ApproximateSymphony(dr, model_dir)
+        self.apsy = symphony.neuro.ApproximateSymphony(nn_dir)
         self.faraday = GrtransSynchrotronCalculator()
 
     def _get_coeffs_inner (self, nu, B, n_e, theta, p):

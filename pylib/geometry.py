@@ -1025,7 +1025,9 @@ def basic_setup(
         p = 3.,
         r1 = 5,
         r2 = 2,
-        radius = 1.1):
+        radius = 1.1,
+        nn_dir = None
+):
     """Create and return a fairly basic VanAllenSetup object. Defaults to using
     TiltedDipoleField, SimpleTorusDistribution, NeuroSynchrotronCalculator.
 
@@ -1049,6 +1051,9 @@ def basic_setup(
       Minor radius of electron torus, in body radii.
     radius
       The body's radius, in Jupiter radii.
+    nn_dir
+      The directory with the neural-network data used to generate synchrotron
+      radiative transfer coefficients.
 
     """
     # Unit conversions:
@@ -1065,7 +1070,7 @@ def basic_setup(
     rad_trans = GrtransRTIntegrator()
 
     from .synchrotron import NeuroSynchrotronCalculator
-    synch_calc = NeuroSynchrotronCalculator()
+    synch_calc = NeuroSynchrotronCalculator(nn_dir=nn_dir)
 
     return VanAllenSetup(o2b, bfield, distrib, ray_tracer, synch_calc,
                          rad_trans, radius, nu)
