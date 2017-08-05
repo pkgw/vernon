@@ -111,9 +111,9 @@ class ModelBuilder(object):
     coefficients, etc. But for now let's just get it working.
 
     """
-    def __init__(self, *, Cg=None, radius=None):
-        """Cg and radius are the key variables that relate the V/K/L coordinates to
-        the other physical quantities (radius appears in the Jacobian, G).
+    def __init__(self, *, Cg=None):
+        """Cg is a key variable that relates the V/K/L coordinates to the other
+        physical quantities.
 
         """
         self.constants = {}
@@ -124,8 +124,6 @@ class ModelBuilder(object):
 
         self.Cg = sympy.var('Cg')
         self.constants[self.Cg] = float(Cg)
-        self.radius = sympy.var('radius')
-        self.constants[self.radius] = float(radius)
 
         self.K = sympy.Abs(self.Ksigned)
         self.mu = self.V / (self.K + self.Cg)**2
@@ -145,9 +143,11 @@ class ModelBuilder(object):
         self.GD_LL = None
 
 
-    def dipole(self, *, B0=None):
+    def dipole(self, *, B0=None, radius=None):
         self.B0 = sympy.var('B0')
         self.constants[self.B0] = float(B0)
+        self.radius = sympy.var('radius')
+        self.constants[self.radius] = float(radius)
         self.B = self.B0 * self.L**-3
         self.dPhi_dL = -2 * sympy.pi * self.B0 * self.radius**2 * self.L**-2
         return self
