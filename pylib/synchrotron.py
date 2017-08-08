@@ -5,14 +5,14 @@
 """Computing synchrotron radiative transfer coefficients.
 
 """
-from __future__ import absolute_import, division, print_function, unicode_literals
+from __future__ import absolute_import, division, print_function
 
-__all__ = str('''
+__all__ = '''
 SynchrotronCalculator
 GrtransSynchrotronCalculator
 SymphonySynchrotronCalculator
 NeuroSynchrotronCalculator
-''').split()
+'''.split()
 
 
 import numpy as np
@@ -23,7 +23,7 @@ from pwkit.numutil import broadcastize
 DEFAULT_GAMMA_MIN = 1.
 DEFAULT_GAMMA_MAX = 1000.
 
-class SynchrotronCalculator (object):
+class SynchrotronCalculator(object):
     """Compute synchrotron coefficients.
 
     """
@@ -31,7 +31,7 @@ class SynchrotronCalculator (object):
     gamma_max = DEFAULT_GAMMA_MAX
 
     @broadcastize(5, ret_spec=(None, None, None))
-    def get_coeffs (self, nu, B, n_e, theta, p, psi):
+    def get_coeffs(self, nu, B, n_e, theta, p, psi):
         """Arguments:
 
         nu
@@ -103,17 +103,17 @@ class SynchrotronCalculator (object):
         return result
 
 
-class GrtransSynchrotronCalculator (SynchrotronCalculator):
+class GrtransSynchrotronCalculator(SynchrotronCalculator):
     """Compute synchrotron coefficients using the `grtrans` code.
 
     """
-    def _get_coeffs_inner (self, nu, B, n_e, theta, p):
+    def _get_coeffs_inner(self, nu, B, n_e, theta, p):
         from grtrans import calc_powerlaw_synchrotron_coefficients as cpsc
-        chunk = cpsc (nu, B, n_e, theta, p, self.gamma_min, self.gamma_max)
+        chunk = cpsc(nu, B, n_e, theta, p, self.gamma_min, self.gamma_max)
         return chunk[...,:4], chunk[...,4:8], chunk[...,8:]
 
 
-class SymphonySynchrotronCalculator (SynchrotronCalculator):
+class SymphonySynchrotronCalculator(SynchrotronCalculator):
     """Compute synchrotron coefficients using the `symphony` code.
 
     Symphony doesn't calculate Faraday coefficients for us. If
@@ -124,7 +124,7 @@ class SymphonySynchrotronCalculator (SynchrotronCalculator):
     approximate = False
     faraday_calculator = None
 
-    def _get_coeffs_inner (self, nu, B, n_e, theta, p):
+    def _get_coeffs_inner(self, nu, B, n_e, theta, p):
         from symphony import compute_all_nontrivial as can
 
         j = np.empty(nu.shape + (4,))
@@ -160,7 +160,7 @@ class SymphonySynchrotronCalculator (SynchrotronCalculator):
         return j, alpha, rho
 
 
-class NeuroSynchrotronCalculator (SynchrotronCalculator):
+class NeuroSynchrotronCalculator(SynchrotronCalculator):
     """Compute synchrotron coefficients using my neural network approximation
     of the Symphony results, with Faraday coefficients from grtrans.
 
@@ -175,7 +175,7 @@ class NeuroSynchrotronCalculator (SynchrotronCalculator):
         self.apsy = symphony.neuro.ApproximateSymphony(nn_dir)
         self.faraday = GrtransSynchrotronCalculator()
 
-    def _get_coeffs_inner (self, nu, B, n_e, theta, p):
+    def _get_coeffs_inner(self, nu, B, n_e, theta, p):
         nontriv = self.apsy.compute_all_nontrivial(nu, B, n_e, theta, p)
 
         # We need to calculate all of the values with grtrans anyway, so we
