@@ -35,8 +35,8 @@ class ParticleDistribution(object):
     """
     lat = None
     """The coordinate values in the latitude direction, measured in radians.
-    Latitudes from zero to pi/2 radians; the distribution is assumed to be
-    symmetric in the forward and backward directions.
+    Latitudes range from zero to pi/2 radians; the distribution is assumed to
+    be symmetric in the forward and backward directions.
 
     """
     y = None
@@ -120,7 +120,7 @@ class ParticleDistribution(object):
 
     @property
     def gamma(self):
-        """The coordinate values of the `Ekin` axis translatted into gammas, that
+        """The coordinate values of the `Ekin` axis translated into gammas, that
         is, Lorentz factors. This is an affine transform of the `Ekin` axis:
 
           gamma = 1 + Ekin / E0
