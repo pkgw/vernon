@@ -891,6 +891,136 @@ class GrtransRTIntegrator(object):
         return iquv[:,-1]
 
 
+class Ray(object):
+    """Data regarding a ray that's traced through the simulation volume.
+
+    Attributes:
+
+    alpha
+      Array of shape (n, 4), where n is the number of sampled steps along the ray.
+      The absorption coefficients for Stokes IQUV, in cm^-1.
+    B
+      Vector of magnetic field strengths along the ray, in Gauss.
+    j
+      Array of shape (n, 4), where n is the number of sampled steps along the ray.
+      The emission coefficients for Stokes IQUV, in erg/s/Hz/sr/cm^3.
+    n_e
+      Vector of energetic electron densities along the ray, in cm^-3.
+    p
+      Vector of energetic electron power law indices along the ray.
+    psi
+      Vector of angles between the linear polarization axis and the observer's
+      *y* axis, in radians.
+    rho
+      Array of shape (n, 3), where n is the number of sampled steps along the ray.
+      The Faraday mixing coefficients. I think the units are cm^-1 but am not
+      sure.
+    s
+      Vector of displacements along the ray, measured in cm and starting at zero,
+      unless `zeropoint_s` was `False` in the constructor.
+    setup
+      The `VanAllenSetup` object with which this ray is associated.
+    theta
+      Vector of angles between the magnetic field and the line of sight, in radians.
+    x
+      The x coordinate where this ray emerges in the observer's frame, in units
+      of the body's radius. The x axis is perpendicular to the body's rotation axis.
+    y
+      The y coordinate where this ray emerges in the observer's frame, in
+      units of the body's radius. The body's inclination angle is relative to
+      the y axis.
+
+    """
+    alpha = None
+    B = None
+    j = None
+    n_e = None
+    p = None
+    psi = None
+    rho = None
+    s = None
+    setup = None
+    theta = None
+    x = None
+    y = None
+
+    def __init__(self, setup, x, y, zeropoint_s=True):
+        self.setup = setup
+        self.x = x
+        self.y = y
+        self.s, self.B, self.n_e, self.theta, self.p, self.psi = \
+            setup.ray_tracer.calc_ray_params(x, y, setup, zeropoint_s)
+
+
+    @property
+    def alpha_deg(self):
+        return self.alpha * astutil.R2D
+
+
+    def ensure_rt_coeffs(self):
+        if self.j is None:
+            self.j, self.alpha, self.rho = self.setup.synch_calc.get_coeffs(
+                self.setup.nu, self.B, self.n_e, self.theta, self.p, self.psi
+            )
+        return self
+
+
+    def trace(self, extras=False, integrate_j_times_B=False):
+        """Compute the radiation intensity at the end of this ray.
+
+        If `extras` is False, returns an array of shape (4,) giving the
+        resulting Stoke IQUV intensities in erg / (s Hz sr cm^2).
+
+        If `extras` is True, the array has shape (6,). `retval[4]` is the
+        Stokes I optical depth integrated along the ray and `retval[5]` is the
+        total electron column along the ray.
+
+        If `integrate_j_times_B` is True, the emission coefficients (*j*) are
+        multiplied by the magnetic field strength (*B*). This setting is
+        useful if you want to determine the average strength of the magnetic
+        field in the regions where the emission is coming from: you can
+        calculate this integral, then divide by the value that you obtain with
+        `integrate_j_times_B` set to False. I *think* that calculation gives
+        you what I'm intending ...
+
+        """
+        self.ensure_rt_coeffs()
+
+        if integrate_j_times_B:
+            j = self.j
+        else:
+            j = self.j * self.B.reshape((-1, 1))
+
+        if not extras:
+            return self.setup.rad_trans.integrate(self.s, j, self.alpha, self.rho)
+        else:
+            from scipy.integrate import trapz
+
+            rv = np.empty((6,))
+            rv[:4] = self.setup.rad_trans.integrate(self.s, j, self.alpha, self.rho)
+            rv[4] = trapz(self.alpha[:,0], self.s)
+            rv[5] = trapz(self.n_e, self.s)
+            return rv
+
+
+    def sigma_e(self):
+        """Integrate the electron density along this ray to yield an electron column
+        density in cm^-2.
+
+        """
+        from scipy.integrate import trapz
+        return trapz(self.n_e, self.s)
+
+
+    def optical_depth():
+        """Integrate the Stokes I absorption coefficient along this ray to yield
+        its optical depth.
+
+        """
+        from scipy.integrate import trapz
+        return trapz(self.alpha[:,0], self.s)
+
+
 class VanAllenSetup(object):
     """Object holding the whole simulation setup.
 
@@ -928,91 +1058,8 @@ class VanAllenSetup(object):
         self.nu = nu
 
 
-    def trace_one(self, x, y, extras=False, integrate_j_times_B=False):
-        """Trace a ray starting at the specified 2D observer coordinates.
-
-        If `extras` is False, returns an array of shape (4,) giving the
-        resulting Stoke IQUV intensities in erg / (s Hz sr cm^2).
-
-        If `extras` is True, the array has shape (6,). `retval[4]` is the
-        Stokes I optical depth integrated along the ray and `retval[5]` is the
-        total electron column along the ray.
-
-        x and y are the origin of the ray in units of the body's radius.
-
-        If `integrate_j_times_B` is True, the emission coefficients (*j*) are
-        multiplied by the magnetic field strength (*B*). This setting is
-        useful if you want to determine the average strength of the magnetic
-        field in the regions where the emission is coming from: you can
-        calculate this integral, then divide by the value that you obtain with
-        `integrate_j_times_B` set to False. I *think* that calculation gives
-        you what I'm intending ...
-
-        """
-        s, B, n_e, theta, p, psi = self.ray_tracer.calc_ray_params(x, y, self)
-        j, alpha, rho = self.synch_calc.get_coeffs(self.nu, B, n_e, theta, p, psi)
-
-        if integrate_j_times_B:
-            j *= B.reshape((-1, 1))
-
-        if not extras:
-            return self.rad_trans.integrate(s, j, alpha, rho)
-        else:
-            from scipy.integrate import trapz
-
-            rv = np.empty((6,))
-            rv[:4] = self.rad_trans.integrate(s, j, alpha, rho)
-            rv[4] = trapz(alpha[:,0], s)
-            rv[5] = trapz(n_e, s)
-            return rv
-
-
-    def coeffs_for_one(self, x, y):
-        """Diagnostic routine: calculate the various parameters that go into the
-        radiative transfor solution for a particular ray.
-
-        x and y are the origin of the ray in units of the body's radius.
-
-        """
-        from pwkit import Holder
-        s, B, n_e, theta, p, psi = self.ray_tracer.calc_ray_params(x, y, self, zeropoint_s=False)
-        j, alpha, rho = self.synch_calc.get_coeffs(self.nu, B, n_e, theta, p, psi)
-        return Holder(
-            s = s / self.radius,
-            B = B,
-            n_e = n_e,
-            theta = theta * astutil.R2D,
-            p = p,
-            j = j,
-            alpha = alpha,
-            rho = rho,
-        )
-
-
-    def total_ne_for_ray(self, x, y):
-        """A diagnostic function. Sum up the electron density, following a ray
-        starting at the specified 2D observer coordinates.
-
-        x and y are the origin of the ray in units of the body's radius.
-
-        """
-        s, B, n_e, theta, p, psi = self.ray_tracer.calc_ray_params(x, y, self)
-        return trapz(n_e, s)
-
-
-    def optical_depth_for_ray(self, x, y):
-        """Trace a ray starting at the specified 2D observer coordinates and compute
-        the optical depth in Stokes I of the electrons along the line of
-        sight.
-
-        x and y are the origin of the ray in units of the body's radius.
-
-        """
-        s, B, n_e, theta, p, psi = self.ray_tracer.calc_ray_params(x, y, self)
-        j, alpha, rho = self.synch_calc.get_coeffs(self.nu, B, n_e, theta, p, psi)
-
-        from scipy.integrate import trapz
-        return trapz(alpha[:,0], s)
+    def get_ray(self, x, y, **kwargs):
+        return Ray(self, x, y, **kwargs)
 
 
 def basic_setup(
@@ -1098,19 +1145,21 @@ class ImageMaker(object):
             for ix in range(self.nx):
                 if printiter:
                     print(ix, iy, xvals[ix], yvals[iy])
-                data[:,iy,ix] = self.setup.trace_one(xvals[ix], yvals[iy], extras=extras, **kwargs)
+                ray = self.setup.get_ray(xvals[ix], yvals[iy])
+                data[:,iy,ix] = ray.trace(extras=extras, **kwargs)
 
         return data
 
 
-    def compute_total_ne(self, **kwargs):
+    def compute_sigma_e(self, **kwargs):
         xvals = np.linspace(-self.xhalfsize, self.xhalfsize, self.nx)
         yvals = np.linspace(-self.yhalfsize, self.yhalfsize, self.ny)
         data = np.zeros((self.ny, self.nx))
 
         for iy in range(self.ny):
             for ix in range(self.nx):
-                data[iy,ix] = self.setup.total_ne_for_ray(xvals[ix], yvals[iy], **kwargs)
+                ray = self.setup.get_ray(xvals[ix], yvals[iy], **kwargs)
+                data[iy,ix] = ray.sigma_e()
 
         return data
 
@@ -1122,7 +1171,8 @@ class ImageMaker(object):
 
         for iy in range(self.ny):
             for ix in range(self.nx):
-                data[iy,ix] = self.setup.optical_depth_for_ray(xvals[ix], yvals[iy], **kwargs)
+                ray = self.setup.get_ray(xvals[ix], yvals[iy], **kwargs)
+                data[iy,ix] = ray.optical_depth()
 
         return data
 
@@ -1134,9 +1184,9 @@ class ImageMaker(object):
         return x, y
 
 
-    def raytrace_one_pixel(self, ix, iy, **kwargs):
+    def get_ray(self, ix, iy, **kwargs):
         x, y = self.map_pixel(ix, iy)
-        return self.setup.trace_one(x, y, **kwargs)
+        return self.setup.get_ray(x, y, **kwargs)
 
 
     def view(self, data, **kwargs):
