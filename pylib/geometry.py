@@ -760,8 +760,8 @@ class BasicRayTracer(object):
     nsamps = 300
     "Number of points to sample along the ray."
 
-    def calc_ray_params(self, x, y, setup, zeropoint_s=True):
-        """Figure out the limits of the integration that we need to perform.
+    def create_ray(self, x, y, setup):
+        """Create and initialize a Ray object to trace a particular ray path.
 
         x
           The horizontal position, in units of the body's radius. The x axis
@@ -772,14 +772,7 @@ class BasicRayTracer(object):
         setup
           A VanAllenSetup instance.
 
-        Returns: (s, B, n_e, theta, p, psi), with the usual definitions. The
-        output s is a vector of displacements along the ray, measured in cm
-        and starting at 0, unless `zeropoint_s` is False. `psi` is the angle
-        between the x/y-projected B field and the y axis, needed to put the
-        linear Stokes RT coefficients into a common observer frame.
-
-        TODO: we could go back to having an 'i0' output giving the initial
-        intensity (now in IQUV) at the ray start.
+        Returns: an initialized Ray class.
 
         """
         if x**2 + y**2 <= 1:
@@ -808,16 +801,7 @@ class BasicRayTracer(object):
 
         if not np.any(nesamps > self.ne0_cutoff):
             # Doesn't seem like we have any particles along this line of sight!
-            s = np.linspace(z0, z1, 2) * setup.radius
-            if zeropoint_s:
-                s -= s.min()
-
-            b = np.zeros(2)
-            theta = np.zeros(2)
-            n_e = np.zeros(2)
-            p = np.zeros(2)
-            psi = np.zeros(2)
-            return s, b, theta, n_e, p, psi
+            return Ray(x, y, np.linspace(z0, z1, 2), setup, zeros=True)
 
         if nesamps[0] < self.ne0_cutoff:
             # The current starting point, z0, does not contain any particles.
@@ -843,23 +827,10 @@ class BasicRayTracer(object):
                 raise RuntimeError('could not find suitable ending point: %r %r %r'
                                    % (z1, zstart, info))
 
-        # OK, we have good bounds. For now we just sample the ray idiotically:
+        # OK, we have good bounds. For now we just sample the ray idiotically,
+        # always with a fixed number of samples.
 
-        z = np.linspace(z0, z1, self.nsamps)
-        s = z * setup.radius
-        if zeropoint_s:
-            s -= s.min()
-
-        bc = setup.o2b(x, y, z)
-        bhat = setup.bfield.bhat(*bc)
-        theta = setup.o2b.theta_zhat(x, y, z, *bhat)
-        bmag = setup.bfield.bmag(*bc)
-        psi = setup.o2b.theta_yhat_projected(x, y, z, *bhat)
-
-        mc = setup.bfield(*bc)
-        n_e, p = setup.distrib.get_samples(*mc)
-
-        return s, bmag, n_e, theta, p, psi
+        return Ray(x, y, np.linspace(z0, z1, self.nsamps), setup)
 
 
 class GrtransRTIntegrator(object):
@@ -901,9 +872,18 @@ class Ray(object):
       The absorption coefficients for Stokes IQUV, in cm^-1.
     B
       Vector of magnetic field strengths along the ray, in Gauss.
+    bc
+      A 3-tuple of (lat, lon, r), the coordinates along the ray path in the
+      body-centric coordinate system. *lat* and *lon* are in radians, and *r*
+      is measured in units of the body's radius.
     j
       Array of shape (n, 4), where n is the number of sampled steps along the ray.
       The emission coefficients for Stokes IQUV, in erg/s/Hz/sr/cm^3.
+    mc
+      A 3-tuple of (mlat, mlon, L), the coordinates along the ray path in the
+      magnetic-field coordinate system. *mlat* and *mlon* are in radians, and *L*
+      is the McIlwain L parameter essentially measured in units of the body's
+      radius.
     n_e
       Vector of energetic electron densities along the ray, in cm^-3.
     p
@@ -916,8 +896,7 @@ class Ray(object):
       The Faraday mixing coefficients. I think the units are cm^-1 but am not
       sure.
     s
-      Vector of displacements along the ray, measured in cm and starting at zero,
-      unless `zeropoint_s` was `False` in the constructor.
+      Vector of displacements along the ray, measured in cm and starting at zero.
     setup
       The `VanAllenSetup` object with which this ray is associated.
     theta
@@ -929,11 +908,15 @@ class Ray(object):
       The y coordinate where this ray emerges in the observer's frame, in
       units of the body's radius. The body's inclination angle is relative to
       the y axis.
+    z
+      The z coordinates along this ray's path, in units of the body's radius.
 
     """
     alpha = None
     B = None
+    bc = None
     j = None
+    mc = None
     n_e = None
     p = None
     psi = None
@@ -943,19 +926,80 @@ class Ray(object):
     theta = None
     x = None
     y = None
+    z = None
 
-    def __init__(self, setup, x, y, zeropoint_s=True):
+    def __init__(self, x, y, z, setup, zeros=False):
         self.setup = setup
         self.x = x
         self.y = y
-        self.s, self.B, self.n_e, self.theta, self.p, self.psi = \
-            setup.ray_tracer.calc_ray_params(x, y, setup, zeropoint_s)
+        self.z = z
+
+        self.s = (z - z.min()) * setup.radius
+        self.bc = setup.o2b(x, y, z)
+        self.mc = setup.bfield(*self.bc)
+
+        if zeros:
+            self.theta = np.zeros(self.z.size)
+            self.B = np.zeros(self.z.size)
+            self.psi = np.zeros(self.z.size)
+            self.n_e = np.zeros(self.z.size)
+            self.p = np.zeros(self.z.size)
+        else:
+            bhat = setup.bfield.bhat(*self.bc)
+            self.theta = setup.o2b.theta_zhat(x, y, z, *bhat)
+            self.B = setup.bfield.bmag(*self.bc)
+            self.psi = setup.o2b.theta_yhat_projected(x, y, z, *bhat)
+            self.n_e, self.p = setup.distrib.get_samples(*self.mc)
 
 
-    @property
-    def alpha_deg(self):
-        return self.alpha * astutil.R2D
+    def nu_cyc(self):
+        """Return an array giving the local cyclotron frequency along the ray path.
+        The frequency is measured in Hz.
 
+        Note that this number is calculated for the electron rest mass. For
+        relativistic particles, the cyclotron frequency differs since the
+        relativistic particle mass is scaled by the Lorentz factor γ.
+
+        """
+        return cgs.e * self.B / (2 * np.pi * cgs.me * cgs.c)
+
+
+    def harmonic_number(self):
+        """Return an array giving the harmonic number being probed along the
+        ray path. This is the ratio of the observing frequency to the cyclotron
+        frequency as it varies with the field strength.
+
+        """
+        return self.setup.nu / self.nu_cyc()
+
+
+    def gamma_ref(self):
+        """Return an array giving the reference Lorentz factor for the electrons that
+        might contribute the most to emission along the ray path.
+
+        This is just an approximate value that is hopefuly a useful
+        diagnostic. As per Rybicki and Lightman Figure 6.6, the peak
+        synchrotron contribution is at nu ~= 0.29 nu_synch. As per their
+        equations 6.11, nu_synch = 3/2 gamma**3 nu_cyclo sin(α). Therefore the
+        relevant gamma value is about the cube root of the harmonic number.
+        For these purposes we set sin(α) = 0.5.
+
+        """
+        s = self.harmonic_number()
+        ref_sin_alpha = 0.5
+        return np.cbrt(2 * s / (0.29 * 3 * ref_sin_alpha))
+
+
+    def L(self):
+        """Return an array giving the McIlwain L parameter along the ray path.
+
+        L is dimensionless.
+
+        """
+        return self.mc[2]
+
+
+    # Integrating along the ray
 
     def ensure_rt_coeffs(self):
         if self.j is None:
@@ -1012,7 +1056,7 @@ class Ray(object):
         return trapz(self.n_e, self.s)
 
 
-    def optical_depth():
+    def optical_depth(self):
         """Integrate the Stokes I absorption coefficient along this ray to yield
         its optical depth.
 
@@ -1058,8 +1102,8 @@ class VanAllenSetup(object):
         self.nu = nu
 
 
-    def get_ray(self, x, y, **kwargs):
-        return Ray(self, x, y, **kwargs)
+    def get_ray(self, x, y):
+        return self.ray_tracer.create_ray(x, y, self)
 
 
 def basic_setup(
