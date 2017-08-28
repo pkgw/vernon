@@ -999,6 +999,25 @@ class Ray(object):
         return self.mc[2]
 
 
+    def refractive_indices(self, n_e_thermal, gamma):
+        from .plasma import Parameters
+        p = Parameters.new_basic(
+            self.setup.nu * 1e-9,
+            n_e_thermal,
+            self.B,
+            gamma
+        )
+        return p.refractive_index(self.theta)
+
+
+    def mode_frac_delta_lambda(self, n_e_thermal, gamma):
+        from .plasma import wavelength
+        wlens = wavelength(self.refractive_indices(n_e_thermal, gamma),  self.setup.nu * 2 * np.pi)
+        lam_fast = wlens[:,0]
+        lam_slow = wlens[:,1]
+        return (lam_fast - lam_slow) / (lam_fast + lam_slow)
+
+
     # Integrating along the ray
 
     def ensure_rt_coeffs(self):
