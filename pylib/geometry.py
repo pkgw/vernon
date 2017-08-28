@@ -1179,44 +1179,30 @@ class ImageMaker(object):
             setattr(self, k, v)
 
 
-    def compute(self, printiter=False, extras=False, **kwargs):
+    def compute(self, **kwargs):
+        return self.image_ray_func(lambda r: r.trace(**kwargs))
+
+
+    def image_ray_func(self, func, printiter=False):
         xvals = np.linspace(-self.xhalfsize, self.xhalfsize, self.nx)
         yvals = np.linspace(-self.yhalfsize, self.yhalfsize, self.ny)
-        n_out = 6 if extras else 4
-        data = np.zeros((n_out, self.ny, self.nx))
+        data = None
 
         for iy in range(self.ny):
             for ix in range(self.nx):
                 if printiter:
                     print(ix, iy, xvals[ix], yvals[iy])
+
                 ray = self.setup.get_ray(xvals[ix], yvals[iy])
-                data[:,iy,ix] = ray.trace(extras=extras, **kwargs)
+                value = func(ray)
 
-        return data
+                if data is None:
+                    v_shape = np.shape(value)
+                    if v_shape == ():
+                        v_shape = (1,)
+                    data = np.zeros(v_shape + (self.ny, self.nx))
 
-
-    def compute_sigma_e(self, **kwargs):
-        xvals = np.linspace(-self.xhalfsize, self.xhalfsize, self.nx)
-        yvals = np.linspace(-self.yhalfsize, self.yhalfsize, self.ny)
-        data = np.zeros((self.ny, self.nx))
-
-        for iy in range(self.ny):
-            for ix in range(self.nx):
-                ray = self.setup.get_ray(xvals[ix], yvals[iy], **kwargs)
-                data[iy,ix] = ray.sigma_e()
-
-        return data
-
-
-    def compute_optical_depth(self, **kwargs):
-        xvals = np.linspace(-self.xhalfsize, self.xhalfsize, self.nx)
-        yvals = np.linspace(-self.yhalfsize, self.yhalfsize, self.ny)
-        data = np.zeros((self.ny, self.nx))
-
-        for iy in range(self.ny):
-            for ix in range(self.nx):
-                ray = self.setup.get_ray(xvals[ix], yvals[iy], **kwargs)
-                data[iy,ix] = ray.optical_depth()
+                data[:,iy,ix] = value
 
         return data
 
