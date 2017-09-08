@@ -834,11 +834,22 @@ def demo_divine_figure_7l():
     f_ew_k = kappa_model.mfunc(E * 1e-6) * KM_IFY
     p.addXY(E, f_ew_k, 'Warm kappa')
 
+    # Cold electrons
+
+    N, kT_mev = cold_e_maxwellian_parameters(blat, blon, br)
+    print('DG83 cold N_0: 2070 cm^-3; mine: %.0f' % N)
+    print('DG83 cold kT: 36.1 eV; mine: %.1f' % (kT_mev * 1e6))
+    E = np.logspace(1., 3., 30) # eV
+    f_ec_k = cold_e_psd(blat, blon, br, E * 1e-6) * KM_IFY
+    p.addXY(E, f_ec_k, 'Cold')
+
     p.setBounds(1e1, 8e6, 1.2e-8, 9e6)
+    p.defaultKeyOverlay.hAlign = 0.9
     p.setLabels('Energy (eV)', 'Elec distrib func (s^3/km^6)')
     return p
 
 
+@broadcastize(4)
 def warm_e_diff_intensity(bc_lat, bc_lon, r, E, bfield, parallel=True):
     """Get the differential intensity of warm Jovian electrons.
 
@@ -874,3 +885,168 @@ def warm_e_diff_intensity(bc_lat, bc_lon, r, E, bfield, parallel=True):
     j = 8 * np.pi * E * 1e6 * cgs.ergperev / cgs.me**2 # cm^-2 s^-1 erg^-1
     j *= 1e6 * cgs.ergperev # => cm^-2 s^-1 MeV^-1
     return j / (4 * np.pi)
+
+
+_ce_r = np.array([3.8, 4.9, 5.1, 5.3, 5.5, 5.65, 5.8, 5.9,
+                  6.4, 7.4, 7.9, 10., 20., 60., 100., 170.])
+_ce_logN_data = np.array([1.55, 2.75, 2.91, 3.27, 2.88, 3.57, 3.31, 3.35,
+                          3.18, 2.78, 2.25, 1.48, 0.20, -2, -2, -3]) # log10(cm^-3)
+_ce_logkT_data = np.array([1.67, -0.31, -0.18, 0.37, 0.92, 1.15, 1.33, 1.54,
+                           1.63, 1.67, 1.75, 2.0, 2, 2, 2, 2,]) # log10(eV)
+_ce_logN = interpolate.interp1d(_ce_r, _ce_logN_data, bounds_error=True, assume_sorted=True)
+_ce_logkT = interpolate.interp1d(_ce_r, _ce_logkT_data, bounds_error=True, assume_sorted=True)
+
+
+@broadcastize(3,None)
+def cold_e_maxwellian_parameters(bc_lat, bc_lon, r):
+    """Compute the Maxwellian parameters of cold Jovian electrons.
+
+    bc_lat
+      The body-centric latitude(s) to model, in radians
+    bc_lon
+      The body-centric longitude(s) to model, in radians
+    r
+      The body-centric radius/radii to model, in units of the body's radius
+    return value
+      A tuple `(N, kT)`, where N is the reference cold electron number density
+      in cm^-3 and kT is the reference Maxwellian temperature in MeV.
+
+    `l` is the longitude, which must be negated in our coordinate system.
+    `lambda` is the latitude.
+
+    """
+    # Inner plasmasphere
+    N0 = 4.65
+    r0 = 7.68
+    H0 = 1.0
+    kT_ip = np.zeros_like(r) + 46 * 1e-6 # eV => MeV
+    tan_a = 0.123
+    l0 = -21 * astutil.D2R
+    lambda_c = tan_a * np.cos(-bc_lon - l0)
+    N_ip = N0 * np.exp(r0 / r - (r / H0 - 1)**2 * (bc_lat - lambda_c)**2)
+
+    # Cool torus
+    Ne = 10**_ce_logN(np.maximum(r, 3.8))
+    kT_ct = 10**_ce_logkT(np.maximum(r, 3.8)) * 1e-6 # eV => MeV
+    H0 = 0.2
+    E0 = 1e-6 # eV => MeV
+    H = H0 * (kT_ct / E0)**0.5
+    z0 = r * tan_a * np.cos(-bc_lon - l0)
+    N_ct = Ne * np.exp(-((r * bc_lat - z0) / H)**2)
+
+    # For electrons, warm torus is same as cool torus
+    kT_wt = kT_ct
+    N_wt = N_ct
+
+    # Inner disc
+    H = 1.82 - 0.041 * r
+    z0 = (7 * r - 16) / 30 * np.cos(-bc_lon - l0)
+    N_id = Ne * np.exp(-((r * bc_lat - z0) / H)**2)
+    E0 = 100 * 1e-6 # eV => MeV
+    E1 = 85 * 1e-6 # eV => MeV
+    kT_id = E0 - E1 * np.exp(-((r * bc_lat - z0) / H)**2)
+
+    # Outer disc
+    H = 1.0
+    tan_a = 0.19
+    r0 = 20
+    omega_over_VA = 0.9 * astutil.D2R # deg/rad per R_J
+    z0 = r0 * tan_a * np.cos(-bc_lon - l0 - omega_over_VA * (r - r0))
+    N_od = Ne * np.exp(-((r * bc_lat - z0) / H)**2)
+    kT_od = E0 - E1 * np.exp(-((r * bc_lat - z0) / H)**2)
+
+    # If, e.g., r[0] = 2, idx[0] = 0
+    # If, e.g., r[1] = 4, idx[1] = 1
+    # If, e.g., r[2] = 80, idx[2] = 4
+    idx = (r > 3.8).astype(np.int) + (r > 5.5) + (r > 7.9) + (r > 20)
+    N = np.choose(idx, [N_ip, N_ct, N_wt, N_id, N_od])
+    kT = np.choose(idx, [kT_ip, kT_ct, kT_wt, kT_id, kT_od])
+    return N, kT
+
+
+
+def demo_divine_figure_10():
+    """Note that the figure has broken x axes!
+
+    It's a bit of a hassle to try to reproduce the temperature lines going
+    through our functions, but the fundamental computation is pretty
+    straightforward. So we don't bother with the outer-disk temperature.
+
+    """
+    import omega as om
+
+    bc_lon = 0.0 # arbitrary since we choose lats to put us in the disk plane
+    r_A = np.linspace(1, 9.5, 100)
+    r_B = np.linspace(9.5, 95, 50)
+    r_C = np.linspace(95., 170, 30)
+
+    # We need to choose coordinates fairly precisely to stay in the disk
+    # midplane, which appears to be what DG83 plot.
+
+    l0 = -21 * astutil.D2R
+    tan_a = 0.123
+    bc_lat_A = np.zeros_like(r_A) + tan_a * np.cos(-bc_lon - l0)
+
+    tan_a = 0.19
+    r0 = 20.
+    oov = 0.9 * astutil.D2R
+    bc_lat_B = r0 / r_B * tan_a * np.cos(-bc_lon - l0 - oov * (r_B - r0))
+    bc_lat_C = r0 / r_C * tan_a * np.cos(-bc_lon - l0 - oov * (r_C - r0))
+
+    is_inner_A = (r_A >= 7.9)
+    bc_lat_A[is_inner_A] = (7 * r_A[is_inner_A] - 16) / 30 * np.cos(-bc_lon - l0) / r_A[is_inner_A]
+    is_inner_B = (r_B <= 20.)
+    bc_lat_B[is_inner_B] = (7 * r_B[is_inner_B] - 16) / 30 * np.cos(-bc_lon - l0) / r_B[is_inner_B]
+
+    N_A, kT_A = cold_e_maxwellian_parameters(bc_lat_A, bc_lon, r_A)
+    N_B, kT_B = cold_e_maxwellian_parameters(bc_lat_B, bc_lon, r_B)
+    N_C, kT_C = cold_e_maxwellian_parameters(bc_lat_C, bc_lon, r_C)
+
+    kT_A *= 1e6 # MeV => eV
+    kT_B *= 1e6
+    kT_C *= 1e6
+
+    hb = om.layout.HBox(3)
+    hb.setWeight(2, 0.5)
+
+    hb[0] = om.quickXY(r_A, N_A, 'n_e (cm^-3)')
+    hb[0].addXY(r_A, kT_A, 'kT (eV)')
+    hb[0].setLinLogAxes(False, True)
+    hb[0].setBounds(1, 9.5, 3e-4, 3e4)
+    hb[0].setYLabel('Density or temperature')
+
+    hb[1] = om.quickXY(r_B, N_B, None)
+    hb[1].addXY(r_B, kT_B, None)
+    hb[1].setLinLogAxes(False, True)
+    hb[1].setBounds(9.5, 95, 3e-4, 3e4)
+    hb[1].lpainter.paintLabels = False
+    hb[1].setXLabel('Jovicentric distance')
+
+    hb[2] = om.quickXY(r_C, N_C, None)
+    hb[2].addXY(r_C, kT_C, None)
+    hb[2].setLinLogAxes(False, True)
+    hb[2].setBounds(95, 170, 3e-4, 3e4)
+    hb[2].lpainter.paintLabels = False
+
+    return hb
+
+
+def cold_e_psd(bc_lat, bc_lon, r, E):
+    """Compute the velocity phase-space density of cold Jovian electrons.
+
+    bc_lat
+      The body-centric latitude(s) to model, in radians
+    bc_lon
+      The body-centric longitude(s) to model, in radians
+    r
+      The body-centric radius/radii to model, in units of the body's radius
+    E
+      The energy to model, in MeV
+    return value
+      The phase space density at the given energy, in s^3 cm^-6
+
+    """
+    N, kT_MeV = cold_e_maxwellian_parameters(bc_lat, bc_lon, r)
+    kT_cgs = kT_MeV * 1e6 * cgs.ergperev
+    prefactor = (cgs.me / (2 * np.pi * kT_cgs))**1.5
+    return N * prefactor * np.exp(-E / kT_MeV)
