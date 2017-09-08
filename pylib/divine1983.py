@@ -26,6 +26,60 @@ NT2G = 1e-5 # 1 nanotesla in Gauss
 R_JUP_DIVINE = 7.14e9 # cm
 
 
+@broadcastize(2)
+def compute_z0(bc_lon, r):
+    """Compute the position of the the local disk equator.
+
+    bc_lon
+      The body-centric longitude(s) to model, in radians
+    r
+      The body-centric radius/radii to model, in units of the body's radius
+    return value
+      "z0" parameter, in units of the body's radius.
+
+    The DG83 model includes a tilted disk that eventually starts shearing
+    relative to the planet's rotation. Various plots in the paper talk about
+    "equatorial" values that seem to generally means ones that intersect this
+    disk in its middle. z0 gives the vertical position of the disk midplane.
+
+    """
+    l0 = -21 * astutil.D2R
+    tan_a = 0.123
+    core_z0 = r * tan_a * np.cos(-bc_lon - l0)
+
+    inner_disk_z0 = (7 * r - 16) / 30 * np.cos(-bc_lon - l0)
+
+    r0 = 20.
+    tan_a = 0.19
+    omega_over_VA = 0.9 * astutil.D2R # deg/rad per R_J
+    outer_z0 = r0 * tan_a * np.cos(-bc_lon - l0 - omega_over_VA * (r - r0))
+
+    idx = (r > 7.9).astype(np.int) + (r > 20)
+    return np.choose(idx, (core_z0, inner_disk_z0, outer_z0))
+
+
+@broadcastize(2)
+def equatorial_latitude(bc_lon, r):
+    """Compute latitudes that correspond to the local disk equator.
+
+    bc_lon
+      The body-centric longitude(s) to model, in radians
+    r
+      The body-centric radius/radii to model, in units of the body's radius
+    return value
+      Body-centric latitude(s), in radians
+
+    The DG83 model includes a tilted disk that eventually starts shearing
+    relative to the planet's rotation. Various plots in the paper talk about
+    "equatorial" values that seem to generally means ones that intersect this
+    disk in its middle. Due to the way the equations are structured, the
+    easiest way to find coordinates that hit the disk equator is to compute a
+    latitude given a longitude and radius.
+
+    """
+    return compute_z0(bc_lon, r) / r
+
+
 class JupiterD4Field(object):
     """Transforms body-centric coordinates (lat, lon, r) into magnetic field
     coordinates (mlat, mlon, L), assuming the Jovian D4 field model as defined
@@ -41,7 +95,7 @@ class JupiterD4Field(object):
     offset_x = -0.0916 # RJ
     offset_y = -0.0416 # RJ
     offset_z = 0.0090 # RJ
-    moment = 4.255 # Gauss RJ^3
+    moment = 4.225 # Gauss RJ^3
     mag_longitude = -200.8 * astutil.D2R # west longitude
     mag_tilt = 10.77 * astutil.D2R
 
@@ -190,10 +244,12 @@ class JupiterD4Field(object):
         mlat, mlon, mr = self._to_dc(blat, blon, r)
         mag_dipole = np.abs(self.moment) * np.sqrt(1 + 3 * np.sin(mlat)**2) / mr**3
 
-        z0 = 20 * 0.19 * np.cos(-blon - 0.367 - 0.016 * (r - 20))
+        z0 = compute_z0(blon, r)
+        B0 = 0.00053 # Gauss
+        r0 = 20
         b = 1.6
         R = r * np.cos(blat)
-        mag_boost = 0.00053 * (1 - 0.5 * b * np.exp(-(r * blat - z0)**2)) * (20 / R)**b
+        mag_boost = B0 * (1 - 0.5 * b * np.exp(-(r * blat - z0)**2)) * (r0 / R)**b
         mag_boost[r < 20] = 0.
 
         return np.maximum(mag_dipole, mag_boost)
@@ -220,14 +276,15 @@ def B_cutoff(L):
 
 
 def demo_divine_figure_1():
+    """The outer radii in my plot do not resemble D&G's Figure 1, but the power laws
+    show that my values are scaling as intended. Therefore I guess that the figure is
+    just somewhat inaccurate.
+
+    """
     import omega as om
 
     L = np.logspace(np.log10(1.), np.log10(200), 100)
     d4 = JupiterD4Field()
-
-    # TODO: this doesn't get the field strength at large distance quite right.
-    # Can't figure out why; the paper underspecifies what's been calculated a
-    # bit, here.
 
     dc_lat = 0.
     dc_lon = 0.
@@ -239,8 +296,21 @@ def demo_divine_figure_1():
 
     bcut = B_cutoff(L) * G2NT
 
+    r0_inner = 1.
+    b0_inner = d4.bmag(0., 0., r0_inner) * G2NT
+    r_inner = np.logspace(0, 1, 5)
+    b_inner = b0_inner * (r_inner / r0_inner)**-3
+
+    r0_outer = 20.
+    b0_outer = d4.bmag(0., 0., r0_outer) * G2NT
+    r_outer = np.logspace(1, 2.5, 5)
+    b_outer = b0_outer * (r_outer / r0_outer)**-1.6
+
     p = om.quickXY(L, bmag, 'Eq field strength', xlog=True, ylog=True)
     p.addXY(L, bcut, 'B_cutoff')
+    p.addXY(r_inner, b_inner, 'r^-3')
+    p.addXY(r_outer, b_outer, 'r^-1.6')
+    p.defaultKeyOverlay.vAlign = 0.9
     p.setBounds(1, 200, 1, 2e6)
     p.setLabels('L or RJ', '|B| (nT)')
     return p
@@ -834,7 +904,13 @@ def demo_divine_figure_7l():
     f_ew_k = kappa_model.mfunc(E * 1e-6) * KM_IFY
     p.addXY(E, f_ew_k, 'Warm kappa')
 
-    # Cold electrons
+    # Cold electrons. The "2070 cm^-3" reported here seems to be the value for
+    # the interpolated "N" from Table 7, not the N_k value corrected for the
+    # fact that we're slightly off the disk. The figure caption seems pretty
+    # clear about which location we're looking at, i.e. it seems unlikely that
+    # the equations are supposed to be evaluated at the disk equator rather
+    # than the rotational equator. So I think the discrepancy is just an
+    # oversight / inclarity.
 
     N, kT_mev = cold_e_maxwellian_parameters(blat, blon, br)
     print('DG83 cold N_0: 2070 cm^-3; mine: %.0f' % N)
@@ -983,20 +1059,9 @@ def demo_divine_figure_10():
     # We need to choose coordinates fairly precisely to stay in the disk
     # midplane, which appears to be what DG83 plot.
 
-    l0 = -21 * astutil.D2R
-    tan_a = 0.123
-    bc_lat_A = np.zeros_like(r_A) + tan_a * np.cos(-bc_lon - l0)
-
-    tan_a = 0.19
-    r0 = 20.
-    oov = 0.9 * astutil.D2R
-    bc_lat_B = r0 / r_B * tan_a * np.cos(-bc_lon - l0 - oov * (r_B - r0))
-    bc_lat_C = r0 / r_C * tan_a * np.cos(-bc_lon - l0 - oov * (r_C - r0))
-
-    is_inner_A = (r_A >= 7.9)
-    bc_lat_A[is_inner_A] = (7 * r_A[is_inner_A] - 16) / 30 * np.cos(-bc_lon - l0) / r_A[is_inner_A]
-    is_inner_B = (r_B <= 20.)
-    bc_lat_B[is_inner_B] = (7 * r_B[is_inner_B] - 16) / 30 * np.cos(-bc_lon - l0) / r_B[is_inner_B]
+    bc_lat_A = equatorial_latitude(bc_lon, r_A)
+    bc_lat_B = equatorial_latitude(bc_lon, r_B)
+    bc_lat_C = equatorial_latitude(bc_lon, r_C)
 
     N_A, kT_A = cold_e_maxwellian_parameters(bc_lat_A, bc_lon, r_A)
     N_B, kT_B = cold_e_maxwellian_parameters(bc_lat_B, bc_lon, r_B)
