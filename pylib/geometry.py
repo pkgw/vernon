@@ -732,6 +732,98 @@ class GriddedDistribution(object):
         return n_e, p
 
 
+class DG83Distribution(object):
+    """The Divine & Garrett (1983) model of the Jovian particle distribution.
+
+    bfield
+      An instance of divine1983.JupiterD4Field.
+    n_alpha
+      Number of pitch angles to sample.
+    n_E
+      Number of energies to sample.
+    E0
+      Lower limit of the energies to sample, in MeV.
+    E1
+      Upper limit of the energies to sample, in MeV.
+
+    Several of the returned quantities will be multi-dimensional arrays that
+    are sampled in energy and pitch angle. We linearly sample between pitch
+    angles of 0 and pi/2 radians, and between energies of E0 and E1 specified
+    above. Those numbers are the *edges* of the sampling bins, while the points
+    at which we actually sample are the bin midpoints.
+
+    TODO: log-sample energy.
+
+    Due to some weaknesses in our design, this object needs to be given a
+    handle to the magnetic field model so that it can un-transform the
+    magnetic-field coordinates into body-centric coordinates, which the DG83
+    model is based in because it is fancy.
+
+    """
+    parameter_names = ['n_e', 'n_e_detailed']
+
+    def __init__(self, bfield, n_alpha, n_E, E0, E1):
+        self.bfield = bfield
+
+        # Construct the pitch-angle grid. divine1983 gives us dN/d(solid
+        # angle); we want dN/d(pitch angle), which means we need the
+        # conversion factor d(solid angle)/d(pitch angle) evaluated for each
+        # alpha bin. The differential factor is `2 pi sin(alpha)`, so,
+        # integrating:
+
+        alpha_edges = np.linspace(0, 0.5 * np.pi, n_alpha + 1)
+        self.alphas = (0.5 * (alpha_edges[1:] + alpha_edges[:-1])).reshape((-1, 1))
+        solid_angle_factors = 2 * np.pi * (1 - np.cos(alpha_edges))
+        self._alpha_volumes = np.diff(solid_angle_factors).reshape((-1, 1)) # sums to 4pi
+
+        # Construct the energy grid. A bit simpler.
+
+        E_edges = np.linspace(E0, E1, n_E + 1)
+        self.Es = (0.5 * (E_edges[1:] + E_edges[:-1])).reshape((1, -1))
+        self._E_volumes = np.diff(E_edges).reshape((1, -1))
+
+        # To go from fluxes to instantaneous number densities we have to
+        # divide by the velocities; the `E` are the particle kinetic energies
+        # so they're not hard to compute.
+
+        gamma = 1 + self.Es / 0.510999 # rest mass of electron is *really* close to 511 keV!
+        beta = np.sqrt(1 - gamma**-2)
+        self._inverse_velocities = 1. / (beta * cgs.c)
+
+
+    @broadcastize(3,(0,0))
+    def get_samples(self, mlat, mlon, L):
+        # Futz things so that we broadcast alphas/Es orthogonally to the
+        # coordinate values. If we do these right, numpy's broadcasting rules
+        # make it so that things like `self._E_volumes` broadcast as intended
+        # too.
+        alphas = self.alphas.reshape((1,) * mlat.ndim + self.alphas.shape)
+        Es = self.Es.reshape((1,) * mlat.ndim + self.Es.shape)
+        mlat = mlat.reshape(mlat.shape + (1, 1))
+        mlon = mlon.reshape(mlon.shape + (1, 1))
+        L = L.reshape(L.shape + (1, 1))
+
+        from .divine1983 import radbelt_e_diff_intensity
+        mr = L * np.cos(mlat)**2
+        bclat, bclon, r = self.bfield._from_dc(mlat, mlon, mr)
+        # this is dN/(dA dT dOmega dMeV):
+        f = radbelt_e_diff_intensity(bclat, bclon, r, alphas, Es, self.bfield)
+        # This gets us to dN/(dA dT); that is, fluxes:
+        f *= self._alpha_volumes
+        f *= self._E_volumes
+        # Finally, number densities:
+        f *= self._inverse_velocities
+
+        # Scalar number density of synchrotron-relevant particles. Must be the
+        # first parameter so that they ray-tracer can tune the bounds of the
+        # ray.
+        n_e = f.sum(axis=(-2, -1))
+
+        # for now:
+        return (n_e, f)
+
+
+
 class BasicRayTracer(object):
     """Class the implements the definition of a ray through the magnetosphere. By
     definition, rays end at a specified X/Y location in observer coordinates,
@@ -1199,6 +1291,55 @@ def basic_setup(
 
     return VanAllenSetup(o2b, bfield, distrib, ray_tracer, synch_calc,
                          rad_trans, radius, nu)
+
+
+def dg83_setup(
+        nu = 95,
+        lat_of_cen = 10,
+        cml = 20,
+        dipole_tilt = 15,
+        n_alpha = 10,
+        n_E = 10,
+        E0 = 0.1,
+        E1 = 10.,
+        nn_dir = None
+):
+    """Create and return a VanAllenSetup object prepared to use the Divine &
+    Garrett 1983 model of Jupiter's magnetic field and plasma.
+
+    nu
+      The observing frequency, in GHz.
+    lat_of_cen
+      The body's latitude-of-center, in degrees.
+    cml
+      The body's central meridian longitude, in degrees.
+    dipole_tilt
+      The tilt of the dipole relative to the rotation axis, in degrees.
+    nn_dir
+      The directory with the neural-network data used to generate synchrotron
+      radiative transfer coefficients.
+
+    """
+    # Unit conversions:
+    nu *= 1e9
+    lat_of_cen *= astutil.D2R
+    cml *= astutil.D2R
+    dipole_tilt *= astutil.D2R
+
+    from .divine1983 import JupiterD4Field
+
+    o2b = ObserverToBodycentric(lat_of_cen, cml)
+    bfield = JupiterD4Field()
+    distrib = DG83Distribution(bfield, n_alpha, n_E, E0, E1)
+    ray_tracer = BasicRayTracer()
+    ray_tracer.ne0_cutoff = 1e-6
+    rad_trans = GrtransRTIntegrator()
+
+    from .synchrotron import NeuroSynchrotronCalculator
+    synch_calc = NeuroSynchrotronCalculator(nn_dir=nn_dir)
+
+    return VanAllenSetup(o2b, bfield, distrib, ray_tracer, synch_calc,
+                         rad_trans, cgs.rjup, nu)
 
 
 class ImageMaker(object):
