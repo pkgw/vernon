@@ -760,7 +760,7 @@ class DG83Distribution(object):
     model is based in because it is fancy.
 
     """
-    parameter_names = ['n_e', 'n_e_detailed']
+    parameter_names = ['n_e', 'n_e_detailed', 'n_e_cold']
 
     def __init__(self, bfield, n_alpha, n_E, E0, E1):
         self.bfield = bfield
@@ -793,6 +793,8 @@ class DG83Distribution(object):
 
     @broadcastize(3,(0,0))
     def get_samples(self, mlat, mlon, L):
+        from .divine1983 import radbelt_e_diff_intensity, cold_e_maxwellian_parameters
+
         # Futz things so that we broadcast alphas/Es orthogonally to the
         # coordinate values. If we do these right, numpy's broadcasting rules
         # make it so that things like `self._E_volumes` broadcast as intended
@@ -803,7 +805,6 @@ class DG83Distribution(object):
         mlon = mlon.reshape(mlon.shape + (1, 1))
         L = L.reshape(L.shape + (1, 1))
 
-        from .divine1983 import radbelt_e_diff_intensity
         mr = L * np.cos(mlat)**2
         bclat, bclon, r = self.bfield._from_dc(mlat, mlon, mr)
         # this is dN/(dA dT dOmega dMeV):
@@ -819,8 +820,11 @@ class DG83Distribution(object):
         # ray.
         n_e = f.sum(axis=(-2, -1))
 
+        # Number density of cold electrons is easy.
+        n_e_cold = cold_e_maxwellian_parameters(bclat, bclon, r)[0][...,0,0]
+
         # for now:
-        return (n_e, f)
+        return (n_e, f, n_e_cold)
 
 
 
