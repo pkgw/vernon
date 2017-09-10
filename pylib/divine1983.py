@@ -10,6 +10,22 @@ Bibcode 1983JGR....88.6889D, DOI 10.1029/JA088iA09p06889
 from __future__ import absolute_import, division, print_function
 
 __all__ = '''
+JupiterD4Field
+B_cutoff
+cold_e_maxwellian_parameters
+cold_e_psd
+compute_z0
+equatorial_latitude
+inner_radbelt_e_diff_intensity
+inner_radbelt_e_integ_intensity
+inner_radbelt_e_omnidirectional_integ_flux
+inner_radbelt_e_omnidirectional_diff_flux
+radbelt_e_diff_intensity
+radbelt_e_omnidirectional_diff_flux
+radbelt_e_omnidirectional_integ_flux
+warm_e_diff_intensity
+warm_e_psd_model
+warm_e_reference_density
 '''.split()
 
 
@@ -640,6 +656,61 @@ def demo_divine_figure_2a():
     return p
 
 
+@broadcastize(5,0)
+def radbelt_e_diff_intensity(bc_lat, bc_lon, r, alpha, E, bfield):
+    """Return the differential intensity of Jovian radiation belt electrons.
+
+    bc_lat
+      The body-centric latitude(s) to model, in radians
+    bc_lon
+      The body-centric longitude(s) to model, in radians
+    r
+      The body-centric radius/radii to model, in units of the body's radius
+    alpha
+      Particle pitch angle to sample, in radians
+    E
+      Particle energy to sample, in MeV.
+    bfield
+      An instance of the JupiterD4Field class
+    return value
+      Intensity of particles with pitch angles alpha and kinetic energies
+      around E passing through the sample point, in cm^-2 s^-1 sr^-1 MeV^-1.
+
+    For L < 16, a detailed model is used. For larger L, a simpler
+    approximation is used.
+
+    FIXME: substantial code duplication with the omnidirectional-flux
+    functions. The L > 16 approximation is only for omnidirectional fluxes, so
+    we just divide it by 4pi to fake the directional intensity, using the
+    derivative with regards to energy that we also use in
+    `radbelt_e_omnidirectional_diff_flux`.
+
+    """
+    mlat, mlon, L = bfield(bc_lat, bc_lon, r)
+    is_inner = (L <= 16)
+
+    # Do the naive calculation for all Ls to get an output array of the right
+    # size.
+
+    z0 = compute_z0(bc_lon, r)
+    j0 = 10**7.43 * r**-2.2 * (0.03 * E + E**3 / r)**-1.7 * 0.7 * (0.03 + 3 * E**2 / r)
+    intensity = j0 * np.exp(-np.abs(0.5 * (r * bc_lat - z0))) / (4 * np.pi)
+
+    # Do the more detailed calculation where needed.
+
+    B = bfield.bmag(bc_lat[is_inner], bc_lon[is_inner], r[is_inner])
+
+    intensity[is_inner] = inner_radbelt_e_diff_intensity(
+        bfield.moment,
+        L[is_inner],
+        B,
+        alpha[is_inner],
+        E[is_inner],
+    )
+
+    return intensity
+
+
 @broadcastize(4,0)
 def radbelt_e_omnidirectional_integ_flux(bc_lat, bc_lon, r, E, bfield, parallel=True):
     """Return the omnidirectional flux of radiation belt electrons with energies
@@ -685,11 +756,7 @@ def radbelt_e_omnidirectional_integ_flux(bc_lat, bc_lon, r, E, bfield, parallel=
     # Do the naive calculation for all Ls to get an output array of the right
     # size.
 
-    z0 = np.where(
-        (r < 20),
-        (7 * r - 26) / 30. * np.cos(-bc_lon - 0.367),
-        20 * 0.19 * np.cos((-bc_lon - 0.367) - 0.016 * (r - 20))
-    )
+    z0 = compute_z0(bc_lon, r)
     J0 = 10**(7.43 - 2.2 * np.log10(r) - 0.7 * np.log10(0.03 * E + E**3 / r))
     omniflux = J0 * np.exp(-np.abs(0.5 * (r * bc_lat - z0)))
 
@@ -741,11 +808,7 @@ def radbelt_e_omnidirectional_diff_flux(bc_lat, bc_lon, r, E, bfield, parallel=T
     # Do the naive calculation for all Ls to get an output array of the right
     # size.
 
-    z0 = np.where(
-        (r < 20),
-        (7 * r - 26) / 30. * np.cos(-bc_lon - 0.367),
-        20 * 0.19 * np.cos((-bc_lon - 0.367) - 0.016 * (r - 20))
-    )
+    z0 = compute_z0(bc_lon, r)
     j0 = 10**7.43 * r**-2.2 * (0.03 * E + E**3 / r)**-1.7 * 0.7 * (0.03 + 3 * E**2 / r)
     omniflux = j0 * np.exp(-np.abs(0.5 * (r * bc_lat - z0)))
 
@@ -785,13 +848,7 @@ def warm_e_reference_density(bc_lat, bc_lon, r):
     """
     r_eff = np.maximum(r, 10)
     N_ew_0 = 3 * 10**(-3. + np.exp((30.78 - r_eff) / 16.9)) # cm^-3
-
-    z0 = np.where(
-        (r < 20),
-        (7 * r_eff - 26) / 30. * np.cos(-bc_lon - 0.367),
-        20 * 0.19 * np.cos((-bc_lon - 0.367) - 0.016 * (r_eff - 20))
-    )
-
+    z0 = compute_z0(bc_lon, r)
     return N_ew_0 * np.exp(-np.abs(0.5 * (r_eff * bc_lat - z0))) # cm^-3
 
 
@@ -989,6 +1046,8 @@ def cold_e_maxwellian_parameters(bc_lat, bc_lon, r):
 
     `l` is the longitude, which must be negated in our coordinate system.
     `lambda` is the latitude.
+
+    There's some redundancy with `compute_z0` here.
 
     """
     # Inner plasmasphere
