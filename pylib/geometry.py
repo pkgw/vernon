@@ -508,6 +508,8 @@ class SimpleTorusDistribution(object):
       The power-law index of the energetic electrons, such that N(>E) ~ E^(-p).
 
     """
+    parameter_names = ['n_e', 'p']
+
     def __init__(self, r1, r2, n_e, p):
         self.r1 = float(r1)
         self.r2 = float(r2)
@@ -573,6 +575,8 @@ class SimpleWasherDistribution(object):
       to inner. The total number of electrons in the washer is conserved.
 
     """
+    parameter_names = ['n_e', 'p']
+
     def __init__(self, r_inner=2, r_outer=7, thickness=0.7, n_e=1e5, p=3, radial_concentration=0.):
         self.r_inner = float(r_inner)
         self.r_outer = float(r_outer)
@@ -637,6 +641,8 @@ class GriddedDistribution(object):
       in real physical units.
 
     """
+    parameter_names = ['n_e', 'p'] # to be revisited?
+
     def __init__(self, distrib, radius):
         self.distrib = distrib
 
@@ -788,14 +794,16 @@ class BasicRayTracer(object):
         # the ODE integrator take really big steps, and the results are bad.
         # So we patch up the bounds to find a start point with a very small
         # but nonzero density to make sure we get going.
+        #
+        # The `get_samples` function must return a tuple of data arrays with
+        # `n_e` being the first one.
 
         zsamps = np.arange(z0, z1, self.delta_z)
 
         def z_to_ne(z):
             bc = setup.o2b(x, y, z)
             mc = setup.bfield(*bc)
-            n_e, p = setup.distrib.get_samples(*mc)
-            return n_e
+            return setup.distrib.get_samples(*mc)[0]
 
         nesamps = z_to_ne(zsamps)
 
@@ -942,14 +950,17 @@ class Ray(object):
             self.theta = np.zeros(self.z.size)
             self.B = np.zeros(self.z.size)
             self.psi = np.zeros(self.z.size)
-            self.n_e = np.zeros(self.z.size)
-            self.p = np.zeros(self.z.size)
+
+            for pn in setup.distrib.parameter_names:
+                setattr(self, pn, np.zeros(self.z.size))
         else:
             bhat = setup.bfield.bhat(*self.bc)
             self.theta = setup.o2b.theta_zhat(x, y, z, *bhat)
             self.B = setup.bfield.bmag(*self.bc)
             self.psi = setup.o2b.theta_yhat_projected(x, y, z, *bhat)
-            self.n_e, self.p = setup.distrib.get_samples(*self.mc)
+
+            for pn, pv in zip(setup.distrib.parameter_names, setup.distrib.get_samples(*self.mc)):
+                setattr(self, pn, pv)
 
 
     def nu_cyc(self):
@@ -1021,6 +1032,10 @@ class Ray(object):
     # Integrating along the ray
 
     def ensure_rt_coeffs(self):
+        """This function only works if the problem's "distribution" object provides
+        parameters named `n_e` and `p`.
+
+        """
         if self.j is None:
             self.j, self.alpha, self.rho = self.setup.synch_calc.get_coeffs(
                 self.setup.nu, self.B, self.n_e, self.theta, self.p, self.psi
