@@ -1120,8 +1120,8 @@ class Ray(object):
     def mode_frac_delta_lambda(self, n_e_thermal, gamma):
         from .plasma import wavelength
         wlens = wavelength(self.refractive_indices(n_e_thermal, gamma),  self.setup.nu * 2 * np.pi)
-        lam_fast = wlens[:,0]
-        lam_slow = wlens[:,1]
+        lam_fast = wlens[...,0]
+        lam_slow = wlens[...,1]
         return (lam_fast - lam_slow) / (lam_fast + lam_slow)
 
 
