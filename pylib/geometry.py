@@ -774,13 +774,13 @@ class DG83Distribution(object):
         alpha_edges = np.linspace(0, 0.5 * np.pi, n_alpha + 1)
         self.alphas = (0.5 * (alpha_edges[1:] + alpha_edges[:-1])).reshape((-1, 1))
         solid_angle_factors = 2 * np.pi * (1 - np.cos(alpha_edges))
-        self._alpha_volumes = np.diff(solid_angle_factors).reshape((-1, 1)) # sums to 4pi
+        alpha_volumes = np.diff(solid_angle_factors).reshape((-1, 1)) # sums to 4pi
 
         # Construct the energy grid. A bit simpler.
 
         E_edges = np.linspace(E0, E1, n_E + 1)
         self.Es = (0.5 * (E_edges[1:] + E_edges[:-1])).reshape((1, -1))
-        self._E_volumes = np.diff(E_edges).reshape((1, -1))
+        E_volumes = np.diff(E_edges).reshape((1, -1))
 
         # To go from fluxes to instantaneous number densities we have to
         # divide by the velocities; the `E` are the particle kinetic energies
@@ -788,7 +788,11 @@ class DG83Distribution(object):
 
         gamma = 1 + self.Es / 0.510999 # rest mass of electron is *really* close to 511 keV!
         beta = np.sqrt(1 - gamma**-2)
-        self._inverse_velocities = 1. / (beta * cgs.c)
+        velocities = beta * cgs.c
+
+        # The full scaling terms:
+
+        self._diff_intens_to_density = alpha_volumes * E_volumes / velocities
 
 
     @broadcastize(3,(0,0))
@@ -797,8 +801,7 @@ class DG83Distribution(object):
 
         # Futz things so that we broadcast alphas/Es orthogonally to the
         # coordinate values. If we do these right, numpy's broadcasting rules
-        # make it so that things like `self._E_volumes` broadcast as intended
-        # too.
+        # make it so `self.diff_intens_to_density` broadcasts as intended too.
         alphas = self.alphas.reshape((1,) * mlat.ndim + self.alphas.shape)
         Es = self.Es.reshape((1,) * mlat.ndim + self.Es.shape)
         mlat = mlat.reshape(mlat.shape + (1, 1))
@@ -809,11 +812,8 @@ class DG83Distribution(object):
         bclat, bclon, r = self.bfield._from_dc(mlat, mlon, mr)
         # this is dN/(dA dT dOmega dMeV):
         f = radbelt_e_diff_intensity(bclat, bclon, r, alphas, Es, self.bfield)
-        # This gets us to dN/(dA dT); that is, fluxes:
-        f *= self._alpha_volumes
-        f *= self._E_volumes
-        # Finally, number densities:
-        f *= self._inverse_velocities
+        # This gets us to number densities:
+        f *= self._diff_intens_to_density
 
         # Scalar number density of synchrotron-relevant particles. Must be the
         # first parameter so that they ray-tracer can tune the bounds of the
