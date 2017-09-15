@@ -436,7 +436,7 @@ def evaluate_qe_f_weight(sigma_max, s, theta, **kwargs):
 
     """
     def get(pomega=None, x=None, sigma=None, **kwargs):
-        return pomega * x * (jvpnv(sigma, x) + 1. / (np.pi * x))
+        return pomega * (x * jvpnv(sigma, x) + 1. / np.pi)
     return evaluate_generic(sigma_max, s, theta, get, **kwargs)
 
 
@@ -496,20 +496,7 @@ class Distribution(object):
         po = kwargs['pomega']
         sg = kwargs['sigma']
         x = kwargs['x']
-
-        # More sigh.
-        if isinstance(x, np.ndarray):
-            dfds = self.dfdsigma(**kwargs)
-            rv = dfds * po / np.pi
-            wnz = (x != 0.)
-            rv[wnz] = dfds[wnz] * po[wnz] * x[wnz] * (jvpnv(sg, x[wnz]) + 1. / (np.pi * x[wnz]))
-            return rv
-
-        if x == 0.:
-            # Correct? I just canceled out the x/x here ...
-            return self.dfdsigma(**kwargs) * po / np.pi
-
-        return self.dfdsigma(**kwargs) * po * x * (jvpnv(sg, x) + 1. / (np.pi * x))
+        return self.dfdsigma(**kwargs) * po * (x * jvpnv(sg, x) + 1. / np.pi)
 
     def f_qe(self, sigma_max=np.inf, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1., epsrel=1e-3, **kwargs):
         """Calculate `f` in the quasi-exact regime.
