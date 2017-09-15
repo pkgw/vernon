@@ -164,13 +164,14 @@ def nv(sigma, x):
 @broadcastize(2)
 def jvp(sigma, x):
     "First derivative of Bessel function of first kind."
-    if sigma > NICHOLSON_SIGMA_CUT and (sigma - x) / sigma < NICHOLSON_REL_TOL:
-        return jvp_nicholson(sigma, x)
+    r = jvp_scipy(sigma, x)
 
-    if sigma > DEBYE_SIGMA_CUT and np.abs(np.cbrt(sigma) / (sigma - x)) < DEBYE_REL_TOL:
-        return jvp_debye(sigma, x)
+    w = (sigma > NICHOLSON_SIGMA_CUT) & ((sigma - x) / sigma < NICHOLSON_REL_TOL)
+    r[w] = jvp_nicholson(sigma[w], x[w])
 
-    r = jvp_scipy(sigma, x, 1)
+    w = (sigma > DEBYE_SIGMA_CUT) & (np.abs(np.cbrt(sigma) / (sigma - x)) < DEBYE_REL_TOL)
+    r[w] = jvp_debye(sigma[w], x[w])
+
     nf = ~np.isfinite(r)
     #if nf.sum(): print('jvp nf', sigma, x)
     r[nf] = 0.
@@ -179,13 +180,14 @@ def jvp(sigma, x):
 @broadcastize(2)
 def nvp(sigma, x):
     "First derivative of Bessel function of second kind. AKA N_v"
-    if sigma > NICHOLSON_SIGMA_CUT and (sigma - x) / sigma < NICHOLSON_REL_TOL:
-        return nvp_nicholson(sigma, x)
-
-    if sigma > DEBYE_SIGMA_CUT and np.abs(np.cbrt(sigma) / (sigma - x)) < DEBYE_REL_TOL:
-        return nvp_debye(sigma, x)
-
     r = nvp_scipy(sigma, x)
+
+    w = (sigma > NICHOLSON_SIGMA_CUT) & ((sigma - x) / sigma < NICHOLSON_REL_TOL)
+    r[w] = nvp_nicholson(sigma[w], x[w])
+
+    w = (sigma > DEBYE_SIGMA_CUT) & (np.abs(np.cbrt(sigma) / (sigma - x)) < DEBYE_REL_TOL)
+    r[w] = nvp_debye(sigma[w], x[w])
+
     nf = ~np.isfinite(r)
     #if nf.sum(): print('nvp nf', sigma, x)
     r[nf] = 0.
@@ -472,6 +474,14 @@ class Distribution(object):
         sg = kwargs['sigma']
         x = kwargs['x']
 
+        # More sigh.
+        if isinstance(x, np.ndarray):
+            dfds = self.dfdsigma(**kwargs)
+            rv = dfds * po / np.pi
+            wnz = (x != 0.)
+            rv[wnz] = dfds[wnz] * po[wnz] * x[wnz] * (jvpnv(sg, x[wnz]) + 1. / (np.pi * x[wnz]))
+            return rv
+
         if x == 0.:
             # Correct? I just canceled out the x/x here ...
             return self.dfdsigma(**kwargs) * po / np.pi
@@ -527,9 +537,15 @@ class CutoffPowerLawDistribution(Distribution):
         return (-pomega_max, np.minimum(pomega_max, pomcut))
 
     def just_f(self, gamma=None, **kwargs):
-        if gamma < self.gmin:
-            return 0.
-        return self.norm * gamma**self.neg_n
+        # Sigh.
+        if isinstance(gamma, np.ndarray):
+            f = self.norm * gamma**self.neg_n
+            f[gamma < self.gmin] = 0.
+            return f
+        else:
+            if gamma < self.gmin:
+                return 0.
+            return self.norm * gamma**self.neg_n
 
     def dfdg(self, gamma=None, **kwargs):
         return self.norm * self.neg_n * gamma**(self.neg_n - 1)
