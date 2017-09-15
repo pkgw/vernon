@@ -234,7 +234,10 @@ def evaluate_generic(sigma_max, s, theta, func, nsigma=64, npomega=64, **kwargs)
     cos_theta = np.cos(theta)
     sigma0 = s * sin_theta
 
-    assert sigma_max > sigma0
+    if sigma_max < 0:
+        sigma_max = np.abs(sigma_max) * sigma0
+    else:
+        assert sigma_max > sigma0
 
     sigmas = np.linspace(sigma_max, sigma0, nsigma) # backwards so default view looks more intuitive
     pomega_max = np.sqrt(sigma_max**2 - sigma0**2) * 0.999999 # hack to avoid roundoffs => negative sqrts
@@ -289,7 +292,10 @@ def real_integrate_generic(sigma_max, s, theta, func, edit_bounds=None, limit=50
     cos_theta = np.cos(theta)
     sigma0 = s * sin_theta
 
-    assert sigma_max > sigma0
+    if sigma_max < 0:
+        sigma_max = np.abs(sigma_max) * sigma0
+    else:
+        assert sigma_max > sigma0
 
     inner_kwargs = dict(
         s = s,
@@ -340,7 +346,10 @@ def sample_integral(sigma_max, s, theta, func, nsigma=20, log=False, edit_bounds
     cos_theta = np.cos(theta)
     sigma0 = s * sin_theta
 
-    assert sigma_max > sigma0
+    if sigma_max < 0:
+        sigma_max = np.abs(sigma_max) * sigma0
+    else:
+        assert sigma_max > sigma0
 
     inner_kwargs = dict(
         s = s,
