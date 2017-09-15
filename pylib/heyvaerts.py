@@ -76,7 +76,7 @@ _debye_v2_coeffs = np.array([-455., 0, 594, 0, -135, 0, 0]) / 1152
 _debye_v3_coeffs = np.array([475475., 0, -883575, 0, 451737, 0, -42525, 0, 0, 0]) / 414720
 
 def jv_debye(sigma, x):
-    """The Debye expansion of J_sigma(x)."""
+    """The Debye expansion of J_sigma(x), used with large x and sigma."""
     alpha = np.arccosh(sigma / x)
     tanha = np.tanh(alpha)
     cotha = 1. / tanha
@@ -88,7 +88,7 @@ def jv_debye(sigma, x):
     return np.exp(sigma * (tanha - alpha)) * s / np.sqrt(2 * np.pi * sigma * tanha)
 
 def nv_debye(sigma, x):
-    """The Debye expansion of N_sigma(x)."""
+    """The Debye expansion of N_sigma(x), used with large x and sigma."""
     alpha = np.arccosh(sigma / x)
     tanha = np.tanh(alpha)
     cotha = 1. / tanha
@@ -100,7 +100,7 @@ def nv_debye(sigma, x):
     return -np.exp(sigma * (alpha - tanha)) * s / np.sqrt(0.5 * np.pi * sigma * tanha)
 
 def jvp_debye(sigma, x):
-    """The Debye expansion of J'_sigma(x)."""
+    """The Debye expansion of J'_sigma(x), used with large x and sigma."""
     alpha = np.arccosh(sigma / x)
     tanha = np.tanh(alpha)
     cotha = 1. / tanha
@@ -112,7 +112,7 @@ def jvp_debye(sigma, x):
     return np.exp(sigma * (tanha - alpha)) * s * np.sqrt(np.sinh(2 * alpha) / (4 * np.pi * sigma))
 
 def nvp_debye(sigma, x):
-    """The Debye expansion of N'_sigma(x)."""
+    """The Debye expansion of N'_sigma(x), used with large x and sigma."""
     alpha = np.arccosh(sigma / x)
     tanha = np.tanh(alpha)
     cotha = 1. / tanha
@@ -194,6 +194,33 @@ def nvp(sigma, x):
     return r
 
 @broadcastize(2)
+def jvpnv_heyvaerts_debye(sigma, x):
+    """Product of the first derivative of the Bessel function of the first kind
+    and the (not a derivative of) the Bessel function of the second kind, with
+    Heyvaerts' Debye approximation, used with large x and sigma .
+
+    Heyvaerts presents an expansion that makes these computations more
+    tractable at extreme values, where J_v is very small and N_v is very big.
+
+    """
+    s2 = sigma**2
+    x2 = x**2
+
+    A1 = 0.125 - 5 * s2 / (s2 - x2)
+    A2 = 3./128 - 77 * s2 / (576 * (s2 - x2)) + 385 * s2**2 / (3456 * (s2 - x2)**2)
+    xA1p = -5 * s2 * x2 / (12 * (s2 - x2)**2)
+
+    return -1 / (np.pi * x) * (
+        1 +
+        x2 / (2 * (s2 - x2)**1.5) +
+        (6 * A2 + xA1p - A1**2) / (s2 - x2) +
+        3 * A1 * x2 / (2 * (s2 - x2)**2)
+    )
+
+def jvpnv_scipy(sigma, x):
+    return jvp_scipy(sigma, x) * nv_scipy(sigma, x)
+
+@broadcastize(2)
 def jvpnv(sigma, x):
     """Product of the first derivative of the Bessel function of the first kind
     and the (not a derivative of) the Bessel function of the second kind.
@@ -212,20 +239,7 @@ def jvpnv(sigma, x):
     # Places where we can.
 
     w = ~w
-    s2 = sigma[w]**2
-    x2 = x[w]**2
-
-    A1 = 0.125 - 5 * s2 / (s2 - x2)
-    A2 = 3./128 - 77 * s2 / (576 * (s2 - x2)) + 385 * s2**2 / (3456 * (s2 - x2)**2)
-    xA1p = -5 * s2 * x2 / (12 * (s2 - x2)**2)
-
-    r[w] = -1 / (np.pi * x[w]) * (
-        1 +
-        x2 / (2 * (s2 - x2)**1.5) +
-        (6 * A2 + xA1p - A1**2) / (s2 - x2) +
-        3 * A1 * x2 / (2 * (s2 - x2)**2)
-    )
-
+    r[w] = jvpnv_heyvaerts_debye(sigma[w], x[w])
     return r
 
 
