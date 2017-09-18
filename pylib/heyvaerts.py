@@ -625,18 +625,47 @@ class Distribution(object):
     def edit_pomega_bounds(self, pomega_max=None, **kwargs):
         return (-pomega_max, pomega_max)
 
+    # Single quasi-exact representation of the integrand.
+
     def f_qe_element(self, **kwargs):
         """Evaluate the integrand of the quasi-exact expression for `f` using this
         distribution function.
 
+        Heyvaerts equation 25.
+
         Large values of sigma can easily yield NaNs and infs from the Bessel
         function evaluators.
+
+        This function has a severe change in behavior across the NR/QR
+        boundary; numerical integrals are, I believe, better performed using
+        the more specialized _nr_ and _qr_ functions.
 
         """
         po = kwargs['pomega']
         sg = kwargs['sigma']
         x = kwargs['x']
         return self.dfdsigma(**kwargs) * po * (x * jvpnv(sg, x) + 1. / np.pi)
+
+    def f_qe(self, sigma_max=np.inf, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1.,
+                   epsrel=1e-3, **kwargs):
+        """Calculate `f` in the quasi-exact regime.
+
+        The returned value is multiplied by `omega_p**2 / omega`. These two parameters
+        are dimensional but do not figure into the calculation otherwise.
+
+        """
+        integral = real_integrate_generic(sigma_max, s, theta, self.f_qe_element, epsrel=epsrel,
+                                          edit_bounds=self.edit_pomega_bounds, **kwargs)[0]
+        return FOUR_PI_M3_C3 * integral * np.pi * omega_p**2 / (cgs.c * omega * s**2 * np.sin(theta)**2)
+
+    def sample_f_qe(self, sigma_max, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1., **kwargs):
+        sigmas, samples, errs = sample_integral(
+            sigma_max, s, theta,
+            self.f_qe_element, edit_bounds=self.edit_pomega_bounds,
+            **kwargs)
+        return sigmas, FOUR_PI_M3_C3 * samples * np.pi * omega_p**2 / (cgs.c * omega * s**2 * np.sin(theta)**2)
+
+    # Split QR/NR approach
 
     def f_nr_element(self, **kwargs):
         """Evaluate the integrand of the non-resonant expression for `f` using this
@@ -728,40 +757,19 @@ class Distribution(object):
 
         return (t1 + t2 + t3) * dfds
 
-    def take1_f_qe(self, sigma_max=np.inf, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1.,
-                   epsrel=1e-3, **kwargs):
-        """Calculate `f` in the quasi-exact regime.
 
-        If the details of the distribution function are not known, the result
-        scales as `omega_p**2 / omega`, where these are two
-        otherwise-unimportant but dimensional parameters.
+    def f_nrqr(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1.,
+               epsrel=1e-3, **kwargs):
+        """Calculate `f` in the quasi-exact regime using the split NR/QR approximations.
 
-        """
-        integral = real_integrate_generic(sigma_max, s, theta, self.f_qe_element, epsrel=epsrel,
-                                          edit_bounds=self.edit_pomega_bounds, **kwargs)[0]
-        return FOUR_PI_M3_C3 * integral * np.pi * omega_p**2 / (cgs.c * omega * s**2 * np.sin(theta)**2)
-
-    def sample_f_qe(self, sigma_max, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1., **kwargs):
-        sigmas, samples, errs = sample_integral(
-            sigma_max, s, theta,
-            self.f_qe_element, edit_bounds=self.edit_pomega_bounds,
-            **kwargs)
-        return sigmas, FOUR_PI_M3_C3 * samples * np.pi * omega_p**2 / (cgs.c * omega * s**2 * np.sin(theta)**2)
-
-
-    def new_f_qe(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1.,
-                   epsrel=1e-3, **kwargs):
-        """Calculate `f` in the quasi-exact regime.
-
-        If the details of the distribution function are not known, the result
-        scales as `omega_p**2 / omega`, where these are two
-        otherwise-unimportant but dimensional parameters.
+        The returned value is multiplied by `omega_p**2 / omega`. These two parameters
+        are dimensional but do not figure into the calculation otherwise.
 
         """
         integral = nrqr_integrate_generic(
             s, theta,
             self.f_nr_element, self.f_qr_element,
-            epsrel=epsrel,
+            epsrel = epsrel,
             **kwargs
         )
         prefactor = -2 / cgs.c
@@ -769,13 +777,12 @@ class Distribution(object):
         return prefactor * common_factor * integral
 
 
-    def new_h_qe(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1.,
-                   epsrel=1e-3, **kwargs):
-        """Calculate `h` in the quasi-exact regime.
+    def h_nrqr(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1.,
+               epsrel=1e-3, **kwargs):
+        """Calculate `h` in the quasi-exact regime using the split NR/QR approximations.
 
-        If the details of the distribution function are not known, the result
-        scales as `omega_p**2 / omega`, where these are two
-        otherwise-unimportant but dimensional parameters.
+        The returned value is multiplied by `omega_p**2 / omega`. These two parameters
+        are dimensional but do not figure into the calculation otherwise.
 
         """
         integral = nrqr_integrate_generic(
@@ -832,7 +839,7 @@ class IsotropicDistribution(Distribution):
         return 3 * gamma_max**2 * np.sin(theta)
 
     def isotropic_f_hf(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1.,
-                       omega=1., epsrel=1e-3, **kwargs):
+                       omega=1., **kwargs):
         """Calculate "f" for an isotropic distribution function, assuming that we can
         invoke Heyvaert's HF (high-frequency) limit for all particles. This
         assumption holds if *s* is larger than `self.isotropic_hf_s_min()`.
@@ -851,7 +858,7 @@ class IsotropicDistribution(Distribution):
         return omega_p**2 * (cgs.me * cgs.c)**3 * integral / (cgs.c * s**2 * omega)
 
     def isotropic_h_hf(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1.,
-                       omega=1., epsrel=1e-3, **kwargs):
+                       omega=1., **kwargs):
         """Calculate "h" for an isotropic distribution function, assuming that we can
         invoke Heyvaert's HF (high-frequency) limit for all particles. This
         assumption holds if *s* is larger than `self.isotropic_hf_s_min()`.
@@ -864,6 +871,33 @@ class IsotropicDistribution(Distribution):
             ell = np.log(np.sqrt(gamma**2 - 1) + gamma)
             H_iso_HF = -0.5 * np.pi * sin_theta**2 * (gamma * np.sqrt(gamma**2 - 1) * (2 * gamma**2 - 3) - ell)
             return self.dfdg(gamma=gamma) * H_iso_HF
+
+        integral = quad(integrand, 1., np.inf)[0]
+        return omega_p**2 * (cgs.me * cgs.c)**3 * integral / (cgs.c * s**2 * omega)
+
+    def isotropic_f_lf(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1.,
+                       omega=1., **kwargs):
+        raise NotImplementedError()
+
+    def isotropic_h_lf(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1.,
+                       omega=1., **kwargs):
+        """Calculate "h" for an isotropic distribution function, assuming that we can
+        invoke Heyvaert's LF (low-frequency) limit for all particles.
+
+        TODO: unclear just when that assumption holds.
+
+        To reproduce the right panel of Heyvaerts Figure 2, use the thermal
+        Juettner distribution, s = 15, theta = pi/4, omega_p = omega = 1, and
+        multiply the result by (-c * s**2). For T = 724, I think h ~=
+        -5.22e-18; for T = 43, h ~= -5.86e-16.
+
+        """
+        sin_theta = np.sin(theta)
+        prefactor = np.pi / 8 * (4 - 3**(-4./3))
+
+        def integrand(gamma):
+            H_iso_LF = prefactor * (s**2 * sin_theta)**(2./3) * gamma**(4./3)
+            return self.dfdg(gamma=gamma) * H_iso_LF
 
         integral = quad(integrand, 1., np.inf)[0]
         return omega_p**2 * (cgs.me * cgs.c)**3 * integral / (cgs.c * s**2 * omega)
@@ -998,3 +1032,29 @@ class CutoffGammaSpacePowerLawDistribution(IsotropicDistribution):
             2 * np.pi / omega *
             n
         )
+
+
+class ThermalJuettnerDistribution(IsotropicDistribution):
+    def __init__(self, T):
+        """T is the ratio of the thermal energy to the rest-mass energy of the
+        particles.
+
+        """
+        self.neg_inv_T = -1. / T
+        self.norm = 1. / (FOUR_PI_M3_C3 * quad(lambda g: g * np.sqrt(g**2 - 1) * np.exp(-g / T),
+                                               1., np.inf, epsrel=1e-5, limit=1000)[0])
+
+    def just_f(self, gamma=None, **kwargs):
+        return self.norm * np.exp(self.neg_inv_T * gamma)
+
+    def dfdg(self, gamma=None, **kwargs):
+        return self.norm * np.exp(self.neg_inv_T * gamma) * self.neg_inv_T
+
+    def f_analytic_hf(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1.):
+        return (np.cos(theta) * omega_p**2 * kv_scipy(0, -self.neg_inv_T) /
+                (cgs.c * s * omega * kv_scipy(2., -self.neg_inv_T)))
+
+    def h_analytic_hf(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1.):
+        return (np.sin(theta)**2 * omega_p**2 *
+                (kv_scipy(1, -self.neg_inv_T) + 6 * kv_scipy(2, -self.neg_inv_T) / -self.neg_inv_T) /
+                (2 * cgs.c * s**2 * omega * kv_scipy(2., -self.neg_inv_T)))
