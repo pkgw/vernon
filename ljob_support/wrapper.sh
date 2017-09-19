@@ -36,6 +36,7 @@ jobinfo=$(pwd -P)
 archive=$(cd .. && pwd -P) # we're running from something like job/01.process.MMDD_HHMM
 bulk=$(cd bulkdata && pwd -P)
 cd $scratch
+ln -s $TOP top
 ln -s $archive archive
 ln -s $jobinfo jobinfo
 ln -s $bulk bulk
