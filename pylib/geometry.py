@@ -1350,7 +1350,8 @@ def dg83_setup(
         n_E = 10,
         E0 = 0.1,
         E1 = 10.,
-        nn_dir = None
+        nn_dir = None,
+        no_synch = False,
 ):
     """Create and return a VanAllenSetup object prepared to use the Divine &
     Garrett 1983 model of Jupiter's magnetic field and plasma.
@@ -1383,8 +1384,11 @@ def dg83_setup(
     ray_tracer.ne0_cutoff = 1e-6
     rad_trans = GrtransRTIntegrator()
 
-    from .synchrotron import NeuroSynchrotronCalculator
-    synch_calc = NeuroSynchrotronCalculator(nn_dir=nn_dir)
+    if no_synch:
+        synch_calc = None
+    else:
+        from .synchrotron import NeuroSynchrotronCalculator
+        synch_calc = NeuroSynchrotronCalculator(nn_dir=nn_dir)
 
     return VanAllenSetup(o2b, bfield, distrib, ray_tracer, synch_calc,
                          rad_trans, cgs.rjup, nu)
