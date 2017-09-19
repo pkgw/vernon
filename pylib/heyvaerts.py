@@ -1096,8 +1096,9 @@ class PowerLawDistribution(IsotropicDistribution):
     """
     def __init__(self, n):
         self.neg_n = -n
-        self.norm = 1. / (FOUR_PI_M3_C3 * quad(lambda g: g**(self.neg_n) * g * np.sqrt(g**2 - 1),
+        self.norm = 1. / (FOUR_PI_M3_C3 * quad(lambda g: g**(1 + self.neg_n) * np.sqrt(g**2 - 1),
                                                1., np.inf, epsrel=1e-5, limit=1000)[0])
+        assert self.norm > 0
 
     def just_f(self, gamma=None, **kwargs):
         return self.norm * gamma**self.neg_n
@@ -1110,8 +1111,9 @@ class CutoffPowerLawDistribution(IsotropicDistribution):
     def __init__(self, gmin, n):
         self.neg_n = -n
         self.gmin = gmin
-        self.norm = 1. / (FOUR_PI_M3_C3 * quad(lambda g: g**(self.neg_n) * g * np.sqrt(g**2 - 1),
+        self.norm = 1. / (FOUR_PI_M3_C3 * quad(lambda g: g**(1 + self.neg_n) * np.sqrt(g**2 - 1),
                                                gmin, np.inf, epsrel=1e-5, limit=1000)[0])
+        assert self.norm > 0
 
     def edit_pomega_bounds(self, s=None, sin_theta=None, cos_theta=None, sigma=None, pomega_max=None, **kwargs):
         pomcut = (sigma - self.gmin * s * sin_theta**2) / cos_theta
@@ -1142,7 +1144,7 @@ class CutoffPowerLawDistribution(IsotropicDistribution):
 
 class CutoffGammaSpacePowerLawDistribution(IsotropicDistribution):
     """This is the power-law distribution used by Huang & Shcherbakov 2011: the
-    number density if power-law distributed in gamma, not in momentum space.
+    number density is power-law distributed in gamma, not in momentum space.
     That works out to mean that the `gamma sqrt(gamma^2 - 1)` term is divided
     out of what we call "f".
 
