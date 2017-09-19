@@ -518,7 +518,7 @@ class SimpleTorusDistribution(object):
 
 
     @broadcastize(3,(0,0))
-    def get_samples(self, mlat, mlon, L):
+    def get_samples(self, mlat, mlon, L, just_ne=False):
         """Sample properties of the electron distribution at the specified locations
         in magnetic field coordinates. Arguments are magnetic latitude,
         longitude, and McIlwain L parameter.
@@ -601,7 +601,7 @@ class SimpleWasherDistribution(object):
         self._density_factor = numer / denom
 
     @broadcastize(3,(0,0))
-    def get_samples(self, mlat, mlon, L):
+    def get_samples(self, mlat, mlon, L, just_ne=False):
         """Sample properties of the electron distribution at the specified locations
         in magnetic field coordinates. Arguments are magnetic latitude,
         longitude, and McIlwain L parameter.
@@ -705,7 +705,7 @@ class GriddedDistribution(object):
 
 
     @broadcastize(3,(0,0))
-    def get_samples(self, mlat, mlon, L):
+    def get_samples(self, mlat, mlon, L, just_ne=False):
         """Sample properties of the electron distribution at the specified locations
         in magnetic field coordinates. Arguments are magnetic latitude,
         longitude, and McIlwain L parameter.
@@ -760,7 +760,7 @@ class DG83Distribution(object):
     model is based in because it is fancy.
 
     """
-    parameter_names = ['n_e', 'n_e_detailed', 'n_e_cold']
+    parameter_names = ['n_e', 'n_e_detailed', 'n_e_cold', 'p', 'k']
 
     def __init__(self, bfield, n_alpha, n_E, E0, E1):
         self.bfield = bfield
@@ -795,20 +795,22 @@ class DG83Distribution(object):
         self._diff_intens_to_density = alpha_volumes * E_volumes / velocities
 
 
-    @broadcastize(3,(0,0))
-    def get_samples(self, mlat, mlon, L):
+    @broadcastize(3,(0,None,0,0,0))
+    def get_samples(self, mlat, mlon, L, just_ne=False):
         from .divine1983 import radbelt_e_diff_intensity, cold_e_maxwellian_parameters
 
         # Futz things so that we broadcast alphas/Es orthogonally to the
         # coordinate values. If we do these right, numpy's broadcasting rules
         # make it so `self.diff_intens_to_density` broadcasts as intended too.
+        base_shape = mlat.shape
         alphas = self.alphas.reshape((1,) * mlat.ndim + self.alphas.shape)
         Es = self.Es.reshape((1,) * mlat.ndim + self.Es.shape)
-        mlat = mlat.reshape(mlat.shape + (1, 1))
-        mlon = mlon.reshape(mlon.shape + (1, 1))
+        mlat = mlat.reshape(base_shape + (1, 1))
+        mlon = mlon.reshape(base_shape + (1, 1))
         L = L.reshape(L.shape + (1, 1))
 
-        mr = L * np.cos(mlat)**2
+        L_eff = np.maximum(L, 1.09) # don't go beyond the model's range
+        mr = L_eff * np.cos(mlat)**2
         bclat, bclon, r = self.bfield._from_dc(mlat, mlon, mr)
         # this is dN/(dA dT dOmega dMeV):
         f = radbelt_e_diff_intensity(bclat, bclon, r, alphas, Es, self.bfield)
@@ -820,11 +822,34 @@ class DG83Distribution(object):
         # ray.
         n_e = f.sum(axis=(-2, -1))
 
+        if just_ne:
+            return (n_e, n_e, n_e, n_e, n_e) # easiest way to make broadcastize happy
+
         # Number density of cold electrons is easy.
         n_e_cold = cold_e_maxwellian_parameters(bclat, bclon, r)[0][...,0,0]
 
+        # Fit our "pitchy" power-law model to the samples. Goodness of fit?
+        # What's that??
+
+        from pwkit import lsqmdl
+
+        gamma = 1 + Es / 0.510999
+        sinth = np.sin(alphas)
+
+        def mfunc(norm, p, k):
+            return norm * gamma**(-p) * sinth**k
+
+        p = np.zeros(base_shape)
+        k = np.zeros(base_shape)
+
+        for i in range(mlat.size):
+            idx = np.unravel_index(i, base_shape)
+            mdl = lsqmdl.Model(mfunc, f[idx]).solve((f[idx].max(), 2., 1.))
+            p[idx] = mdl.params[1]
+            k[idx] = mdl.params[2]
+
         # for now:
-        return (n_e, f, n_e_cold)
+        return (n_e, f, n_e_cold, p, k)
 
 
 
@@ -899,7 +924,7 @@ class BasicRayTracer(object):
         def z_to_ne(z):
             bc = setup.o2b(x, y, z)
             mc = setup.bfield(*bc)
-            return setup.distrib.get_samples(*mc)[0]
+            return setup.distrib.get_samples(*mc, just_ne=True)[0]
 
         nesamps = z_to_ne(zsamps)
 
@@ -1193,6 +1218,25 @@ class Ray(object):
         """
         from scipy.integrate import trapz
         return trapz(self.alpha[:,0], self.s)
+
+
+    def pitchy_diagnostics(self):
+        """Collect some diagnostics that feed back as to our understanding of the
+        radiative transfer problem and what ranges of parameters we need to be
+        able to model.
+
+        Assumes that this ray has properties `n_e_cold`, `p`, `k`.
+
+        """
+        s = self.harmonic_number()
+        fdl = self.mode_frac_delta_lambda(self.n_e_cold, 1.)
+        return np.array([
+            self.sigma_e(),
+            s.min(), s.max(),
+            np.abs(np.log10(fdl + 1)).max(),
+            self.p.min(), self.p.max(),
+            self.k.min(), self.k.max(),
+        ])
 
 
 class VanAllenSetup(object):
