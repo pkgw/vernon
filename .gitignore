@@ -1,5 +1,6 @@
 # Keep sorted
 *.pyc
+/.bulkjobdata
 /.version
 /Dockerfile
 /stack
