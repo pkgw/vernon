@@ -257,10 +257,20 @@ def K23L13(x):
     Evaluating the sin denominators, K_{2/3}(x) = pi/sqrt(3)*[I_{-2/3}(x) - I_{2/3}(x)],
     and analogously for L.
 
+    This appproximation is only supposed to kick in when x <~ 1., but I have
+    cases where I have x ~ 15. I think what's happening is that the NR/QR
+    structure of the problem is weird (sigma_QR_min < sigma_0) and Heyvaert's
+    assumptions about the problem geometry aren't so valid.
+
     """
     tt = 2. / 3
     ot = 1. / 3
-    K = np.pi / np.sqrt(3) * (iv_scipy(-tt, x) - iv_scipy(tt, x))
+
+    if x < 10:
+        K = np.pi / np.sqrt(3) * (iv_scipy(-tt, x) - iv_scipy(tt, x))
+    else:
+        K = kv_scipy(tt, x)
+
     L = np.pi / np.sqrt(3) * (iv_scipy(-ot, x) + iv_scipy(ot, x))
     return K * L
 
@@ -511,7 +521,7 @@ def evaluate_qr(sigma_max, s, theta, func, nsigma=64, npomega=64, **kwargs):
     sin_theta = np.sin(theta)
     cos_theta = np.cos(theta)
     sigma0 = s * sin_theta
-    sigma_low = sigma0**1.5 / np.sqrt(3)
+    sigma_low = max(sigma0, sigma0**1.5 / np.sqrt(3))
     three_two_thirds = 3**(2./3)
 
     if sigma_max < 0:
@@ -528,7 +538,11 @@ def evaluate_qr(sigma_max, s, theta, func, nsigma=64, npomega=64, **kwargs):
 
     for i in range(nsigma):
         sigma = sigmas[i]
-        this_pomega_max = np.sqrt(three_two_thirds * sigma**(4./3) - sigma0**2) * 0.999999 # hack as above
+        this_pomega_max = min(
+            np.sqrt(three_two_thirds * sigma**(4./3) - sigma0**2) * 0.999999, # hack as above
+            np.sqrt(sigma**2 - sigma0**2) * 0.999999, # full physical boundary
+        )
+
         j0, j1 = np.searchsorted(pomegas, [-this_pomega_max, this_pomega_max])
         these_pomegas = pomegas[j0:j1]
         x = np.sqrt(sigma**2 - these_pomegas**2 - sigma0**2)
@@ -554,7 +568,7 @@ def evaluate_qr(sigma_max, s, theta, func, nsigma=64, npomega=64, **kwargs):
 
 # Full integral broken into NR and QR contributions
 
-def nrqr_integrate_generic(s, theta, nr_func, qr_func, limit=5000, **kwargs):
+def nrqr_integrate_generic(s, theta, nr_func, qr_func, limit=4096, **kwargs):
     """Integrate over the physical domain, breaking the integration into the NR
     and QR domains for which differente functions are used. No prefactors or
     internal multipliers are used, so the two functions must include the
@@ -579,18 +593,24 @@ def nrqr_integrate_generic(s, theta, nr_func, qr_func, limit=5000, **kwargs):
         inner_kwargs['x'] = np.sqrt(sigma**2 - pomega**2 - sigma0**2)
         gamma = inner_kwargs['gamma'] = (sigma - pomega * cos_theta) / (s * sin_theta**2)
         inner_kwargs['mu'] = (sigma * cos_theta - pomega) / (s * sin_theta**2 * np.sqrt(gamma**2 - 1))
-        return func(**inner_kwargs)
+        r = func(**inner_kwargs)
+        #print('IP', inner_kwargs, sigma, pomega, r)
+        return r
 
     def outer_integrand(pomega, func, **kwargs):
         inner_kwargs['pomega'] = pomega
         sigma_min = np.sqrt(pomega**2 + sigma0**2)
         sigma_max = sigma_min**1.5 / 3**0.5
-        r = quad(inner_integrand, sigma_min, sigma_max, args=(pomega, func), limit=2048, **kwargs)[0]
-        #print('OP', sigma, r)
+
+        if sigma_max <= sigma_min:
+            return 0.
+
+        r = quad(inner_integrand, sigma_min, sigma_max, args=(pomega, func), limit=limit, **kwargs)[0]
+        #print('OP', pomega, r)
         return r
 
     integrate = lambda p1, p2, f: quad(
-        outer_integrand, p1, p2, args=(f,), **kwargs
+        outer_integrand, p1, p2, args=(f,), limit=limit, **kwargs
     )[0]
 
     def derivative(pomega, func):
@@ -609,10 +629,13 @@ def nrqr_integrate_generic(s, theta, nr_func, qr_func, limit=5000, **kwargs):
     pomega_left = -3 * sigma0
     pomega_right = 3 * sigma0
     delta_left = delta_right = pomega_right
-    nr_val = quad(outer_integrand, pomega_left, pomega_right, args=(nr_func,), **kwargs)[0]
     TOL = 1e-5
     keep_going = True
     DELTA_SCALE_FACTOR = 5
+
+    # This can be zero if we're in the "low-frequency" regime such that our
+    # initial pomegas just don't cover any NR area.
+    nr_val = quad(outer_integrand, pomega_left, pomega_right, args=(nr_func,), **kwargs)[0]
 
     while keep_going:
         if nr_val != 0.:
@@ -622,13 +645,17 @@ def nrqr_integrate_generic(s, theta, nr_func, qr_func, limit=5000, **kwargs):
             # it is often hard to compute at minimal values of sigma.
 
             rel_deriv = derivative(pomega_right, nr_func)
-            if abs(1. / (rel_deriv * delta_right)) > DELTA_SCALE_FACTOR:
+            if rel_deriv == 0. or abs(1. / (rel_deriv * delta_right)) > DELTA_SCALE_FACTOR:
                 delta_right *= DELTA_SCALE_FACTOR
                 ##print('delta_right bumped to', delta_right)
 
         contrib = integrate(pomega_right, pomega_right + delta_right, nr_func)
-        #print('cr:', np.abs(contrib / nr_val))
-        keep_going = np.abs(contrib / nr_val) > TOL
+        if nr_val == 0.:
+            #print('cr(0):', pomega_right, contrib, '--')
+            pass
+        else:
+            #print('cr:', np.abs(contrib / nr_val))
+            keep_going = np.abs(contrib / nr_val) > TOL
         nr_val += contrib
         pomega_right += delta_right
 
@@ -636,7 +663,7 @@ def nrqr_integrate_generic(s, theta, nr_func, qr_func, limit=5000, **kwargs):
 
     while keep_going:
         rel_deriv = derivative(pomega_left, nr_func)
-        if abs(1. / (rel_deriv * delta_left)) > DELTA_SCALE_FACTOR:
+        if rel_deriv == 0. or abs(1. / (rel_deriv * delta_left)) > DELTA_SCALE_FACTOR:
             delta_left *= DELTA_SCALE_FACTOR
             ##print('delta_left bumped to', delta_left)
 
@@ -652,21 +679,31 @@ def nrqr_integrate_generic(s, theta, nr_func, qr_func, limit=5000, **kwargs):
     def inner_integrand(pomega, sigma, func):
         inner_kwargs['pomega'] = pomega
         inner_kwargs['x'] = np.sqrt(sigma**2 - pomega**2 - sigma0**2)
+        #print('ZZZ', sigma, pomega, sigma0, inner_kwargs['x'])
         gamma = inner_kwargs['gamma'] = (sigma - pomega * cos_theta) / (s * sin_theta**2)
         inner_kwargs['mu'] = (sigma * cos_theta - pomega) / (s * sin_theta**2 * np.sqrt(gamma**2 - 1))
-        return func(**inner_kwargs)
+        r = func(**inner_kwargs)
+        #print('%.18e %.18e %.18e' % (sigma, pomega, r))
+        return r
 
     three_two_thirds = 3**(2./3)
 
     def outer_integrand(sigma, func, **kwargs):
         inner_kwargs['sigma'] = sigma
-        pomega_max = np.sqrt(three_two_thirds * sigma**(4./3) - sigma0**2)
+        pomega_max = min(
+            np.sqrt(three_two_thirds * sigma**(4./3) - sigma0**2), # QR boundary
+            np.sqrt(sigma**2 - sigma0**2), # full physical boundary
+        )
         pomega_min = -pomega_max
-        r = quad(inner_integrand, pomega_min, pomega_max, args=(sigma, func), limit=2048, **kwargs)[0]
+        #print()
+        #print('OS BEGIN:', sigma)
+        r = quad(inner_integrand, pomega_min, pomega_max, args=(sigma, func), limit=limit, **kwargs)[0]
+        #print('OS END:', sigma, '=>', r)
+        #print()
         return r
 
     integrate = lambda s1, s2, f: quad(
-        outer_integrand, s1, s2, args=(f,), **kwargs
+        outer_integrand, s1, s2, args=(f,), limit=limit, **kwargs
     )[0]
 
     def derivative(sigma, func):
@@ -680,8 +717,8 @@ def nrqr_integrate_generic(s, theta, nr_func, qr_func, limit=5000, **kwargs):
 
         return (v2 - v1) / (norm * eps)
 
-    sigma_low = sigma0**1.5 / np.sqrt(3)
-    delta_sigma = 5 * sigma0
+    sigma_low = max(sigma0, sigma0**1.5 / np.sqrt(3))
+    delta_sigma = 1 * sigma0
     qr_val = 0.
     keep_going = True
     DELTA_SCALE_FACTOR = 5
@@ -689,7 +726,7 @@ def nrqr_integrate_generic(s, theta, nr_func, qr_func, limit=5000, **kwargs):
     while keep_going:
         if qr_val != 0.:
             rel_deriv = derivative(sigma_low, qr_func)
-            if abs(1. / (rel_deriv * delta_sigma)) > DELTA_SCALE_FACTOR:
+            if rel_deriv == 0. or abs(1. / (rel_deriv * delta_sigma)) > DELTA_SCALE_FACTOR:
                 delta_sigma *= DELTA_SCALE_FACTOR
                 ##print('delta_sigma bumped to', delta_sigma)
 
@@ -859,6 +896,7 @@ class Distribution(object):
         g = np.sqrt(8.) * (sg - x)**1.5 / (3 * np.sqrt(x))
         z = g * K23L13(g) - np.pi
         pf = -2 / cgs.c
+        #print('Z %.18e %.18e %.18e %.18e %.18e %.18e' % (pf, po, dfds, z, g, K23L13(g)))
         return pf * po * dfds * z
 
     def h_qr_element(self, **kwargs):
