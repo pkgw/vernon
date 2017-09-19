@@ -11,10 +11,15 @@ from pwkit import cgs
 from pwkit.numutil import broadcastize, parallel_quad
 from scipy.integrate import quad
 
-FOUR_PI_M3_C3 = 4 * cgs.pi * cgs.me**3 * cgs.c**3
+M3_C3 = cgs.me**3 * cgs.c**3
+FOUR_PI_M3_C3 = 4 * cgs.pi * M3_C3
 DEFAULT_S = 10.
 DEFAULT_THETA = 0.5
 
+
+# Set this True to override safety checks for incompletely implemented physics.
+# Stands for "I know what I'm doing."
+IKWID = False
 
 # Bessel function fun. Scipy names second-kind Bessels as Y_v(x); we follow
 # Heyvaerts and use N_v(x).
@@ -501,9 +506,61 @@ def evaluate_bqr(sigma_max, s, theta, **kwargs):
     return evaluate_generic(sigma_max, s, theta, get, **kwargs)
 
 
+def evaluate_qr(sigma_max, s, theta, func, nsigma=64, npomega=64, **kwargs):
+    """Sample a 2D plane, but only inside the QR (quasi-resonant) region."""
+    sin_theta = np.sin(theta)
+    cos_theta = np.cos(theta)
+    sigma0 = s * sin_theta
+    sigma_low = sigma0**1.5 / np.sqrt(3)
+    three_two_thirds = 3**(2./3)
+
+    if sigma_max < 0:
+        sigma_max = np.abs(sigma_max) * sigma_low
+    else:
+        assert sigma_max > sigma_low
+
+    sigmas = np.linspace(sigma_max, sigma0, nsigma) # backwards so default view looks more intuitive
+    pomega_max = np.sqrt(three_two_thirds * sigma_max**(4./3) - sigma0**2)
+    pomegas = np.linspace(-pomega_max, pomega_max, npomega)
+
+    plane = np.ma.zeros((nsigma, npomega))
+    plane.mask = np.ma.ones((nsigma, npomega), dtype=np.bool)
+
+    for i in range(nsigma):
+        sigma = sigmas[i]
+        this_pomega_max = np.sqrt(three_two_thirds * sigma**(4./3) - sigma0**2) * 0.999999 # hack as above
+        j0, j1 = np.searchsorted(pomegas, [-this_pomega_max, this_pomega_max])
+        these_pomegas = pomegas[j0:j1]
+        x = np.sqrt(sigma**2 - these_pomegas**2 - sigma0**2)
+        gamma = (sigma - these_pomegas * cos_theta) / (s * sin_theta**2)
+        mu = (sigma * cos_theta - these_pomegas) / (s * sin_theta**2 * np.sqrt(gamma**2 - 1))
+        v = func(
+            s = s,
+            sigma = sigma,
+            pomega = these_pomegas,
+            gamma = gamma,
+            x = x,
+            mu = mu,
+            sin_theta = sin_theta,
+            cos_theta = cos_theta,
+            sigma0 = sigma0,
+            **kwargs
+        )
+        plane[i,j0:j1] = v
+        plane.mask[i,j0:j1] = False
+
+    return sigmas, pomegas, plane
+
+
 # Full integral broken into NR and QR contributions
 
 def nrqr_integrate_generic(s, theta, nr_func, qr_func, limit=5000, **kwargs):
+    """Integrate over the physical domain, breaking the integration into the NR
+    and QR domains for which differente functions are used. No prefactors or
+    internal multipliers are used, so the two functions must include the
+    appropriate internal terms and have the same external scaling.
+
+    """
     sin_theta = np.sin(theta)
     cos_theta = np.cos(theta)
     sigma0 = s * sin_theta
@@ -524,11 +581,11 @@ def nrqr_integrate_generic(s, theta, nr_func, qr_func, limit=5000, **kwargs):
         inner_kwargs['mu'] = (sigma * cos_theta - pomega) / (s * sin_theta**2 * np.sqrt(gamma**2 - 1))
         return func(**inner_kwargs)
 
-    def outer_integrand(pomega, func):
+    def outer_integrand(pomega, func, **kwargs):
         inner_kwargs['pomega'] = pomega
         sigma_min = np.sqrt(pomega**2 + sigma0**2)
         sigma_max = sigma_min**1.5 / 3**0.5
-        r = quad(inner_integrand, sigma_min, sigma_max, args=(pomega, func), limit=2048)[0]
+        r = quad(inner_integrand, sigma_min, sigma_max, args=(pomega, func), limit=2048, **kwargs)[0]
         #print('OP', sigma, r)
         return r
 
@@ -536,11 +593,16 @@ def nrqr_integrate_generic(s, theta, nr_func, qr_func, limit=5000, **kwargs):
         outer_integrand, p1, p2, args=(f,), **kwargs
     )[0]
 
-    ##def derivative(pomega, func):
-    ##    eps = np.abs(pomega) * 1e-8
-    ##    v1 = outer_integrand(pomega, func)
-    ##    v2 = outer_integrand(pomega + eps, func)
-    ##    return (v2 - v1) / eps
+    def derivative(pomega, func):
+        eps = np.abs(pomega) * 1e-6
+        v1 = outer_integrand(pomega, func, epsrel=1e-6)
+        v2 = outer_integrand(pomega + eps, func, epsrel=1e-6)
+        norm = np.abs([v1, v2]).max()
+
+        if norm == 0.:
+            return 0.
+
+        return (v2 - v1) / (norm * eps)
 
     # Always start by integrating over the center of the NR region.
 
@@ -550,8 +612,20 @@ def nrqr_integrate_generic(s, theta, nr_func, qr_func, limit=5000, **kwargs):
     nr_val = quad(outer_integrand, pomega_left, pomega_right, args=(nr_func,), **kwargs)[0]
     TOL = 1e-5
     keep_going = True
+    DELTA_SCALE_FACTOR = 5
 
     while keep_going:
+        if nr_val != 0.:
+            # I think this logic is OK regardless of the sign of rel_deriv,
+            # although the motivation is based on a view in which it's
+            # negative. We don't take the derivative on the first pass since
+            # it is often hard to compute at minimal values of sigma.
+
+            rel_deriv = derivative(pomega_right, nr_func)
+            if abs(1. / (rel_deriv * delta_right)) > DELTA_SCALE_FACTOR:
+                delta_right *= DELTA_SCALE_FACTOR
+                ##print('delta_right bumped to', delta_right)
+
         contrib = integrate(pomega_right, pomega_right + delta_right, nr_func)
         #print('cr:', np.abs(contrib / nr_val))
         keep_going = np.abs(contrib / nr_val) > TOL
@@ -561,6 +635,11 @@ def nrqr_integrate_generic(s, theta, nr_func, qr_func, limit=5000, **kwargs):
     keep_going = True
 
     while keep_going:
+        rel_deriv = derivative(pomega_left, nr_func)
+        if abs(1. / (rel_deriv * delta_left)) > DELTA_SCALE_FACTOR:
+            delta_left *= DELTA_SCALE_FACTOR
+            ##print('delta_left bumped to', delta_left)
+
         contrib = integrate(pomega_left - delta_left, pomega_left, nr_func)
         #print('cl:', np.abs(contrib / nr_val))
         keep_going = np.abs(contrib / nr_val) > TOL
@@ -579,34 +658,52 @@ def nrqr_integrate_generic(s, theta, nr_func, qr_func, limit=5000, **kwargs):
 
     three_two_thirds = 3**(2./3)
 
-    def outer_integrand(sigma, func):
+    def outer_integrand(sigma, func, **kwargs):
         inner_kwargs['sigma'] = sigma
         pomega_max = np.sqrt(three_two_thirds * sigma**(4./3) - sigma0**2)
         pomega_min = -pomega_max
-        r = quad(inner_integrand, pomega_min, pomega_max, args=(sigma, func), limit=2048)[0]
+        r = quad(inner_integrand, pomega_min, pomega_max, args=(sigma, func), limit=2048, **kwargs)[0]
         return r
 
     integrate = lambda s1, s2, f: quad(
         outer_integrand, s1, s2, args=(f,), **kwargs
     )[0]
 
+    def derivative(sigma, func):
+        eps = np.abs(sigma) * 1e-6
+        v1 = outer_integrand(sigma, func, epsrel=1e-6)
+        v2 = outer_integrand(sigma + eps, func, epsrel=1e-6)
+        norm = np.abs([v1, v2]).max()
+
+        if norm == 0.:
+            return 0.
+
+        return (v2 - v1) / (norm * eps)
+
     sigma_low = sigma0**1.5 / np.sqrt(3)
     delta_sigma = 5 * sigma0
     qr_val = 0.
     keep_going = True
+    DELTA_SCALE_FACTOR = 5
 
     while keep_going:
-        contrib = integrate(sigma_low, sigma_low + delta_sigma, qr_func)
+        if qr_val != 0.:
+            rel_deriv = derivative(sigma_low, qr_func)
+            if abs(1. / (rel_deriv * delta_sigma)) > DELTA_SCALE_FACTOR:
+                delta_sigma *= DELTA_SCALE_FACTOR
+                ##print('delta_sigma bumped to', delta_sigma)
 
+        contrib = integrate(sigma_low, sigma_low + delta_sigma, qr_func)
         if qr_val == 0.:
-            #print('cs(0):', contrib, nr_val)
+            #print('cs(0):', sigma_low, contrib, nr_val)
             pass
         else:
-            #print('cs:', np.abs(contrib / qr_val))
+            #print('cs:', sigma_low, contrib, np.abs(contrib / qr_val))
             keep_going = np.abs(contrib / qr_val) > TOL
         qr_val += contrib
         sigma_low += delta_sigma
 
+    #print('final NR:', nr_val, '   QR:', qr_val)
     return nr_val + qr_val
 
 
@@ -631,7 +728,11 @@ class Distribution(object):
         """Evaluate the integrand of the quasi-exact expression for `f` using this
         distribution function.
 
-        Heyvaerts equation 25.
+        Heyvaerts equation 25. We include the prefactors that are not part of
+        the "standard Heyvaerts integral"; namely, 2 pi^2 / c; we fix s_q =
+        -1. This is to ease comparability with the other expressions, which
+        have different prefactor choices in the various integrals that are
+        written in the paper.
 
         Large values of sigma can easily yield NaNs and infs from the Bessel
         function evaluators.
@@ -644,7 +745,8 @@ class Distribution(object):
         po = kwargs['pomega']
         sg = kwargs['sigma']
         x = kwargs['x']
-        return self.dfdsigma(**kwargs) * po * (x * jvpnv(sg, x) + 1. / np.pi)
+        pf = 2 * np.pi**2 / cgs.c
+        return pf * self.dfdsigma(**kwargs) * po * (x * jvpnv(sg, x) + 1. / np.pi)
 
     def f_qe(self, sigma_max=np.inf, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1.,
                    epsrel=1e-3, **kwargs):
@@ -656,14 +758,38 @@ class Distribution(object):
         """
         integral = real_integrate_generic(sigma_max, s, theta, self.f_qe_element, epsrel=epsrel,
                                           edit_bounds=self.edit_pomega_bounds, **kwargs)[0]
-        return FOUR_PI_M3_C3 * integral * np.pi * omega_p**2 / (cgs.c * omega * s**2 * np.sin(theta)**2)
+        std_prefactor = M3_C3 * omega_p**2 / (s**2 * np.sin(theta)**2 * omega)
+        return std_prefactor * integral
 
-    def sample_f_qe(self, sigma_max, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1., **kwargs):
-        sigmas, samples, errs = sample_integral(
-            sigma_max, s, theta,
-            self.f_qe_element, edit_bounds=self.edit_pomega_bounds,
-            **kwargs)
-        return sigmas, FOUR_PI_M3_C3 * samples * np.pi * omega_p**2 / (cgs.c * omega * s**2 * np.sin(theta)**2)
+    def h_qe_element(self, **kwargs):
+        """Evaluate the integrand of the quasi-exact expression for `h` using this
+        distribution function.
+
+        SKIPPING d(F_0)/d(pomega) TERM! Hence the IKWID.
+
+        Heyvaerts equation 26, wrapping in prefactors as described in `f_qe_element`.
+
+        """
+        po = kwargs['pomega']
+        sg = kwargs['sigma']
+        x = kwargs['x']
+        dfds = self.dfdsigma(**kwargs)
+        assert IKWID, 'Do not use this; no d(F)/d(pomega) term.'
+        pf = np.pi**2 / cgs.c
+        return pf * dfds * (x**2 * jvp(sg, x) * nvp(sg, x) - po**2 * jv(sg, x) * nv(sg, x) - sg / np.pi)
+
+    def h_qe(self, sigma_max=np.inf, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1.,
+                   epsrel=1e-3, **kwargs):
+        """Calculate `h` in the quasi-exact regime.
+
+        The returned value is multiplied by `omega_p**2 / omega`. These two parameters
+        are dimensional but do not figure into the calculation otherwise.
+
+        """
+        integral = real_integrate_generic(sigma_max, s, theta, self.h_qe_element, epsrel=epsrel,
+                                          edit_bounds=self.edit_pomega_bounds, **kwargs)[0]
+        std_prefactor = M3_C3 * omega_p**2 / (s**2 * np.sin(theta)**2 * omega)
+        return std_prefactor * integral
 
     # Split QR/NR approach
 
@@ -671,8 +797,8 @@ class Distribution(object):
         """Evaluate the integrand of the non-resonant expression for `f` using this
         distribution function.
 
-        Equation 115, with the factor of pi squared taken inside the integrand
-        to keep the rest of the prefactors identical to equation 99.
+        Equation 115, with prefactors folded in in the usual way. Note that there's a
+        1/pi inside the integral.
 
         """
         dfds = self.dfdsigma(**kwargs)
@@ -688,17 +814,14 @@ class Distribution(object):
         xA1p = -5 * s2 * x2 / (12 * s2mx2**2)
         z = x2 / (2 * s2mx2**1.5) + (6 * A2 + xA1p - A1**2) / s2mx2 + 3 * A1 * x2 / (2 * s2mx2**2)
 
-        # The inner integrand is over pi, but the outer part is multiplied by
-        # pi squared w.r.t. the QR contribution, so we include that term here
-        # to keep the two terms on equal footing.
-        return z * po * dfds * np.pi
+        pf = -2 * np.pi / cgs.c
+        return pf * z * po * dfds
 
     def h_nr_element(self, **kwargs):
         """Evaluate the integrand of the non-resonant expression for `h` using this
         distribution function.
 
-        Equation 119, with the factor of pi taken inside the integrand to keep
-        the rest of the prefactors identical to equation 120.
+        Equation 119, with usual prefactorization.
 
         """
         dfds = self.dfdsigma(**kwargs)
@@ -717,13 +840,15 @@ class Distribution(object):
         t2 = (6 * A2 - A1**2) / s2mx2**1.5
         u1 = 2 * t1 - kwargs['sigma0']**2 * t2
 
-        return np.pi * dfds * u1
+        pf = np.pi / cgs.c
+        return pf * dfds * u1
 
     def f_qr_element(self, **kwargs):
         """Evaluate the integrand of the quasi-resonant expression for `f` using this
         distribution function.
 
-        Equation 99, moving the x inside the parentheses.
+        Equation 99, moving the x inside the parentheses, and using the usual
+        prefactor treatment.
 
         """
         dfds = self.dfdsigma(**kwargs)
@@ -731,15 +856,16 @@ class Distribution(object):
         po = kwargs['pomega']
         sg = kwargs['sigma']
         x = kwargs['x']
-        g = np.sqrt(8. / 3) * (sg - x)**1.5 / np.sqrt(x)
+        g = np.sqrt(8.) * (sg - x)**1.5 / (3 * np.sqrt(x))
         z = g * K23L13(g) - np.pi
-        return po * dfds * z
+        pf = -2 / cgs.c
+        return pf * po * dfds * z
 
     def h_qr_element(self, **kwargs):
         """Evaluate the integrand of the quasi-resonant expression for `h` using this
         distribution function.
 
-        Equation 120.
+        Equation 120, usual prefactor treatment.
 
         """
         dfds = self.dfdsigma(**kwargs)
@@ -749,13 +875,14 @@ class Distribution(object):
         x = kwargs['x']
         s02 = kwargs['sigma0']**2
         smxox = (sg - x) / x
-        g = np.sqrt(8. / 3) * (sg - x)**1.5 / np.sqrt(x)
+        g = np.sqrt(8.) * (sg - x)**1.5 / (3 * np.sqrt(x))
 
         t1 = 4 * x**2 * smxox**2 / np.sqrt(3) * K23L23(g)
         t2 = 2 * po2 * smxox / np.sqrt(3) * K13L13(g)
         t3 = -np.pi * (2 * po2 + s02) / np.sqrt(po2 + s02)
 
-        return (t1 + t2 + t3) * dfds
+        pf = 1. / cgs.c
+        return pf * (t1 + t2 + t3) * dfds
 
 
     def f_nrqr(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1.,
@@ -772,28 +899,33 @@ class Distribution(object):
             epsrel = epsrel,
             **kwargs
         )
-        prefactor = -2 / cgs.c
-        common_factor = cgs.me**3 * cgs.c**3 * omega_p**2 / (omega * s**2 * np.sin(theta)**2)
-        return prefactor * common_factor * integral
+        std_prefactor = M3_C3 * omega_p**2 / (s**2 * np.sin(theta)**2 * omega)
+        return std_prefactor * integral
 
 
     def h_nrqr(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1.,
-               epsrel=1e-3, **kwargs):
+               epsrel=1e-3, use_qe=False, **kwargs):
         """Calculate `h` in the quasi-exact regime using the split NR/QR approximations.
 
         The returned value is multiplied by `omega_p**2 / omega`. These two parameters
         are dimensional but do not figure into the calculation otherwise.
 
         """
+        if use_qe:
+            nr_element = self.h_qr_element
+            qr_element = self.h_qe_element
+        else:
+            nr_element = self.h_nr_element
+            qr_element = self.h_qr_element
+
         integral = nrqr_integrate_generic(
             s, theta,
-            self.h_nr_element, self.h_qr_element,
+            nr_element, qr_element,
             epsrel=epsrel,
             **kwargs
         )
-        prefactor = 1. / cgs.c
-        common_factor = cgs.me**3 * cgs.c**3 * omega_p**2 / (omega * s**2 * np.sin(theta)**2)
-        return prefactor * common_factor * integral
+        std_prefactor = M3_C3 * omega_p**2 / (s**2 * np.sin(theta)**2 * omega)
+        return std_prefactor * integral
 
 
 class IsotropicDistribution(Distribution):
@@ -814,10 +946,8 @@ class IsotropicDistribution(Distribution):
                 gamma, np.inf
             )[0] - remainder
 
-        deriv = lambda g: -FOUR_PI_M3_C3 * g * np.sqrt(g**2 - 1) * self.just_f(gamma=g)
-
-        from scipy.optimize import newton
-        return newton(integral_diff, gamma0, fprime=deriv)
+        from scipy.optimize import brentq
+        return brentq(integral_diff, 1., 1e10)
 
     def isotropic_hf_s_min(self, theta=DEFAULT_THETA, fraction=0.999):
         """Find the minimal harmonic number *s_min* such that calculations performed
@@ -855,7 +985,7 @@ class IsotropicDistribution(Distribution):
             return self.dfdg(gamma=gamma) * F_iso_HF
 
         integral = quad(integrand, 1., np.inf)[0]
-        return omega_p**2 * (cgs.me * cgs.c)**3 * integral / (cgs.c * s**2 * omega)
+        return omega_p**2 * M3_C3 * integral / (cgs.c * s**2 * omega)
 
     def isotropic_h_hf(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1.,
                        omega=1., **kwargs):
@@ -873,11 +1003,28 @@ class IsotropicDistribution(Distribution):
             return self.dfdg(gamma=gamma) * H_iso_HF
 
         integral = quad(integrand, 1., np.inf)[0]
-        return omega_p**2 * (cgs.me * cgs.c)**3 * integral / (cgs.c * s**2 * omega)
+        return omega_p**2 * M3_C3 * integral / (cgs.c * s**2 * omega)
 
     def isotropic_f_lf(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1.,
                        omega=1., **kwargs):
-        raise NotImplementedError()
+        """Calculate "f" for an isotropic distribution function, assuming that we can
+        invoke Heyvaert's LF (low-frequency) limit for all particles.
+
+        TODO: unclear just when that assumption holds.
+
+
+        """
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+        prefactor = -np.pi * s * cos_theta
+
+        def integrand(gamma):
+            F_iso_LF = prefactor * gamma * (4. * np.log(gamma * s / sin_theta) / 3 - 1.26072439)
+            return self.dfdg(gamma=gamma) * F_iso_LF
+
+        integral = quad(integrand, 1., np.inf)[0]
+        return omega_p**2 * M3_C3 * integral / (cgs.c * s**2 * omega)
+
 
     def isotropic_h_lf(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1.,
                        omega=1., **kwargs):
@@ -888,8 +1035,9 @@ class IsotropicDistribution(Distribution):
 
         To reproduce the right panel of Heyvaerts Figure 2, use the thermal
         Juettner distribution, s = 15, theta = pi/4, omega_p = omega = 1, and
-        multiply the result by (-c * s**2). For T = 724, I think h ~=
-        -5.22e-18; for T = 43, h ~= -5.86e-16.
+        multiply the result by (-c * s**2). If I *don't* multiply by the
+        constants, for T = 724, I think h ~= -5.2e-18; for T = 43, h ~=
+        -5.8e-16.
 
         """
         sin_theta = np.sin(theta)
@@ -900,7 +1048,7 @@ class IsotropicDistribution(Distribution):
             return self.dfdg(gamma=gamma) * H_iso_LF
 
         integral = quad(integrand, 1., np.inf)[0]
-        return omega_p**2 * (cgs.me * cgs.c)**3 * integral / (cgs.c * s**2 * omega)
+        return omega_p**2 * M3_C3 * integral / (cgs.c * s**2 * omega)
 
 
 class PowerLawDistribution(IsotropicDistribution):
@@ -1035,6 +1183,18 @@ class CutoffGammaSpacePowerLawDistribution(IsotropicDistribution):
 
 
 class ThermalJuettnerDistribution(IsotropicDistribution):
+    """The thermal Juettner distribution briefly discussed by Heyvaerts.
+
+    Heyvaerts provides analytic high-frequency approximations (equation 43)
+    that allow us to check if the isotropic HF approximation and the general
+    NR/QR solver are working correctly in the relevant portions of parameter
+    space. At this juncture it seems that they are.
+
+    The right panel of Heyvaerts Figure 2 gives values of "h" in the LF limit,
+    and it seems that the isotropic LF approximation is giving good results in
+    this case too.
+
+    """
     def __init__(self, T):
         """T is the ratio of the thermal energy to the rest-mass energy of the
         particles.
@@ -1051,10 +1211,41 @@ class ThermalJuettnerDistribution(IsotropicDistribution):
         return self.norm * np.exp(self.neg_inv_T * gamma) * self.neg_inv_T
 
     def f_analytic_hf(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1.):
+        """Equation 43 of Heyvaerts. I can get good agreement between this function
+        and the isotropic HF computation, if T is sufficiently low to make it
+        so that we can indeed work in the HF approximation.
+
+        """
         return (np.cos(theta) * omega_p**2 * kv_scipy(0, -self.neg_inv_T) /
                 (cgs.c * s * omega * kv_scipy(2., -self.neg_inv_T)))
 
     def h_analytic_hf(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1.):
+        """Equation 43 of Heyvaerts. This is the opposite sign of the expression given
+        by Shcherbakov but I think that is just due to Stokes V convention.
+
+        For this approximation to work, *s* must be sufficiently large to make
+        the HF approximation valid, *and* T must be above 10 or so, as per the
+        left panel of Heyvaerts Figure 2. Larger temperatures lead to much
+        larger minimum values of *s* such that values of >~ 5e4 are necessary.
+
+        """
         return (np.sin(theta)**2 * omega_p**2 *
                 (kv_scipy(1, -self.neg_inv_T) + 6 * kv_scipy(2, -self.neg_inv_T) / -self.neg_inv_T) /
                 (2 * cgs.c * s**2 * omega * kv_scipy(2., -self.neg_inv_T)))
+
+
+class ExponentialSigmaDistribution(Distribution):
+    """This non-physical distribution is for testing the integrators, since it has
+    easy derivatives in sigma/pomega space.
+
+    """
+    def __init__(self, k = -1e-4):
+        self.k = k
+        self.norm = 1.
+        self.norm = 1. / self.check_normalization() # bwahahaha
+
+    def just_f(self, sigma=None, **kwargs):
+        return self.norm * np.exp(self.k * sigma)
+
+    def dfdsigma(self, sigma=None, **kwargs):
+        return self.k * self.norm * np.exp(self.k * sigma)
