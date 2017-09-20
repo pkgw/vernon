@@ -19,6 +19,7 @@ import numpy as np
 from pwkit.astutil import halfpi, twopi
 from pwkit.numutil import broadcastize
 
+from neurosynchro import STOKES_I, STOKES_Q, STOKES_U, STOKES_V, EMISSION, ABSORPTION
 
 DEFAULT_GAMMA_MIN = 1.
 DEFAULT_GAMMA_MAX = 1000.
