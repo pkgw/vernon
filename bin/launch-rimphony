@@ -1,0 +1,51 @@
+#!/bin/bash
+
+if [ "$1" = test ] ; then
+    # 0.05 cpu-hours
+    array_spec=0-1
+    time_lim=1
+    partition=interact
+    set -x
+elif [ "$1" = prod ] ; then
+    # ~1000 cpu-hours
+    array_spec=0-1023
+    time_lim=60
+    partition=serial_requeue
+elif [ "$1" = med ] ; then
+    # ~20 cpu-hours
+    array_spec=0-128
+    time_lim=10
+    partition=serial_requeue
+else
+    echo >&2 "first argument must be either \"test\" or \"prod\" or \"med\""
+    exit 1
+fi
+
+case "$2" in
+    pitchypl)
+        # Keep these synchronized with symphony/odyssey/compute.py!
+        params="5 5e7 0.001 1.5707963267948966 1.5 7 0 9"
+        prog=crank-out-pitchypl
+        ;;
+    *)
+	echo >&2 "second argument must be \"pitchypl\""
+	exit 1 ;;
+esac
+
+odydir="$(cd $(dirname $0)/../rimphony && pwd)"
+
+# I just know that I'll forget to actually recompile the runner.
+(cd $odydir && cargo build --release --examples)
+
+exec sbatch \
+    -a $array_spec \
+    -o '%A.out' \
+    -J rimphony \
+    --mem=512 \
+    -N 1 \
+    -n 1 \
+    -p $partition \
+    -t $time_lim \
+    -o '%A.log' \
+    --open-mode=append \
+    "$(cd $(dirname $0)/../modeling && pwd)"//rimphony_run_odyssey.sh "$odydir" $prog $params
