@@ -12,6 +12,7 @@ import argparse, sys
 import numpy as np
 from pwkit.cli import die
 from pwkit.io import Path
+import pytoml
 
 
 def basic_load(datadir):
@@ -36,6 +37,40 @@ def basic_load(datadir):
     data = np.vstack(chunks)
     return param_names, data
 
+
+# "lock-domain-range"
+
+def make_ldr_parser():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('datadir', type=str, metavar='DATADIR',
+                    help='The path to the input sample data directory.')
+    ap.add_argument('nndir', type=str, metavar='NNDIR',
+                    help='The path to the output neural-net directory.')
+    return ap
+
+
+def lock_domain_range_cli(args):
+    settings = make_ldr_parser().parse_args(args=args)
+
+    # Load samples
+    _, samples = basic_load(settings.datadir)
+
+    # Load skeleton config
+    cfg_path = Path(settings.nndir) / 'nn_config.toml'
+    with cfg_path.open('rt') as f:
+        info = pytoml.load(f)
+
+    # Turn into processed DomainRange object
+    dr = neuro.DomainRange.from_info_and_samples(info, samples)
+
+    # Update config and rewrite
+    dr.into_info(info)
+
+    with cfg_path.open('wt') as f:
+        pytoml.dump(f, info)
+
+
+# "summarize"
 
 def summarize(datadir):
     param_names, data = basic_load(datadir)
@@ -76,9 +111,11 @@ def summarize_cli(args):
 
 def entrypoint(argv):
     if len(argv) == 1:
-        die('must supply a subcommand: "summarize", "train"')
+        die('must supply a subcommand: "lock-domain-range", "summarize", "train"')
 
-    if argv[1] == 'summarize':
+    if argv[1] == 'lock-domain-range':
+        lock_domain_range_cli(argv[2:])
+    elif argv[1] == 'summarize':
         summarize_cli(argv[2:])
     elif argv[1] == 'train':
         from .train import train_cli
