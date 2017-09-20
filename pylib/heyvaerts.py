@@ -1289,7 +1289,7 @@ class PitchyDistribution(IsotropicDistribution):
         sin_xi = np.sqrt(1 - mu**2)
         pa_term = sin_xi**self.k
         f = self.norm * pa_term * gamma**(self.neg_n - 1) / np.sqrt(gamma**2 - 1)
-        return f * self.k * mu / sin_xi**2
+        return -f * self.k * mu / sin_xi**2
 
 
 class ThermalJuettnerDistribution(IsotropicDistribution):
