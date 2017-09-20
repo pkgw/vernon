@@ -749,7 +749,28 @@ def nrqr_integrate_generic(s, theta, nr_func, qr_func, limit=4096, **kwargs):
 class Distribution(object):
     def dfdsigma(self, **kwargs):
         dfdg = self.dfdg(**kwargs)
-        return dfdg / (kwargs['s'] * kwargs['sin_theta']**2)
+        g_term = dfdg / (kwargs['s'] * kwargs['sin_theta']**2)
+
+        dfdcx = self.dfdcx(**kwargs)
+        if dfdcx == 0.:
+            mu_term = 0.
+        else:
+            # I'm sure this could be simplified but this works so let's just
+            # run with it for now. I just banged this out in sympy and checked
+            # numerically.
+            sigma = kwargs['sigma']
+            pomega = kwargs['pomega']
+            sinth = kwargs['sin_theta']
+            costh = kwargs['cos_theta']
+            s = kwargs['s']
+            Q = sigma - pomega * costh
+            R = pomega - sigma * costh
+            T = s * sinth**2
+            U = Q**2 - T**2
+            dcxdsigma = (Q * U * costh + U * R + R * T**2) / (U**1.5 * Q)
+            mu_term = dcxdsigma * dfdcx
+
+        return g_term + mu_term
 
     def check_normalization(self, sigma_max=np.inf, s=DEFAULT_S, theta=DEFAULT_THETA, **kwargs):
         """Should return 1 if this distribution is normalized correctly."""
@@ -1106,6 +1127,10 @@ class PowerLawDistribution(IsotropicDistribution):
     def dfdg(self, gamma=None, **kwargs):
         return self.norm * self.neg_n * gamma**(self.neg_n - 1)
 
+    def dfdcx(self, **kwargs):
+        "d(f)/d(cos xi), where xi is the pitch angle."
+        return 0.
+
 
 class CutoffPowerLawDistribution(IsotropicDistribution):
     def __init__(self, gmin, n):
@@ -1140,6 +1165,10 @@ class CutoffPowerLawDistribution(IsotropicDistribution):
             if gamma < self.gmin:
                 return 0.
             return self.norm * self.neg_n * gamma**(self.neg_n - 1)
+
+    def dfdcx(self, **kwargs):
+        "d(f)/d(cos xi), where xi is the pitch angle."
+        return 0.
 
 
 class CutoffGammaSpacePowerLawDistribution(IsotropicDistribution):
@@ -1179,6 +1208,10 @@ class CutoffGammaSpacePowerLawDistribution(IsotropicDistribution):
             f[gamma < self.gmin] = 0.
 
         return f
+
+    def dfdcx(self, **kwargs):
+        "d(f)/d(cos xi), where xi is the pitch angle."
+        return 0.
 
     def f_hs11(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1.):
         """Compute "f" using the formulae given by Huang & Shcherbakov (2011), namely
@@ -1222,6 +1255,43 @@ class CutoffGammaSpacePowerLawDistribution(IsotropicDistribution):
         )
 
 
+class PitchyDistribution(IsotropicDistribution):
+    """This is my "pitchy" power-law distribution, which is like the gamma-space
+    power law with a sin^k(alpha) pitch-angle dependence multiplied in. (We
+    don't include the exponential cutoff included in the Rimphony code, but it
+    is set to a large value that makes it irrelevant in practice.)
+
+    """
+    def __init__(self, n, k):
+        self.neg_n = -n
+        self.k = k
+
+        # Normalization is easy enough, if you can look up the integrals ...
+        from scipy.special import hyp2f1
+        pa_integral = hyp2f1(0.5, -0.5 * k, 1.5, 1)
+        gamma_integral = 1. / (n - 1)
+        self.norm = 1. / (FOUR_PI_M3_C3 * pa_integral * gamma_integral)
+
+    def just_f(self, gamma=None, mu=None, **kwargs):
+        sin_xi = np.sqrt(1 - mu**2)
+        pa_term = sin_xi**self.k
+        gamma_term = gamma**(self.neg_n - 1) / np.sqrt(gamma**2 - 1)
+        return self.norm * pa_term * gamma_term
+
+    def dfdg(self, gamma=None, mu=None, **kwargs):
+        sin_xi = np.sqrt(1 - mu**2)
+        pa_term = sin_xi**self.k
+        f = self.norm * pa_term * gamma**(self.neg_n - 1) / np.sqrt(gamma**2 - 1)
+        return -f * ((1 - self.neg_n) / gamma + gamma / (gamma**2 - 1))
+
+    def dfdcx(self, gamma=None, mu=None, **kwargs):
+        "mu = cos(xi)"
+        sin_xi = np.sqrt(1 - mu**2)
+        pa_term = sin_xi**self.k
+        f = self.norm * pa_term * gamma**(self.neg_n - 1) / np.sqrt(gamma**2 - 1)
+        return f * self.k * mu / sin_xi**2
+
+
 class ThermalJuettnerDistribution(IsotropicDistribution):
     """The thermal Juettner distribution briefly discussed by Heyvaerts.
 
@@ -1249,6 +1319,10 @@ class ThermalJuettnerDistribution(IsotropicDistribution):
 
     def dfdg(self, gamma=None, **kwargs):
         return self.norm * np.exp(self.neg_inv_T * gamma) * self.neg_inv_T
+
+    def dfdcx(self, **kwargs):
+        "d(f)/d(cos xi), where xi is the pitch angle."
+        return 0.
 
     def f_analytic_hf(self, s=DEFAULT_S, theta=DEFAULT_THETA, omega_p=1., omega=1.):
         """Equation 43 of Heyvaerts. I can get good agreement between this function
@@ -1289,3 +1363,7 @@ class ExponentialSigmaDistribution(Distribution):
 
     def dfdsigma(self, sigma=None, **kwargs):
         return self.k * self.norm * np.exp(self.k * sigma)
+
+    def dfdcx(self, **kwargs):
+        "d(f)/d(cos xi), where xi is the pitch angle."
+        return 0.
