@@ -10,7 +10,8 @@ __all__ = '''
 commandline
 '''.split()
 
-import collections, io, json, os.path, random, signal
+# selectors is only in Python >= 3.4, so we're limiting our appeal:
+import collections, io, json, os.path, random, selectors, signal
 import socket, struct, subprocess, sys, time, traceback
 
 import six
@@ -226,7 +227,6 @@ class TaskList(object):
 # encoded in UTF-8.
 
 def sockwrite(sock, command, data):
-    from select import select, error as selecterror
     timeout = 1 # hardcoding
 
     content = json.dumps([command, data]).encode('utf-8')
@@ -244,14 +244,14 @@ def sockwrite(sock, command, data):
                 raise # not EAGAIN: a real problem
 
             # EAGAIN: apparently this is the thing to do:
+            sel = selectors.DefaultSelector()
+            sel.register(sock, selectors.EVENT_WRITE, None)
             try:
-                readable, writable, errored = select([], [sock], [sock], timeout)
-            except selecterror as e:
+                events = sel.select(timeout=timeout)
+            except Exception as e:
                 raise RuntimeError('select() failed after EAGAIN: %s' % e)
 
-            if len(errored):
-                raise RuntimeError('socket error from select() after EAGAIN')
-
+            sel.close()
             continue # we're ok to try again now
 
         if s == 0:
@@ -417,6 +417,8 @@ class Client(object):
         if self.cur_task is not None:
             warn('shutting down client %s while working on %s', self, self.cur_task)
             self._attempt_complete(failcode=Failcodes.SHUTDOWN_WHILE_WORKING)
+
+        self.master.sel.unregister(self.sock)
 
         try:
             self.sock.shutdown(socket.SHUT_RDWR)
@@ -672,13 +674,19 @@ class MasterState(object):
             self.cookie_unihex = os.urandom(32).hex()
 
 
+
     def __enter__(self):
         self.prev_sigterm = signal.signal(signal.SIGTERM, self.on_sigterm)
+        self.sel = selectors.DefaultSelector()
         return self
 
 
     def __exit__(self, etype, evalue, etb):
         log('cleaning up and exiting')
+
+        if self.sel is not None:
+            self.sel.close()
+            self.sel = None
 
         if self.prev_sigterm is not None:
             signal.signal(signal.SIGTERM, self.prev_sigterm)
@@ -731,6 +739,7 @@ class MasterState(object):
         dest, port = sock.getsockname()
         log('listening on %s/%d', dest, port)
         self.sock = sock
+        self.sel.register(sock, selectors.EVENT_READ, self.accept_new_client)
 
         # Write socket info such that only people with our UID can read it.
         # However, anyone can connect to the socket, so we require a random
@@ -744,6 +753,19 @@ class MasterState(object):
             print(six.text_type(dest), file=f)
             print(six.text_type(port), file=f)
             print(self.cookie_unihex, file=f)
+
+
+    def accept_new_client(self):
+        try:
+            csock, address = self.sock.accept()
+        except socket.error as e:
+            warn('accept fail: %s', e)
+            return
+
+        log('new client connection from %r', address)
+        client = Client(self, csock, address)
+        self.clients[csock] = client
+        self.sel.register(csock, selectors.EVENT_READ, lambda: client.read())
 
 
     def on_sigterm(self, signum, stack):
@@ -765,7 +787,6 @@ class MasterState(object):
 
 
     def mainloop(self):
-        from select import select, error as selecterror
         timeout = 1
         next_status = time.time() + 10
 
@@ -800,36 +821,8 @@ class MasterState(object):
                     del self.clients[s] # this client died
 
             # Check for messages.
-            sockets = [self.sock] + list(c.sock for c in six.itervalues(self.clients))
-            try:
-                readable, writable, errored = select(sockets, [], sockets, timeout)
-            except selecterror as e:
-                warn('error in select(): %s', e)
-                readable = writable = errored = ()
-
-            for rsock in readable:
-                if rsock is self.sock:
-                    # New connection
-                    try:
-                        csock, address = rsock.accept()
-                    except socket.error as e:
-                        warn('accept fail: %s', e)
-                        continue
-                    log('new client connection from %r', address)
-                    self.clients[csock] = Client(self, csock, address)
-                else:
-                    # New input from client
-                    client = self.clients[rsock]
-                    client.read()
-
-            for esock in errored:
-                client = self.clients[esock]
-                warn('an error occurred for %s/%d', client.host, client.port)
-                try:
-                    esock.close()
-                except socket.error as e:
-                    warn('error-socket close fail: %s', e)
-                del self.clients[esock]
+            for key, mask in self.sel.select():
+                key.data() # this is the callback lambda we've set up
 
             # Possibly issue a status message.
             now = time.time()
@@ -1403,7 +1396,7 @@ def _ungrep_worker_attempt_log(jobdir, workerid, regex):
 
 
 def grep_attempt_log(jobdir, regex_str, mode='grep'):
-    """Helper function for grepping through attempt logs. Used by the 'ljob 
+    """Helper function for grepping through attempt logs. Used by the 'ljob
     att(un)grep' commands, so this is written in a completely non-library
     style.
 
