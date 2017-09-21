@@ -36,7 +36,7 @@ from keras import models, layers, optimizers
 
 
 STOKES_I, STOKES_Q, STOKES_U, STOKES_V = 'IQUV'
-EMISSION, ABSORPTION = 'EA'
+EMISSION, ABSORPTION, FARADAY = 'EAF'
 
 hardcoded_nu_ref = 1e9
 hardcoded_ne_ref = 1.0
@@ -176,6 +176,15 @@ _mappings = {
     'ninth_root': NinthRootMapping,
 }
 
+
+class Passthrough(object):
+    def __init__(self, d):
+        self.d = d
+
+    def to_dict(self):
+        return self.d
+
+
 def mapping_from_samples(name, maptype, phys_samples):
     cls = _mappings[maptype]
     return cls.from_samples(name, phys_samples)
@@ -236,13 +245,34 @@ class DomainRange(object):
         inst.rmaps = []
 
         assert phys_samples.ndim == 2
-        assert phys_samples.shape[1] == (inst.n_params + inst.n_results)
+
+        confirmed_ok = False
+
+        if inst.n_results == 8:
+            # Main synchrotron coefficients:
+            if inst.n_results + inst.n_params - phys_samples.shape[1] == 2:
+                confirmed_ok = True
+                base_result_idx = 0
+            # Faraday coefficients:
+            elif inst.n_results + inst.n_params - phys_samples.shape[1] == 6:
+                confirmed_ok = True
+                base_result_idx = 6
+
+        if not confirmed_ok:
+            confirmed_ok = phys_samples.shape[1] == (inst.n_params + inst.n_results)
+            base_result_idx = 0
+
+        assert confirmed_ok
 
         for i, pinfo in enumerate(info['params']):
             inst.pmaps.append(mapping_from_samples(pinfo['name'], pinfo['maptype'], phys_samples[:,i]))
 
         for i, rinfo in enumerate(info['results']):
-            inst.rmaps.append(mapping_from_samples(rinfo['name'], rinfo['maptype'], phys_samples[:,i+inst.n_params]))
+            if i >= base_result_idx and i - base_result_idx + inst.n_params < phys_samples.shape[1]:
+                inst.rmaps.append(mapping_from_samples(rinfo['name'], rinfo['maptype'],
+                                                       phys_samples[:,i-base_result_idx+inst.n_params]))
+            else:
+                inst.rmaps.append(Passthrough(rinfo))
 
         return inst
 
@@ -282,7 +312,23 @@ class DomainRange(object):
 
     def load_and_normalize(self, datadir):
         _, data = basic_load(datadir)
-        assert data.shape[1] == (self.n_params + self.n_results)
+
+        if data.shape[1] == self.n_params + 6 and self.n_results == 8:
+            # Main synchrotron coefficients
+            fake_data = np.empty((data.shape[0], self.n_params + 8))
+            fake_data.fill(np.nan)
+            fake_data[:,:self.n_params + 6] = data
+            data = fake_data
+        elif data.shape[1] == self.n_params + 2 and self.n_results == 8:
+            # Faraday coefficients
+            fake_data = np.empty((data.shape[0], self.n_params + 8))
+            fake_data.fill(np.nan)
+            fake_data[:,:self.n_params] = data[:,:self.n_params]
+            fake_data[:,-2:] = data[:,self.n_params:]
+            data = fake_data
+        else:
+            assert data.shape[1] == (self.n_params + self.n_results)
+
         return SampleData(self, data)
 
 

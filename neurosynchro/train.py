@@ -13,6 +13,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import argparse, sys, time
 from keras.layers import Dense
+from pwkit.cli import die
 from pwkit.io import Path
 
 from . import DomainRange, NSModel
@@ -203,6 +204,11 @@ trainers = {
 
 
 def load_data_and_train(datadir, nndir, rttype, stokes):
+    if rttype not in ('j', 'alpha'):
+        die('coefficient type must be "j" or "alpha"; got %r', rttype)
+    if stokes not in 'iqv':
+        die('coefficient type must be "i" or "q" or "v"; got %r', stokes)
+
     cfg_path = Path(nndir) / 'nn_config.toml'
     dr = DomainRange.from_serialized(cfg_path)
     sd = dr.load_and_normalize(datadir)

@@ -14,28 +14,7 @@ from pwkit.cli import die
 from pwkit.io import Path
 import pytoml
 
-
-def basic_load(datadir):
-    datadir = Path(datadir)
-    chunks = []
-    param_names = None
-
-    for item in datadir.glob('*.txt'):
-        if param_names is None:
-            with item.open('rt') as f:
-                first_line = f.readline()
-                assert first_line[0] == '#'
-                param_names = first_line.strip().split()[1:]
-
-        c = np.loadtxt(str(item))
-        if not c.size or c.ndim != 2:
-            continue
-
-        assert c.shape[1] > len(param_names)
-        chunks.append(c)
-
-    data = np.vstack(chunks)
-    return param_names, data
+from . import basic_load
 
 
 # "lock-domain-range"
@@ -50,6 +29,8 @@ def make_ldr_parser():
 
 
 def lock_domain_range_cli(args):
+    from . import DomainRange
+
     settings = make_ldr_parser().parse_args(args=args)
 
     # Load samples
@@ -61,7 +42,7 @@ def lock_domain_range_cli(args):
         info = pytoml.load(f)
 
     # Turn into processed DomainRange object
-    dr = neuro.DomainRange.from_info_and_samples(info, samples)
+    dr = DomainRange.from_info_and_samples(info, samples)
 
     # Update config and rewrite
     dr.into_info(info)
