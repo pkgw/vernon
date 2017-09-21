@@ -1057,11 +1057,14 @@ class Ray(object):
     y = None
     z = None
 
-    def __init__(self, x, y, z, setup, zeros=False):
+    def __init__(self, x, y, z, setup, zeros=False, no_init=False):
         self.setup = setup
         self.x = x
         self.y = y
         self.z = z
+
+        if no_init:
+            return
 
         self.s = (z - z.min()) * setup.radius
         self.bc = setup.o2b(x, y, z)
@@ -1468,3 +1471,43 @@ class ImageMaker(object):
 
         p.setBounds(-4, 4, -4, 4)
         return p
+
+
+class PrecomputedImageMaker(ImageMaker):
+    """This class is basically a hack that lets us use pre-computed ray
+    information to speed rendering of the same configuration at, say,
+    different frequencies.
+
+    """
+    def __init__(self, setup, h5path):
+        self.setup = setup
+        self.xhalfsize = self.yhalfsize = None
+
+        import h5py
+        self.ds = h5py.File(h5path)
+        self.cur_frame_group = self.ds['/frame0000']
+        self.ny, self.nx = self.cur_frame_group['counts'].shape
+
+
+    def select_frame(self, new_frame_num):
+        self.cur_frame_group = self.ds['/frame%04d' % new_frame_num]
+        return self
+
+
+    def get_ray(self, ix, iy):
+        if ix <= 0 or ix >= self.nx:
+            raise ValueError('bad ix (%r); nx = %d' % (ix, self.nx))
+        if iy <= 0 or iy >= self.ny:
+            raise ValueError('bad iy (%r); ny = %d' % (iy, self.ny))
+
+        n = self.cur_frame_group['counts'][iy,ix]
+        ray = Ray(None, None, None, setup, no_init=True)
+        sl = slice(0, n)
+
+        for itemname in self.cur_frame_group:
+            if itemname == 'counts':
+                continue
+
+            setattr(ray, itemname, self.cur_frame_group[itemname][iy,ix,sl])
+
+        return ray
