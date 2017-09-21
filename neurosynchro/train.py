@@ -21,26 +21,26 @@ from . import DomainRange, NSModel
 
 def train_j_i(m):
     m.add(Dense(
-        output_dim = 300,
+        units = 300,
         input_dim = m.domain_range.n_params,
         activation = 'relu',
-        init = 'normal',
+        kernel_initializer = 'normal',
     ))
     m.add(Dense(
-        output_dim = 1,
+        units = 1,
         activation = 'linear',
-        init = 'normal',
+        kernel_initializer = 'normal',
     ))
     m.compile('adam', 'mse')
     hist = m.ns_fit(
-        nb_epoch = 30,
+        epochs = 30,
         batch_size = 2000,
         verbose = 0,
     )
     print('Intermediate MSE:', hist.history['loss'][-1])
     m.ns_sigma_clip(7)
     hist = m.ns_fit(
-        nb_epoch = 30,
+        epochs = 30,
         batch_size = 2000,
         verbose = 0,
     )
@@ -50,26 +50,26 @@ def train_j_i(m):
 
 def train_alpha_i(m):
     m.add(Dense(
-        output_dim = 300,
+        units = 300,
         input_dim = m.domain_range.n_params,
         activation = 'relu',
-        init = 'normal',
+        kernel_initializer = 'normal',
     ))
     m.add(Dense(
-        output_dim = 1,
+        units = 1,
         activation = 'linear',
-        init = 'normal',
+        kernel_initializer = 'normal',
     ))
     m.compile('adam', 'mse')
     hist = m.ns_fit(
-        nb_epoch = 30,
+        epochs = 30,
         batch_size = 2000,
         verbose = 0,
     )
     print('Intermediate MSE:', hist.history['loss'][-1])
     m.ns_sigma_clip(7)
     hist = m.ns_fit(
-        nb_epoch = 30,
+        epochs = 30,
         batch_size = 2000,
         verbose = 0,
     )
@@ -79,26 +79,26 @@ def train_alpha_i(m):
 
 def train_j_q(m):
     m.add(Dense(
-        output_dim = 300,
+        units = 300,
         input_dim = m.domain_range.n_params,
         activation = 'relu',
-        init = 'normal',
+        kernel_initializer = 'normal',
     ))
     m.add(Dense(
-        output_dim = 1,
+        units = 1,
         activation = 'linear',
-        init = 'normal',
+        kernel_initializer = 'normal',
     ))
     m.compile('adam', 'mse')
     hist = m.ns_fit(
-        nb_epoch = 30,
+        epochs = 30,
         batch_size = 2000,
         verbose = 0,
     )
     print('Intermediate MSE:', hist.history['loss'][-1])
     m.ns_sigma_clip(7)
     hist = m.ns_fit(
-        nb_epoch = 30,
+        epochs = 30,
         batch_size = 2000,
         verbose = 0,
     )
@@ -108,26 +108,26 @@ def train_j_q(m):
 
 def train_alpha_q(m):
     m.add(Dense(
-        output_dim = 300,
+        units = 300,
         input_dim = m.domain_range.n_params,
         activation = 'relu',
-        init = 'normal',
+        kernel_initializer = 'normal',
     ))
     m.add(Dense(
-        output_dim = 1,
+        units = 1,
         activation = 'linear',
-        init = 'normal',
+        kernel_initializer = 'normal',
     ))
     m.compile('adam', 'mse')
     hist = m.ns_fit(
-        nb_epoch = 30,
+        epochs = 30,
         batch_size = 2000,
         verbose = 0,
     )
     print('Intermediate MSE:', hist.history['loss'][-1])
     m.ns_sigma_clip(7)
     hist = m.ns_fit(
-        nb_epoch = 30,
+        epochs = 30,
         batch_size = 2000,
         verbose = 0,
     )
@@ -137,26 +137,26 @@ def train_alpha_q(m):
 
 def train_j_v(m):
     m.add(Dense(
-        output_dim = 300,
+        units = 300,
         input_dim = m.domain_range.n_params,
         activation = 'relu',
-        init = 'normal',
+        kernel_initializer = 'normal',
     ))
     m.add(Dense(
-        output_dim = 1,
+        units = 1,
         activation = 'linear',
-        init = 'normal',
+        kernel_initializer = 'normal',
     ))
     m.compile('adam', 'mse')
     hist = m.ns_fit(
-        nb_epoch = 30,
+        epochs = 30,
         batch_size = 2000,
         verbose = 0,
     )
     print('Intermediate MSE:', hist.history['loss'][-1])
     m.ns_sigma_clip(7)
     hist = m.ns_fit(
-        nb_epoch = 30,
+        epochs = 30,
         batch_size = 2000,
         verbose = 0,
     )
@@ -166,26 +166,26 @@ def train_j_v(m):
 
 def train_alpha_v(m):
     m.add(Dense(
-        output_dim = 300,
+        units = 300,
         input_dim = m.domain_range.n_params,
         activation = 'relu',
-        init = 'normal',
+        kernel_initializer = 'normal',
     ))
     m.add(Dense(
-        output_dim = 1,
+        units = 1,
         activation = 'linear',
-        init = 'normal',
+        kernel_initializer = 'normal',
     ))
     m.compile('adam', 'mse')
     hist = m.ns_fit(
-        nb_epoch = 30,
+        epochs = 30,
         batch_size = 2000,
         verbose = 0,
     )
     print('Intermediate MSE:', hist.history['loss'][-1])
     m.ns_sigma_clip(7)
     hist = m.ns_fit(
-        nb_epoch = 30,
+        epochs = 30,
         batch_size = 2000,
         verbose = 0,
     )
@@ -195,26 +195,26 @@ def train_alpha_v(m):
 
 def train_rho_q(m):
     m.add(Dense(
-        output_dim = 300,
+        units = 300,
         input_dim = m.domain_range.n_params,
         activation = 'relu',
-        init = 'normal',
+        kernel_initializer = 'normal',
     ))
     m.add(Dense(
-        output_dim = 1,
+        units = 1,
         activation = 'linear',
-        init = 'normal',
+        kernel_initializer = 'normal',
     ))
     m.compile('adam', 'mse')
     hist = m.ns_fit(
-        nb_epoch = 30,
+        epochs = 30,
         batch_size = 2000,
         verbose = 0,
     )
     print('Intermediate MSE:', hist.history['loss'][-1])
     m.ns_sigma_clip(7)
     hist = m.ns_fit(
-        nb_epoch = 30,
+        epochs = 30,
         batch_size = 2000,
         verbose = 0,
     )
@@ -224,26 +224,26 @@ def train_rho_q(m):
 
 def train_rho_v(m):
     m.add(Dense(
-        output_dim = 300,
+        units = 300,
         input_dim = m.domain_range.n_params,
         activation = 'relu',
-        init = 'normal',
+        kernel_initializer = 'normal',
     ))
     m.add(Dense(
-        output_dim = 1,
+        units = 1,
         activation = 'linear',
-        init = 'normal',
+        kernel_initializer = 'normal',
     ))
     m.compile('adam', 'mse')
     hist = m.ns_fit(
-        nb_epoch = 30,
+        epochs = 30,
         batch_size = 2000,
         verbose = 0,
     )
     print('Intermediate MSE:', hist.history['loss'][-1])
     m.ns_sigma_clip(7)
     hist = m.ns_fit(
-        nb_epoch = 30,
+        epochs = 30,
         batch_size = 2000,
         verbose = 0,
     )
