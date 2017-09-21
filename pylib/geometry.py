@@ -1362,18 +1362,19 @@ def dg83_setup(
       The body's latitude-of-center, in degrees.
     cml
       The body's central meridian longitude, in degrees.
-    dipole_tilt
-      The tilt of the dipole relative to the rotation axis, in degrees.
     nn_dir
       The directory with the neural-network data used to generate synchrotron
       radiative transfer coefficients.
+    no_synch
+      If true, ignore `nn_dir` and do not load synchrotron computatation info.
+      Makes things faster if you just want to evaluate the DG83 model and not
+      actually do any radiative transfer.
 
     """
     # Unit conversions:
     nu *= 1e9
     lat_of_cen *= astutil.D2R
     cml *= astutil.D2R
-    dipole_tilt *= astutil.D2R
 
     from .divine1983 import JupiterD4Field
 
