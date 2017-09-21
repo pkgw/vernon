@@ -1406,22 +1406,22 @@ class ImageMaker(object):
         for k, v in six.iteritems(kwargs):
             setattr(self, k, v)
 
+        self._xvals = np.linspace(-self.xhalfsize, self.xhalfsize, self.nx)
+        self._yvals = np.linspace(-self.yhalfsize, self.yhalfsize, self.ny)
 
     def compute(self, **kwargs):
         return self.image_ray_func(lambda r: r.trace(**kwargs))
 
 
     def image_ray_func(self, func, printiter=False):
-        xvals = np.linspace(-self.xhalfsize, self.xhalfsize, self.nx)
-        yvals = np.linspace(-self.yhalfsize, self.yhalfsize, self.ny)
         data = None
 
         for iy in range(self.ny):
             for ix in range(self.nx):
                 if printiter:
-                    print(ix, iy, xvals[ix], yvals[iy])
+                    print(ix, iy, self._xvals[ix], self._yvals[iy])
 
-                ray = self.setup.get_ray(xvals[ix], yvals[iy])
+                ray = self.get_ray(ix, iy)
                 value = func(ray)
 
                 if data is None:
@@ -1436,10 +1436,7 @@ class ImageMaker(object):
 
 
     def map_pixel(self, ix, iy):
-        # lame
-        x = np.linspace(-self.xhalfsize, self.xhalfsize, self.nx)[ix]
-        y = np.linspace(-self.yhalfsize, self.yhalfsize, self.ny)[iy]
-        return x, y
+        return self._xvals[ix], self._yvals[iy]
 
 
     def get_ray(self, ix, iy, **kwargs):
