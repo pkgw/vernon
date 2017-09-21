@@ -193,6 +193,64 @@ def train_alpha_v(m):
     return m
 
 
+def train_rho_q(m):
+    m.add(Dense(
+        output_dim = 300,
+        input_dim = m.domain_range.n_params,
+        activation = 'relu',
+        init = 'normal',
+    ))
+    m.add(Dense(
+        output_dim = 1,
+        activation = 'linear',
+        init = 'normal',
+    ))
+    m.compile('adam', 'mse')
+    hist = m.ns_fit(
+        nb_epoch = 30,
+        batch_size = 2000,
+        verbose = 0,
+    )
+    print('Intermediate MSE:', hist.history['loss'][-1])
+    m.ns_sigma_clip(7)
+    hist = m.ns_fit(
+        nb_epoch = 30,
+        batch_size = 2000,
+        verbose = 0,
+    )
+    m.final_mse = hist.history['loss'][-1]
+    return m
+
+
+def train_rho_v(m):
+    m.add(Dense(
+        output_dim = 300,
+        input_dim = m.domain_range.n_params,
+        activation = 'relu',
+        init = 'normal',
+    ))
+    m.add(Dense(
+        output_dim = 1,
+        activation = 'linear',
+        init = 'normal',
+    ))
+    m.compile('adam', 'mse')
+    hist = m.ns_fit(
+        nb_epoch = 30,
+        batch_size = 2000,
+        verbose = 0,
+    )
+    print('Intermediate MSE:', hist.history['loss'][-1])
+    m.ns_sigma_clip(7)
+    hist = m.ns_fit(
+        nb_epoch = 30,
+        batch_size = 2000,
+        verbose = 0,
+    )
+    m.final_mse = hist.history['loss'][-1]
+    return m
+
+
 trainers = {
     ('j', 'i'): (0, train_j_i),
     ('alpha', 'i'): (1, train_alpha_i),
@@ -200,14 +258,18 @@ trainers = {
     ('alpha', 'q'): (3, train_alpha_q),
     ('j', 'v'): (4, train_j_v),
     ('alpha', 'v'): (5, train_alpha_v),
+    ('rho', 'q'): (6, train_rho_q),
+    ('rho', 'v'): (7, train_rho_v),
 }
 
 
 def load_data_and_train(datadir, nndir, rttype, stokes):
-    if rttype not in ('j', 'alpha'):
+    if rttype not in ('j', 'alpha', 'rho'):
         die('coefficient type must be "j" or "alpha"; got %r', rttype)
     if stokes not in 'iqv':
         die('coefficient type must be "i" or "q" or "v"; got %r', stokes)
+    if rttype == 'rho' and stokes == 'i':
+        die('cmon man')
 
     cfg_path = Path(nndir) / 'nn_config.toml'
     dr = DomainRange.from_serialized(cfg_path)
