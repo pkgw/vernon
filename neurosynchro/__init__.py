@@ -481,101 +481,61 @@ class NSModel(models.Sequential):
 
 
 class Approximator(object):
+    """Approximate the eight nontrivial RT coefficients:
+
+    0. j_I - Stokes I emission
+    1. alpha_I - Stokes I absorption
+    2. j_Q - Stokes Q emission
+    3. alpha_Q - Stokes Q absorption
+    4. j_V - Stokes V emission
+    5. alpha_V - Stokes V absorption
+    6. rho_Q - Faraday conversion
+    7. rho_V - Faraday rotation
+
+    """
     def __init__(self, nn_dir):
         self.domain_range = DomainRange.from_serialized(os.path.join(nn_dir, 'nn_config.toml'))
         self.models = []
 
         for stokes in 'iqv':
-            for rttype in ('j', 'alpha'):
-                m = models.load_model(os.path.join(nn_dir, '%s_%s.h5' % (rttype, stokes)),
-                                      custom_objects = {'NSModel': NSModel})
+            for rttype in ('j', 'alpha', 'rho'):
+                if stokes == 'i' and rttype == 'rho':
+                    continue # this is not a thing
+
+                m = models.load_model(
+                    os.path.join(nn_dir, '%s_%s.h5' % (rttype, stokes)),
+                    custom_objects = {'NSModel': NSModel}
+                )
                 m.result_index = len(self.models)
                 m.domain_range = self.domain_range
                 self.models.append(m)
 
+    _freq_scaling = np.array([1, -1, 1, -1, 1, -1, -1, -1])
+    _theta_sign_scaling = np.array([0, 0, 0, 0, 1, 1, 0, 1])
 
-        self._map = {
-            (EMISSION, STOKES_I): self.models[0],
-            (ABSORPTION, STOKES_I): self.models[1],
-            (EMISSION, STOKES_Q): self.models[2],
-            (ABSORPTION, STOKES_Q): self.models[3],
-            (EMISSION, STOKES_U): None,
-            (ABSORPTION, STOKES_U): None,
-            (EMISSION, STOKES_V): self.models[4],
-            (ABSORPTION, STOKES_V): self.models[5],
-        }
-
-
-    @broadcastize(5)
-    def compute_one(self, nu, B, n_e, theta, p, rttype, stokes):
-        model = self._map[rttype, stokes]
-
-        if model is None:
-            return np.zeros(nu.shape)
-
+    @broadcastize(4, ret_spec=None)
+    def compute_all_nontrivial(self, nu, B, n_e, theta, **kwargs):
         # Turn the standard parameters into the ones used in our computations
 
         nu_cyc = cgs.e * B / (2 * np.pi * cgs.me * cgs.c)
-        s = nu / nu_cyc
-
-        if stokes == STOKES_V:
-            # XXX we are paranoid and assume that theta could take on any
-            # value ... even though we do no bounds-checking for whether the
-            # inputs overlap the region where we trained the neural net.
-            theta = theta % (2 * np.pi)
-            w = (theta > np.pi)
-            theta[w] = 2 * np.pi - theta[w]
-            flip = (theta > 0.5 * np.pi)
-            theta[flip] = np.pi - theta[flip]
-
-        phys = [s, theta, p]
-        npar = len(phys)
-
-        norm = np.empty(nu.shape + (npar,))
-        for i in range(npar):
-            norm[...,i] = self.domain_range.pmaps[i].phys_to_norm(phys[i])
-
-        result = model.predict(norm)[...,0]
-        result = self.domain_range.rmaps[model.result_index].norm_to_phys(result)
-
-        # Now apply the known scalings
-
-        result *= (n_e / hardcoded_ne_ref)
-
-        if rttype == EMISSION:
-            result *= (nu / hardcoded_nu_ref)
-        else:
-            result *= (hardcoded_nu_ref / nu)
-
-        if stokes == STOKES_V:
-            result[flip] = -result[flip]
-
-        return result
-
-
-    @broadcastize(5, ret_spec=None)
-    def compute_all_nontrivial(self, nu, B, n_e, theta, p):
-        # Turn the standard parameters into the ones used in our computations
-
-        nu_cyc = cgs.e * B / (2 * np.pi * cgs.me * cgs.c)
-        s = nu / nu_cyc
+        kwargs['s'] = nu / nu_cyc
 
         # XXX we are paranoid and assume that theta could take on any value
         # ... even though we do no bounds-checking for whether the inputs
         # overlap the region where we trained the neural net.
+
         theta = theta % (2 * np.pi)
         w = (theta > np.pi)
         theta[w] = 2 * np.pi - theta[w]
         flip = (theta > 0.5 * np.pi)
         theta[flip] = np.pi - theta[flip]
+        kwargs['theta'] = theta
 
         # Normalize inputs.
 
-        phys = [s, theta, p]
-        npar = len(phys)
-        norm = np.empty(nu.shape + (npar,))
-        for i in range(npar):
-            norm[...,i] = self.domain_range.pmaps[i].phys_to_norm(phys[i])
+        norm = np.empty(nu.shape + (self.domain_range.n_params,))
+        for i, mapping in enumerate(self.domain_range.pmaps):
+            norm[...,i] = mapping.phys_to_norm(kwargs[mapping.name])
 
         # Compute outputs.
 
@@ -584,13 +544,14 @@ class Approximator(object):
             r = self.models[i].predict(norm)[...,0]
             result[...,i] = self.domain_range.rmaps[i].norm_to_phys(r)
 
-        # Now apply the known scalings
+        # Now apply the known scalings. Everything scales linearly with n_e.
 
         result *= (n_e[...,np.newaxis] / hardcoded_ne_ref)
 
-        freq_term = nu[...,np.newaxis] / hardcoded_nu_ref
-        result[...,0::2] *= freq_term # j's scale directly with nu at fixed s
-        result[...,1::2] /= freq_term # alpha's scale inversely with nu at fixed s
+        freq_term = (nu[...,np.newaxis] / hardcoded_nu_ref)
+        result *= freq_term**self._freq_scaling
 
-        result[flip,4:6] = -result[flip,4:6]
+        theta_sign_term = -1 * flip[...,np.newaxis].astype(np.int)
+        result *= theta_sign_term**self._theta_sign_scaling
+
         return result

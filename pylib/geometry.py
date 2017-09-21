@@ -1157,12 +1157,14 @@ class Ray(object):
 
     def ensure_rt_coeffs(self):
         """This function only works if the problem's "distribution" object provides
-        parameters named `n_e` and `p`.
+        parameters corresponding to the ones expected by the synchrotron
+        calculator.
 
         """
         if self.j is None:
+            extras = dict((n, getattr(self, n)) for n in self.setup.synch_calc.param_names)
             self.j, self.alpha, self.rho = self.setup.synch_calc.get_coeffs(
-                self.setup.nu, self.B, self.n_e, self.theta, self.p, self.psi
+                self.setup.nu, self.B, self.n_e, self.theta, self.psi, **extras
             )
         return self
 
@@ -1412,6 +1414,7 @@ class ImageMaker(object):
         self._xvals = np.linspace(-self.xhalfsize, self.xhalfsize, self.nx)
         self._yvals = np.linspace(-self.yhalfsize, self.yhalfsize, self.ny)
 
+
     def compute(self, **kwargs):
         return self.image_ray_func(lambda r: r.trace(**kwargs))
 
@@ -1473,6 +1476,28 @@ class ImageMaker(object):
         return p
 
 
+class RTOnlySetup(object):
+    """An abbreviated class like VanAllenSetup that only contains the pieces of
+    information needed to run radiative transfer calculations.
+
+    This can be used in conjunction with the PrecomputedImageMaker.
+
+    synch_calc
+      An object used to calculate synchrotron emission coefficients; an
+      instance of synchrotron.SynchrotronCalculator.
+    rad_trans
+      An object used to perform the radiative transfer integration. Currenly this
+      must be an instance of GrtransRTIntegrator.
+    nu
+      The frequency for which to run the simulations, in Hz.
+
+    """
+    def __init__(self, synch_calc, rad_trans, nu):
+        self.synch_calc = synch_calc
+        self.rad_trans = rad_trans
+        self.nu = nu
+
+
 class PrecomputedImageMaker(ImageMaker):
     """This class is basically a hack that lets us use pre-computed ray
     information to speed rendering of the same configuration at, say,
@@ -1495,13 +1520,13 @@ class PrecomputedImageMaker(ImageMaker):
 
 
     def get_ray(self, ix, iy):
-        if ix <= 0 or ix >= self.nx:
+        if ix < 0 or ix >= self.nx:
             raise ValueError('bad ix (%r); nx = %d' % (ix, self.nx))
-        if iy <= 0 or iy >= self.ny:
+        if iy < 0 or iy >= self.ny:
             raise ValueError('bad iy (%r); ny = %d' % (iy, self.ny))
 
         n = self.cur_frame_group['counts'][iy,ix]
-        ray = Ray(None, None, None, setup, no_init=True)
+        ray = Ray(None, None, None, self.setup, no_init=True)
         sl = slice(0, n)
 
         for itemname in self.cur_frame_group:
