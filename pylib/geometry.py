@@ -1512,6 +1512,7 @@ class PrecomputedImageMaker(ImageMaker):
         self.ds = h5py.File(h5path)
         self.cur_frame_group = self.ds['/frame0000']
         self.ny, self.nx = self.cur_frame_group['counts'].shape
+        print('CLIPPING DATA')
 
 
     def select_frame(self, new_frame_num):
@@ -1533,6 +1534,15 @@ class PrecomputedImageMaker(ImageMaker):
             if itemname == 'counts':
                 continue
 
-            setattr(ray, itemname, self.cur_frame_group[itemname][iy,ix,sl])
+            data = self.cur_frame_group[itemname][iy,ix,sl]
+
+            if itemname == 'p':
+                data = np.clip(data, 1.5, 7)
+            elif itemname == 'k':
+                data = np.clip(data, 0., 9)
+            elif itemname == 's':
+                data = np.clip(data, 1., 5e7)
+
+            setattr(ray, itemname, data)
 
         return ray
