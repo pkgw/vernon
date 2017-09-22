@@ -40,6 +40,8 @@ def make_model_parser(prog='preprays', allow_cml=True):
                     help='The half-width of the image in body radii [%(default).1f].')
     ap.add_argument('-a', dest='aspect', type=float, metavar='RATIO', default=1.,
                     help='The physical aspect ratio of the image [%(default).1f].')
+    ap.add_argument('-s', dest='n_samps', type=int, metavar='NUMBER', default=300,
+                    help='The number of model samples to compute along each ray [%(default)d].')
 
     if allow_cml:
         ap.add_argument('-C', dest='cml', type=float, metavar='NUMBER', default=0.,
@@ -72,6 +74,8 @@ def compute_dg83_cli(args):
         no_synch = True,
     )
 
+    setup.ray_tracer.nsamps = settings.n_samps
+
     half_radii_per_xpix = settings.xhw / settings.n_cols
     half_radii_per_ypix = half_radii_per_xpix / settings.aspect
     half_height = half_radii_per_ypix * settings.n_rows
@@ -84,9 +88,9 @@ def compute_dg83_cli(args):
         yhalfsize = half_height,
     )
 
-    # XXX gross hardcoding
+    # XXX gross hardcoding of ray sampling methodology
     n_vals = len(dg83_ray_parameters)
-    max_n_samps = 300
+    max_n_samps = setup.ray_tracer.nsamps
     data = np.zeros((n_vals, settings.n_cols_to_compute, max_n_samps))
     n_samps = np.zeros((settings.n_cols_to_compute,), dtype=np.int)
 
@@ -112,7 +116,7 @@ def make_seed_dg83_parser():
     ap.add_argument('-N', dest='n_cml', type=int, metavar='NUMBER', default=4,
                     help='The number of CMLs to sample [%(default)d].')
     ap.add_argument('-g', dest='n_col_groups', type=int, metavar='NUMBER', default=2,
-                    help='The number groups into which the columns are '
+                    help='The number of groups into which the columns are '
                     'broken for processing [%(default)d].')
     ap.add_argument('ident', metavar='IDENT',
                     help='A unique identifier that the output file names will start with.')
@@ -135,6 +139,7 @@ def seed_dg83_cli(args):
     print('   CMLs to image:', settings.n_cml, file=sys.stderr)
     print('   Rows (height; y):', settings.n_rows, file=sys.stderr)
     print('   Columns (width; x):', settings.n_cols, file=sys.stderr)
+    print('   Samples along each ray:', settings.n_samps, file=sys.stderr)
     print('Job parameters:', file=sys.stderr)
     print('   Column groups:', settings.n_col_groups, file=sys.stderr)
     print('   Output file identifier:', settings.ident, file=sys.stderr)
@@ -143,9 +148,10 @@ def seed_dg83_cli(args):
 
     cmls = np.linspace(0., 360., settings.n_cml + 1)[:-1]
 
-    common_args = '-r %d -c %d -A %d -E %d -L %.3f -w %.3f -a %.3f %s' % \
+    common_args = '-r %d -c %d -A %d -E %d -L %.3f -w %.3f -a %.3f -s %d %s' % \
         (settings.n_rows, settings.n_cols, settings.n_alpha, settings.n_E,
-         settings.loc, settings.xhw, settings.aspect, settings.ident)
+         settings.loc, settings.xhw, settings.aspect, settings.n_samps,
+         settings.ident)
 
     if settings.n_col_groups == 1:
         first_width = rest_width = settings.n_cols
