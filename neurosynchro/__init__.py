@@ -510,8 +510,8 @@ class Approximator(object):
                 m.domain_range = self.domain_range
                 self.models.append(m)
 
-    _freq_scaling = np.array([1, -1, 1, -1, 1, -1, -1, -1])
-    _theta_sign_scaling = np.array([0, 0, 0, 0, 1, 1, 0, 1])
+    _freq_scaling = np.array([1, -1, 1, -1, 1, -1, -1, -1], dtype=np.int)
+    _theta_sign_scaling = np.array([0, 0, 0, 0, 1, 1, 0, 1], dtype=np.int)
 
     @broadcastize(4, ret_spec=None)
     def compute_all_nontrivial(self, nu, B, n_e, theta, **kwargs):
@@ -530,6 +530,15 @@ class Approximator(object):
         flip = (theta > 0.5 * np.pi)
         theta[flip] = np.pi - theta[flip]
         kwargs['theta'] = theta
+
+        # XXX we can only clip 's' here. More hacks.
+
+        if kwargs['s'].min() < 1.:
+            import sys
+            print('neurosynchro quasi-underflow in s:', kwargs['s'].min(), file=sys.stderr)
+        if kwargs['s'].max() > 5e7:
+            import sys
+            print('neurosynchro quasi-overflow in s:', kwargs['s'].min(), file=sys.stderr)
 
         # Normalize inputs.
 
@@ -551,7 +560,9 @@ class Approximator(object):
         freq_term = (nu[...,np.newaxis] / hardcoded_nu_ref)
         result *= freq_term**self._freq_scaling
 
-        theta_sign_term = -1 * flip[...,np.newaxis].astype(np.int)
-        result *= theta_sign_term**self._theta_sign_scaling
+        theta_sign_term = np.ones(result.shape, dtype=np.int)
+        theta_sign_term[np.broadcast_to(flip[...,np.newaxis], theta_sign_term.shape)] = -1
+        theta_sign_term **= (2 - self._theta_sign_scaling) # gets rid of -1s for flip-insensitive components
+        result *= theta_sign_term
 
         return result

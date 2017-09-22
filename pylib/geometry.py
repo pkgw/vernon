@@ -1540,8 +1540,6 @@ class PrecomputedImageMaker(ImageMaker):
                 data = np.clip(data, 1.5, 7)
             elif itemname == 'k':
                 data = np.clip(data, 0., 9)
-            elif itemname == 's':
-                data = np.clip(data, 1., 5e7)
 
             setattr(ray, itemname, data)
 
