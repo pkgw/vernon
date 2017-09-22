@@ -418,7 +418,10 @@ class Client(object):
             warn('shutting down client %s while working on %s', self, self.cur_task)
             self._attempt_complete(failcode=Failcodes.SHUTDOWN_WHILE_WORKING)
 
-        self.master.sel.unregister(self.sock)
+        try:
+            self.master.sel.unregister(self.sock)
+        except Exception as e:
+            warn('exception while unregistering socket for %s: %s', self, e)
 
         try:
             self.sock.shutdown(socket.SHUT_RDWR)
