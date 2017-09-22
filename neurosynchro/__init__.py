@@ -517,7 +517,9 @@ class Approximator(object):
     def compute_all_nontrivial(self, nu, B, n_e, theta, **kwargs):
         # Turn the standard parameters into the ones used in our computations
 
+        no_B = ~(B > 0)
         nu_cyc = cgs.e * B / (2 * np.pi * cgs.me * cgs.c)
+        nu_cyc[no_B] = 1e7 # fake to avoid div-by-0 for now
         kwargs['s'] = nu / nu_cyc
 
         # XXX we are paranoid and assume that theta could take on any value
@@ -531,14 +533,14 @@ class Approximator(object):
         theta[flip] = np.pi - theta[flip]
         kwargs['theta'] = theta
 
-        # XXX we can only clip 's' here. More hacks.
+        # XXX we only clip 's' here, and not earlier in the pipeline. More hacks.
 
         if kwargs['s'].min() < 1.:
             import sys
             print('neurosynchro quasi-underflow in s:', kwargs['s'].min(), file=sys.stderr)
         if kwargs['s'].max() > 5e7:
             import sys
-            print('neurosynchro quasi-overflow in s:', kwargs['s'].min(), file=sys.stderr)
+            print('neurosynchro quasi-overflow in s:', kwargs['s'].max(), file=sys.stderr)
 
         # Normalize inputs.
 
@@ -564,5 +566,11 @@ class Approximator(object):
         theta_sign_term[np.broadcast_to(flip[...,np.newaxis], theta_sign_term.shape)] = -1
         theta_sign_term **= (2 - self._theta_sign_scaling) # gets rid of -1s for flip-insensitive components
         result *= theta_sign_term
+
+        # Patch up B = 0 in the obvious way. (Although if we ever have to deal
+        # with nontrivial cold plasma densities, zones of zero B might affect
+        # the RT if they cause refraction or what-have-you.)
+
+        result[np.broadcast_to(no_B[...,np.newaxis], result.shape)] = 0.
 
         return result
