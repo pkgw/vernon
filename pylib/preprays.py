@@ -58,7 +58,7 @@ def make_compute_dg83_parser():
     ap.add_argument('frame_num', type=int)
     ap.add_argument('row_num', type=int)
     ap.add_argument('start_col', type=int)
-    ap.add_argument('n_cols', type=int)
+    ap.add_argument('n_cols_to_compute', type=int)
     return ap
 
 
@@ -87,10 +87,10 @@ def compute_dg83_cli(args):
     # XXX gross hardcoding
     n_vals = len(dg83_ray_parameters)
     max_n_samps = 300
-    data = np.zeros((n_vals, settings.n_cols, max_n_samps))
-    n_samps = np.zeros((settings.n_cols,), dtype=np.int)
+    data = np.zeros((n_vals, settings.n_cols_to_compute, max_n_samps))
+    n_samps = np.zeros((settings.n_cols_to_compute,), dtype=np.int)
 
-    for i in range(settings.n_cols):
+    for i in range(settings.n_cols_to_compute):
         ray = imaker.get_ray(settings.start_col + i, settings.row_num)
         n_samps[i] = ray.s.size
         sl = slice(0, ray.s.size)
