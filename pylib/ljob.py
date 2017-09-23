@@ -790,7 +790,7 @@ class MasterState(object):
 
 
     def mainloop(self):
-        timeout = 1
+        timeout = 10
         next_status = time.time() + 10
 
         while True:
@@ -824,7 +824,7 @@ class MasterState(object):
                     del self.clients[s] # this client died
 
             # Check for messages.
-            for key, mask in self.sel.select():
+            for key, mask in self.sel.select(timeout=timeout):
                 key.data() # this is the callback lambda we've set up
 
             # Possibly issue a status message.
