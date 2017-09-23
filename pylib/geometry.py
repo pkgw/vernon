@@ -962,35 +962,6 @@ class BasicRayTracer(object):
         return Ray(x, y, np.linspace(z0, z1, self.nsamps), setup)
 
 
-class GrtransRTIntegrator(object):
-    """Perform radiative-transfer integration along a ray using the integrator in
-    `grtrans`.
-
-    """
-    def integrate(self, x, j, a, rho, **kwargs):
-        """Arguments:
-
-        x
-          1D array, shape (n,). "path length along the ray starting from its minimum"
-        j
-          Array, shape (n, 4). Emission coefficients, in erg/(s Hz sr cm^3).
-        a
-          Array, shape (n, 4). Absorption coefficients, in cm^-1.
-        rho
-          Array, shape (n, 3). Faraday mixing coefficients.
-        kwargs
-          Forwarded on to grtrans.integrate_ray().
-
-        Returns: Array of shape (4,): Stokes intensities at the end of the ray, in
-        erg/(s Hz sr cm^2).
-
-        """
-        from grtrans import integrate_ray
-        K = np.concatenate((a, rho), axis=1)
-        iquv = integrate_ray(x, j, K, **kwargs)
-        return iquv[:,-1]
-
-
 class Ray(object):
     """Data regarding a ray that's traced through the simulation volume.
 
@@ -1337,6 +1308,8 @@ def basic_setup(
     bfield = TiltedDipoleField(dipole_tilt, bsurf)
     distrib = SimpleTorusDistribution(r1, r2, ne0, p)
     ray_tracer = BasicRayTracer()
+
+    from .integrate import GrtransRTIntegrator
     rad_trans = GrtransRTIntegrator()
 
     from .synchrotron import NeuroSynchrotronCalculator
@@ -1517,6 +1490,11 @@ class PrecomputedImageMaker(ImageMaker):
 
     def select_frame(self, new_frame_num):
         self.cur_frame_group = self.ds['/frame%04d' % new_frame_num]
+        return self
+
+
+    def select_frame_by_name(self, frame_name):
+        self.cur_frame_group = self.ds[frame_name]
         return self
 
 
