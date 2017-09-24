@@ -14,22 +14,29 @@ def view_cube_cli(args):
     ap = argparse.ArgumentParser(
         prog = 'view cube',
     )
-    ap.add_argument('-s', dest='sqrt_stretch', type=bool, default=False,
-                    help='Use a sqrt stretch on the data, respecting negatives.')
+    ap.add_argument('-s', dest='stretch', type=str, nargs=1, default='default',
+                    choices='default sqrt neg'.split(),
+                    help='What kind of stretch to use on the data:.')
     ap.add_argument('-p', dest='outer_plane_number', metavar='P', type=int,
                     help='Isolate the outermost P\'th plane of the cube before viewing.')
     ap.add_argument('INFILE', help='The numpy save file to load')
-    settings = ap.parse_args(args=args)
 
-    if settings.sqrt_stretch:
+    settings = ap.parse_args(args=args)
+    stretch_spec = settings.stretch[0]
+
+    if stretch_spec == 'default':
+        stretch = lambda data: data
+    elif stretch_spec == 'sqrt':
         def stretch(data):
             neg = (data < 0)
             data[neg] *= -1
             data = np.sqrt(data)
             data[neg] *= -1
             return data
+    elif stretch_spec == 'neg':
+        stretch = lambda data: (data < 0).astype(np.int)
     else:
-        stretch = lambda data: data
+        cli.die('unknown stretch specification %r', stretch_speccd)
 
     def describe(a):
         print('Min/max/med: %.16e  %.16e  %.16e' % (
