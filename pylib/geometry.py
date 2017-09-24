@@ -1162,9 +1162,9 @@ class Ray(object):
         self.ensure_rt_coeffs()
 
         if integrate_j_times_B:
-            j = self.j
-        else:
             j = self.j * self.B.reshape((-1, 1))
+        else:
+            j = self.j
 
         if not extras:
             return self.setup.rad_trans.integrate(self.s, j, self.alpha, self.rho)
