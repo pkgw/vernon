@@ -1140,7 +1140,7 @@ class Ray(object):
         return self
 
 
-    def trace(self, extras=False, integrate_j_times_B=False):
+    def integrate(self, extras=False, integrate_j_times_B=False, whole_ray=False):
         """Compute the radiation intensity at the end of this ray.
 
         If `extras` is False, returns an array of shape (4,) giving the
@@ -1149,6 +1149,10 @@ class Ray(object):
         If `extras` is True, the array has shape (6,). `retval[4]` is the
         Stokes I optical depth integrated along the ray and `retval[5]` is the
         total electron column along the ray.
+
+        If `whole_ray` is True, return an array of shape (n,4) giving the
+        Stokes intensities along the path of the ray. This is not compatible
+        with `extras`.
 
         If `integrate_j_times_B` is True, the emission coefficients (*j*) are
         multiplied by the magnetic field strength (*B*). This setting is
@@ -1167,12 +1171,15 @@ class Ray(object):
             j = self.j
 
         if not extras:
-            return self.setup.rad_trans.integrate(self.s, j, self.alpha, self.rho)
+            iquv = self.setup.rad_trans.integrate(self.s, j, self.alpha, self.rho)
+            if whole_ray:
+                return iquv
+            return iquv[-1]
         else:
             from scipy.integrate import trapz
 
             rv = np.empty((6,))
-            rv[:4] = self.setup.rad_trans.integrate(self.s, j, self.alpha, self.rho)
+            rv[:4] = self.setup.rad_trans.integrate(self.s, j, self.alpha, self.rho)[-1]
             rv[4] = trapz(self.alpha[:,0], self.s)
             rv[5] = trapz(self.n_e, self.s)
             return rv
@@ -1388,8 +1395,8 @@ class ImageMaker(object):
         self._yvals = np.linspace(-self.yhalfsize, self.yhalfsize, self.ny)
 
 
-    def compute(self, **kwargs):
-        return self.image_ray_func(lambda r: r.trace(**kwargs))
+    def compute(self, whole_ray=False, **kwargs):
+        return self.image_ray_func(lambda r: r.integrate(whole_ray=whole_ray, **kwargs))
 
 
     def image_ray_func(self, func, printiter=False):

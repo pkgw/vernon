@@ -4,6 +4,82 @@
 
 """Computing synchrotron radiative transfer coefficients.
 
+There's a bit of a question of how to write and store the coefficients. Our
+master equation follows the notation of Leung+ (2011) equations 7 and 8:
+
+  dI_S/ds = J_S - M_ST I_T
+
+for column vector J_S and matrix M_ST, where S and T subscripts go over Stokes
+parameters IQUV. De-vectorizing the equations:
+
+dI_I/ds = j_I - (a_I I_I + a_Q I_Q + a_U I_U + a_V I_V)
+dI_Q/ds = j_Q - (a_Q I_I + a_I I_Q + r_V I_U - r_U I_V)
+dI_U/ds = j_U - (a_U I_I - r_V I_Q + a_I I_U + r_Q I_V)
+dI_V/ds = j_V - (a_V I_I + r_U I_Q - r_Q I_U + a_I I_V)
+
+Sometimes I_{IQUV} can be denoted S_{IQUV}, j_{IQUV} can be denoted
+epsilon_{IQUV}, alpha_{IQUV} can be denoted eta_{IQUV}, or r_{QUV} can be
+denoted rho_{QUV}. Note that Dexter (2016) gets the signs wrong in their
+Equation 46, but the actual code gets things right.
+
+To translate to the nomenclature of Heyvaerts+ (2013) equation 1 (assuming
+unity refractive indices):
+
+W_{IQUV} = j_{IQUV} * c
+K_I{IQUV} = a_{IQUV} * c
+K_QU = r_V * c
+K_QV = -r_U * c
+K_UV = r_Q * c
+f = r_V = the Faraday rotation coefficient
+h = r_Q = the Faraday conversion coefficient
+
+In the standard linear polarization basis, a_U = i_U = r_U = 0 (e.g., Huang &
+Shcherbakov 2011, equation 5). Expanding out a bit:
+
+dI_I/ds = j_I - a_I I_I - a_Q I_Q - a_V I_V
+dI_Q/ds = j_Q - a_Q I_I - a_I I_Q - r_V I_U
+dI_U/ds = 0   + r_V I_Q - a_I I_U - r_Q I_V
+dI_V/ds = j_V - a_V I_I + r_Q I_U - a_I I_V
+
+If we further ignore Faraday rotation and conversion:
+
+dI_I/ds = j_I - (a_I I_I + a_Q I_Q + a_V I_V)
+dI_Q/ds = j_Q - (a_Q I_I + a_I I_Q)
+dI_U/ds = 0
+dI_V/ds = j_V - (a_V I_I + a_I I_V)
+
+The equations then become interchangeable in Q and V. We can reduce to a
+single polarized component to gain insight into how the coefficients work:
+
+dI_I/ds = j_I - (a_I I_I + a_P I_P)
+dI_P/ds = j_P - (a_P I_I + a_I I_P)
+
+... where "P" stands for Q, U, or V, under the assumption of no Faraday
+conversion and no contributions from the polarizations besides "P".
+
+Sometimes we store the coefficients in separate arrays named "j", "alpha", and
+"rho". These are fed into grtrans which sets their storage order:
+
+- j[0..3] = j_{IQUV}
+- alpha[0..3] = a_{IQUV}
+- rho[0..2] = r_{QUV}
+
+Sometimes we use a 7-item array called "K" that is the concatenation of
+"alpha" and "rho".
+
+The RT coefficient calculators generally operate in the basis in which the U
+coefficients are zero. For no particularly good reason, I store their outputs
+as 8-element arrays with the folowing structure:
+
+- a[0] = j_I
+- a[1] = alpha_I
+- a[2] = j_Q
+- a[3] = alpha_Q
+- a[4] = j_V
+- a[5] = alpha_V
+- a[6] = rho_Q
+- a[7] = rho_V
+
 """
 from __future__ import absolute_import, division, print_function
 
@@ -201,7 +277,7 @@ class NeuroSynchrotronCalculator(SynchrotronCalculator):
         expanded[...,5] = nontriv[...,3]
         expanded[...,6] = 0.
         expanded[...,7] = nontriv[...,5]
-        # rho Q(U)V -- TBD what order does grtrans use??
+        # rho Q(U)V:
         expanded[...,8] = nontriv[...,6]
         expanded[...,9] = 0.
         expanded[...,10] = nontriv[...,7]

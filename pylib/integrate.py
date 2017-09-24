@@ -33,15 +33,14 @@ class GrtransRTIntegrator(object):
           Array, shape (n, 3). Faraday mixing coefficients.
         kwargs
           Forwarded on to grtrans.integrate_ray().
-
-        Returns: Array of shape (4,): Stokes intensities at the end of the ray, in
-        erg/(s Hz sr cm^2).
+        Returns
+          Array of shape (n,4): Stokes intensities along the ray, in erg/(s Hz sr cm^2).
 
         """
         from grtrans import integrate_ray
         K = np.concatenate((a, rho), axis=1)
         iquv = integrate_ray(x, j, K, **kwargs)
-        return iquv[:,-1]
+        return iquv.T
 
 
 # Command-line interface to jobs that do the RT integration for a series of
