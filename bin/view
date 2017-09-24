@@ -1,0 +1,80 @@
+#! /usr/bin/env python
+
+"""Jack-of-all-trades data file viewer."""
+
+import argparse, sys
+import cairo
+import numpy as np
+from six.moves import range
+from pwkit import cli
+from pwkit.ndshow_gtk3 import view, cycle
+
+
+def view_cube_cli(args):
+    ap = argparse.ArgumentParser(
+        prog = 'view cube',
+    )
+    ap.add_argument('-s', dest='sqrt_stretch', type=bool, default=False,
+                    help='Use a sqrt stretch on the data, respecting negatives.')
+    ap.add_argument('-p', dest='outer_plane_number', metavar='P', type=int,
+                    help='Isolate the outermost P\'th plane of the cube before viewing.')
+    ap.add_argument('INFILE', help='The numpy save file to load')
+    settings = ap.parse_args(args=args)
+
+    if settings.sqrt_stretch:
+        def stretch(data):
+            neg = (data < 0)
+            data[neg] *= -1
+            data = np.sqrt(data)
+            data[neg] *= -1
+            return data
+    else:
+        stretch = lambda data: data
+
+    def describe(a):
+        print('Min/max/med: %.16e  %.16e  %.16e' % (
+            np.nanmin(a), np.nanmax(a), np.nanmedian(a)
+        ))
+        print('# positive / # negative / # nonfinite: %d  %d  %d' % (
+            (a > 0).sum(), (a < 0).sum(), (~np.isfinite(a)).sum()
+        ))
+        return a # convenience
+
+    a = np.load(settings.INFILE)
+
+    if settings.outer_plane_number is not None:
+        a = a[settings.outer_plane_number]
+
+    if a.ndim == 2:
+        stretched = stretch(describe(a))
+        view(stretched[::-1], yflip=True)
+    elif a.ndim == 3:
+        stretched = stretch(describe(a))
+        cycle(stretched[:,::-1], yflip=True)
+    elif a.ndim == 4:
+        print('Shape:', a.shape)
+        for i in range(a.shape[0]):
+            stretched = stretch(describe(a[i]))
+            cycle(stretched[:,::-1], yflip=True)
+    else:
+        cli.die('cannot handle %d-dimensional arrays', a.ndim)
+
+
+def entrypoint(args):
+    if not len(args):
+        cli.die('must provide a subcommand: "cube"')
+
+    subcommand = args[0]
+    remaining_args = args[1:]
+
+    if subcommand == 'cube':
+        view_cube_cli(remaining_args)
+    else:
+        cli.die('unrecognized subcommand %r' % (subcommand,))
+
+
+if __name__ == '__main__':
+    cli.unicode_stdio()
+    cli.propagate_sigint()
+    cli.backtrace_on_usr1()
+    entrypoint(sys.argv[1:])
