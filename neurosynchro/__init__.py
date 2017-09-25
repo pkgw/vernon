@@ -542,7 +542,9 @@ class Approximator(object):
             import sys
             print('neurosynchro quasi-overflow in s:', kwargs['s'].max(), file=sys.stderr)
 
-        # Normalize inputs.
+        # Normalize inputs. TO DO: it would probably be wise to bounds check
+        # aggressively, although I'm not sure what to do if out-of-bounds
+        # inputs pop up.
 
         norm = np.empty(nu.shape + (self.domain_range.n_params,))
         for i, mapping in enumerate(self.domain_range.pmaps):
@@ -572,5 +574,9 @@ class Approximator(object):
         # the RT if they cause refraction or what-have-you.)
 
         result[np.broadcast_to(no_B[...,np.newaxis], result.shape)] = 0.
+
+        # TO DO: ensure that the computed values obey the right invariants.
+        # j_I**2 >= j_Q**2 + j_U**2 + j_V**2. I do not know how what, if any,
+        # invariants apply to the alpha/rho parameters.
 
         return result
