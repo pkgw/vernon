@@ -1368,6 +1368,8 @@ def dg83_setup(
     distrib = DG83Distribution(bfield, n_alpha, n_E, E0, E1)
     ray_tracer = BasicRayTracer()
     ray_tracer.ne0_cutoff = 1e-6
+
+    from .integrate import GrtransRTIntegrator
     rad_trans = GrtransRTIntegrator()
 
     if no_synch:
