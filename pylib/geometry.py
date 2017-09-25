@@ -1396,11 +1396,14 @@ class ImageMaker(object):
 
 
     def compute(self, whole_ray=False, **kwargs):
-        return self.image_ray_func(lambda r: r.integrate(whole_ray=whole_ray, **kwargs))
+        return self.image_ray_func(lambda r: r.integrate(whole_ray=whole_ray), **kwargs)
 
 
-    def image_ray_func(self, func, printiter=False):
+    def image_ray_func(self, func, printiter=False, printrows=False):
         data = None
+        if printrows:
+            from time import time
+            tprev = time()
 
         for iy in range(self.ny):
             for ix in range(self.nx):
@@ -1417,6 +1420,11 @@ class ImageMaker(object):
                     data = np.zeros(v_shape + (self.ny, self.nx))
 
                 data[:,iy,ix] = value
+
+            if printrows:
+                t = time()
+                print('row %d: %.2f seconds' % (iy, t - tprev))
+                tprev = t
 
         return data
 
