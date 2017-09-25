@@ -14,12 +14,13 @@ def view_cube_cli(args):
     ap = argparse.ArgumentParser(
         prog = 'view cube',
     )
-    ap.add_argument('-s', dest='stretch', type=str, nargs=1, default='default',
+    ap.add_argument('-s', dest='stretch', type=str, nargs=1, default=['default'],
                     choices='default sqrt neg'.split(),
                     help='What kind of stretch to use on the data:.')
     ap.add_argument('-p', dest='outer_plane_number', metavar='P', type=int,
                     help='Isolate the outermost P\'th plane of the cube before viewing.')
-    ap.add_argument('INFILE', help='The numpy save file to load')
+    ap.add_argument('FILES', nargs='+',
+                    help='The numpy save file to load')
 
     settings = ap.parse_args(args=args)
     stretch_spec = settings.stretch[0]
@@ -36,7 +37,7 @@ def view_cube_cli(args):
     elif stretch_spec == 'neg':
         stretch = lambda data: (data < 0).astype(np.int)
     else:
-        cli.die('unknown stretch specification %r', stretch_speccd)
+        cli.die('unknown stretch specification %r', stretch_spec)
 
     def describe(a):
         print('Min/max/med: %.16e  %.16e  %.16e' % (
@@ -47,10 +48,18 @@ def view_cube_cli(args):
         ))
         return a # convenience
 
-    a = np.load(settings.INFILE)
+    arrays = []
 
-    if settings.outer_plane_number is not None:
-        a = a[settings.outer_plane_number]
+    for path in settings.FILES:
+        a = np.load(path)
+        if settings.outer_plane_number is not None:
+            a = a[settings.outer_plane_number]
+        arrays.append(a)
+
+    if len(arrays) > 2:
+        a = np.stack(arrays)
+    else:
+        a = arrays[0]
 
     if a.ndim == 2:
         stretched = stretch(describe(a))
