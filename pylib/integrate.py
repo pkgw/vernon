@@ -19,7 +19,12 @@ class GrtransRTIntegrator(object):
     """Perform radiative-transfer integration along a ray using the integrator in
     `grtrans`.
 
+    Experience shows that small values of frac_max_step_size are needed for
+    the grtrans integrations to converge. For LSODA, at least.
+
     """
+    frac_max_step_size = 1e-4
+
     def integrate(self, x, j, a, rho, **kwargs):
         """Arguments:
 
@@ -39,7 +44,7 @@ class GrtransRTIntegrator(object):
         """
         from grtrans import integrate_ray
         K = np.concatenate((a, rho), axis=1)
-        iquv = integrate_ray(x, j, K, **kwargs)
+        iquv = integrate_ray(x, j, K, frac_max_step_size=self.frac_max_step_size, **kwargs)
         return iquv.T
 
 
