@@ -26,7 +26,7 @@ ping_interval = 30 # seconds
 max_attempt_duration = 7200 # seconds
 worker_idle_delay = 60 # seconds
 worker_max_idle = 4200 # seconds
-fails_for_give_up = 4
+fails_for_give_up = 6
 consec_fails_for_kill_worker = 5
 
 @Holder
