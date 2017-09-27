@@ -427,6 +427,12 @@ from pwkit.cli import die
 
 
 def gen_grid_cli(args):
+    """Generate information about the gridding that Dedalus will use. Dedalus is a
+    large and complex install that we don't have for conda-forge, so we
+    separate out this step and (grossly) invoke my machine's special Python
+    interpreter in which I've set up Dedalus manually.
+
+    """
     import os.path
     dedalus_python = '/a/bin/python'
     real_program = os.path.join(os.environ['TOP'], 'bin', '_vkl-gen-grid.py')
@@ -434,11 +440,91 @@ def gen_grid_cli(args):
              [dedalus_python, real_program] + args)
 
 
+def test_coeffs_cli(args):
+    """Generate coefficients suitable for testing the Fokker-Planck solver. In
+    particular, we substantially reduce the dynamic range of the values and
+    smooth them out. So they are totally unphysical! But they let us try out
+    the numerics with numbers that are slightly more interesting than
+    constants.
+
+    The hacks were tuned for NV = NK = 65, NL = 30, V(min,max) = (1e-4, 0.01),
+    L(min,max) = (1.1, 7.0).
+
+    """
+    import h5py
+
+    ap = argparse.ArgumentParser(
+        prog = 'vkl test-coeffs',
+    )
+    ap.add_argument('grid_path', metavar='GRID-PATH',
+                    help='The path to the Dedalus gridding coefficients (from "vkl gen-grid")')
+    ap.add_argument('output_path', metavar='OUTPUT-PATH',
+                    help='The destination path for the HDF5 file of computed coefficients.')
+    settings = ap.parse_args(args=args)
+
+    with open(settings.grid_path, 'rb') as f:
+        constants = np.load(f)
+        bounds = np.load(f)
+        V = np.load(f)
+        K = np.load(f)
+        L = np.load(f)
+
+    (B0,) = constants
+
+    radius = cgs.rjup
+    DLL_at_L1 = 3e-9 # [s^-1]; fairly arbitrary from De Pater 1981
+    k_LL = 1.5 # HACKED coefficient with which D_LL scales as a function of L
+    Cg = 70
+
+    # Parameters for Summers (2005) energy/pitch-angle diffusion model
+    alpha_star = 0.16
+    R_summers = 5e-8
+    x_m = 0.35
+    delta_x = 0.2
+    max_wave_lat = 0.5 # radians
+
+    coords = Coordinates(V, K, L)
+    samp = (ModelBuilder(Cg = Cg)
+            .dipole(B0 = B0, radius = radius)
+            .electron_cgs()
+            .basic_radial_diffusion(D0=DLL_at_L1, n=k_LL)
+            .summers_pa_coefficients(alpha_star, R_summers, x_m, delta_x, max_wave_lat)
+            .synchrotron_losses_cgs()
+            .make_sampler(coords))
+
+    # Nice to report a few basic parameters while we're here.
+
+    print('V range:', bounds[0])
+    print('K range:', bounds[1])
+    print('L range:', bounds[2])
+    mev = samp.Ekin_mev()
+    print('Ekin(MeV) 99% range:', np.percentile(mev, [0.5, 99.5]))
+    deg = samp.alpha_deg()
+    print('alpha(deg) 99% range:', np.percentile(deg, [0.5, 99.5]))
+
+    gdvv, gdvk, gdkk = samp.GD_VKs()
+
+    with h5py.File(settings.output_path, 'w') as f:
+        f['constants'] = constants
+        f['bounds'] = bounds
+        f['V'] = V
+        f['K'] = K
+        f['L'] = L
+        f['G'] = samp.G()
+        f['GD_VV'] = gdvv
+        f['GD_VK'] = gdvk
+        f['GD_KK'] = gdkk
+        f['GD_LL'] = samp.GD_LL()
+        f['loss_rate'] = samp.loss_rate()
+
+
 def entrypoint(argv):
     if len(argv) == 1:
-        die('must supply a subcommand: "gen-grid"')
+        die('must supply a subcommand: "gen-grid", "test-coeffs"')
 
     if argv[1] == 'gen-grid':
         gen_grid_cli(argv[2:])
+    elif argv[1] == 'test-coeffs':
+        test_coeffs_cli(argv[2:])
     else:
         die('unrecognized subcommand %r', argv[1])
