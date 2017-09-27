@@ -915,7 +915,7 @@ class Distribution(object):
         sg = kwargs['sigma']
         x = kwargs['x']
         g = np.sqrt(8.) * (sg - x)**1.5 / (3 * np.sqrt(x))
-        z = g * K23L13(g) - np.pi
+        z = np.sqrt(3.) * g * K23L13(g) - np.pi
         pf = -2 / cgs.c
         #print('Z %.18e %.18e %.18e %.18e %.18e %.18e' % (pf, po, dfds, z, g, K23L13(g)))
         return pf * po * dfds * z
