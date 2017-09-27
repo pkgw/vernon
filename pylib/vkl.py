@@ -418,3 +418,27 @@ class Sampler(object):
         gdvk = self._eval(self.mb.GD_VK, with_dap=True)
         gdkk = self._eval(self.mb.GD_KK, with_dap=True)
         return gdvv, gdvk, gdkk
+
+
+# Command-line interfaces
+
+import argparse
+from pwkit.cli import die
+
+
+def gen_grid_cli(args):
+    import os.path
+    dedalus_python = '/a/bin/python'
+    real_program = os.path.join(os.environ['TOP'], 'bin', '_vkl-gen-grid.py')
+    os.execv(dedalus_python,
+             [dedalus_python, real_program] + args)
+
+
+def entrypoint(argv):
+    if len(argv) == 1:
+        die('must supply a subcommand: "gen-grid"')
+
+    if argv[1] == 'gen-grid':
+        gen_grid_cli(argv[2:])
+    else:
+        die('unrecognized subcommand %r', argv[1])
