@@ -502,7 +502,42 @@ def test_coeffs_cli(args):
     deg = samp.alpha_deg()
     print('alpha(deg) 99% range:', np.percentile(deg, [0.5, 99.5]))
 
+    # Calculate stock coefficients.
+
+    g = samp.G()
     gdvv, gdvk, gdkk = samp.GD_VKs()
+    gdll = samp.GD_LL()
+
+    # G has a large negative trough around pitch angles of 90 that really stretch
+    # the dynamic range. Let's compensate for that.
+
+    mx = g.max()
+    mn = g.min()
+    new_min = mx * 5 # since both are negative ...
+    new = mx - (mx - new_min) * (g - mx) / (mn - mx)
+    scale = new / g
+    g *= scale
+    gdvv *= scale
+    gdvk *= scale
+    gdkk *= scale
+    gdll *= scale
+
+    # Squash KK comparably.
+
+    mx = gdkk.max()
+    mn = gdkk.min()
+    new_min = mx * 50 # since both are negative ...
+    new = mx - (mx - new_min) * (gdkk - mx) / (mn - mx)
+    scale = new / gdkk
+    gdkk *= scale
+
+    # Rescale things to make the coefficients have comparable, relatively
+    # small magnitudes.
+
+    gdkk *= 1e-10
+    gdvk *= 1e-7
+
+    # All done.
 
     with h5py.File(settings.output_path, 'w') as f:
         f['constants'] = constants
@@ -510,11 +545,11 @@ def test_coeffs_cli(args):
         f['V'] = V
         f['K'] = K
         f['L'] = L
-        f['G'] = samp.G()
+        f['G'] = g
         f['GD_VV'] = gdvv
         f['GD_VK'] = gdvk
         f['GD_KK'] = gdkk
-        f['GD_LL'] = samp.GD_LL()
+        f['GD_LL'] = gdll
         f['loss_rate'] = samp.loss_rate()
 
 
