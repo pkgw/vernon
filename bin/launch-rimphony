@@ -35,7 +35,7 @@ esac
 odydir="$(cd $(dirname $0)/../rimphony && pwd)"
 
 # I just know that I'll forget to actually recompile the runner.
-(cd $odydir && cargo build --release --examples)
+(cd $odydir && cargo build --release --examples) || exit 1
 
 exec sbatch \
     -a $array_spec \
