@@ -134,7 +134,7 @@ def transform(datadir):
     print('Rows with bad a_I:', bad.sum(), file=sys.stderr)
 
     bad = (df.jq >= 0)
-    mask = bad
+    mask |= bad
     print('Rows with bad J_Q:', bad.sum(), file=sys.stderr)
 
     bad = (df.aq >= 0)
@@ -142,7 +142,7 @@ def transform(datadir):
     print('Rows with bad a_Q:', bad.sum(), file=sys.stderr)
 
     bad = (df.jv <= 0)
-    mask = bad
+    mask |= bad
     print('Rows with bad J_V:', bad.sum(), file=sys.stderr)
 
     bad = (df.av <= 0)
@@ -150,7 +150,7 @@ def transform(datadir):
     print('Rows with bad a_V:', bad.sum(), file=sys.stderr)
 
     bad = (df.fq <= 0)
-    mask = bad
+    mask |= bad
     print('Rows with bad f_Q:', bad.sum(), file=sys.stderr)
 
     bad = (df.fv <= 0)
