@@ -19,7 +19,7 @@ from pwkit.io import Path
 from . import DomainRange, NSModel
 
 
-def train_j_i(m):
+def generic_trainer(m):
     m.add(Dense(
         units = 300,
         input_dim = m.domain_range.n_params,
@@ -48,242 +48,24 @@ def train_j_i(m):
     return m
 
 
-def train_alpha_i(m):
-    m.add(Dense(
-        units = 300,
-        input_dim = m.domain_range.n_params,
-        activation = 'relu',
-        kernel_initializer = 'normal',
-    ))
-    m.add(Dense(
-        units = 1,
-        activation = 'linear',
-        kernel_initializer = 'normal',
-    ))
-    m.compile('adam', 'mse')
-    hist = m.ns_fit(
-        epochs = 30,
-        batch_size = 2000,
-        verbose = 0,
-    )
-    print('Intermediate MSE:', hist.history['loss'][-1])
-    m.ns_sigma_clip(7)
-    hist = m.ns_fit(
-        epochs = 30,
-        batch_size = 2000,
-        verbose = 0,
-    )
-    m.final_mse = hist.history['loss'][-1]
-    return m
-
-
-def train_j_q(m):
-    m.add(Dense(
-        units = 300,
-        input_dim = m.domain_range.n_params,
-        activation = 'relu',
-        kernel_initializer = 'normal',
-    ))
-    m.add(Dense(
-        units = 1,
-        activation = 'linear',
-        kernel_initializer = 'normal',
-    ))
-    m.compile('adam', 'mse')
-    hist = m.ns_fit(
-        epochs = 30,
-        batch_size = 2000,
-        verbose = 0,
-    )
-    print('Intermediate MSE:', hist.history['loss'][-1])
-    m.ns_sigma_clip(7)
-    hist = m.ns_fit(
-        epochs = 30,
-        batch_size = 2000,
-        verbose = 0,
-    )
-    m.final_mse = hist.history['loss'][-1]
-    return m
-
-
-def train_alpha_q(m):
-    m.add(Dense(
-        units = 300,
-        input_dim = m.domain_range.n_params,
-        activation = 'relu',
-        kernel_initializer = 'normal',
-    ))
-    m.add(Dense(
-        units = 1,
-        activation = 'linear',
-        kernel_initializer = 'normal',
-    ))
-    m.compile('adam', 'mse')
-    hist = m.ns_fit(
-        epochs = 30,
-        batch_size = 2000,
-        verbose = 0,
-    )
-    print('Intermediate MSE:', hist.history['loss'][-1])
-    m.ns_sigma_clip(7)
-    hist = m.ns_fit(
-        epochs = 30,
-        batch_size = 2000,
-        verbose = 0,
-    )
-    m.final_mse = hist.history['loss'][-1]
-    return m
-
-
-def train_j_v(m):
-    m.add(Dense(
-        units = 300,
-        input_dim = m.domain_range.n_params,
-        activation = 'relu',
-        kernel_initializer = 'normal',
-    ))
-    m.add(Dense(
-        units = 1,
-        activation = 'linear',
-        kernel_initializer = 'normal',
-    ))
-    m.compile('adam', 'mse')
-    hist = m.ns_fit(
-        epochs = 30,
-        batch_size = 2000,
-        verbose = 0,
-    )
-    print('Intermediate MSE:', hist.history['loss'][-1])
-    m.ns_sigma_clip(7)
-    hist = m.ns_fit(
-        epochs = 30,
-        batch_size = 2000,
-        verbose = 0,
-    )
-    m.final_mse = hist.history['loss'][-1]
-    return m
-
-
-def train_alpha_v(m):
-    m.add(Dense(
-        units = 300,
-        input_dim = m.domain_range.n_params,
-        activation = 'relu',
-        kernel_initializer = 'normal',
-    ))
-    m.add(Dense(
-        units = 1,
-        activation = 'linear',
-        kernel_initializer = 'normal',
-    ))
-    m.compile('adam', 'mse')
-    hist = m.ns_fit(
-        epochs = 30,
-        batch_size = 2000,
-        verbose = 0,
-    )
-    print('Intermediate MSE:', hist.history['loss'][-1])
-    m.ns_sigma_clip(7)
-    hist = m.ns_fit(
-        epochs = 30,
-        batch_size = 2000,
-        verbose = 0,
-    )
-    m.final_mse = hist.history['loss'][-1]
-    return m
-
-
-def train_rho_q(m):
-    m.add(Dense(
-        units = 300,
-        input_dim = m.domain_range.n_params,
-        activation = 'relu',
-        kernel_initializer = 'normal',
-    ))
-    m.add(Dense(
-        units = 1,
-        activation = 'linear',
-        kernel_initializer = 'normal',
-    ))
-    m.compile('adam', 'mse')
-    hist = m.ns_fit(
-        epochs = 30,
-        batch_size = 2000,
-        verbose = 0,
-    )
-    print('Intermediate MSE:', hist.history['loss'][-1])
-    m.ns_sigma_clip(7)
-    hist = m.ns_fit(
-        epochs = 30,
-        batch_size = 2000,
-        verbose = 0,
-    )
-    m.final_mse = hist.history['loss'][-1]
-    return m
-
-
-def train_rho_v(m):
-    m.add(Dense(
-        units = 300,
-        input_dim = m.domain_range.n_params,
-        activation = 'relu',
-        kernel_initializer = 'normal',
-    ))
-    m.add(Dense(
-        units = 1,
-        activation = 'linear',
-        kernel_initializer = 'normal',
-    ))
-    m.compile('adam', 'mse')
-    hist = m.ns_fit(
-        epochs = 30,
-        batch_size = 2000,
-        verbose = 0,
-    )
-    print('Intermediate MSE:', hist.history['loss'][-1])
-    m.ns_sigma_clip(7)
-    hist = m.ns_fit(
-        epochs = 30,
-        batch_size = 2000,
-        verbose = 0,
-    )
-    m.final_mse = hist.history['loss'][-1]
-    return m
-
-
-trainers = {
-    ('j', 'i'): (0, train_j_i),
-    ('alpha', 'i'): (1, train_alpha_i),
-    ('j', 'q'): (2, train_j_q),
-    ('alpha', 'q'): (3, train_alpha_q),
-    ('j', 'v'): (4, train_j_v),
-    ('alpha', 'v'): (5, train_alpha_v),
-    ('rho', 'q'): (6, train_rho_q),
-    ('rho', 'v'): (7, train_rho_v),
-}
-
-
-def load_data_and_train(datadir, nndir, rttype, stokes):
-    if rttype not in ('j', 'alpha', 'rho'):
-        die('coefficient type must be "j" or "alpha"; got %r', rttype)
-    if stokes not in 'iqv':
-        die('coefficient type must be "i" or "q" or "v"; got %r', stokes)
-    if rttype == 'rho' and stokes == 'i':
-        die('cmon man')
-
+def load_data_and_train(datadir, nndir, result_name):
     cfg_path = Path(nndir) / 'nn_config.toml'
-    dr = DomainRange.from_serialized(cfg_path)
+    dr, rinfo = DomainRange.from_serialized(cfg_path, result_to_extract=result_name)
+
+    if rinfo is None:
+        die('no known result named %r', result_name)
+
     sd = dr.load_and_normalize(datadir)
 
-    try:
-        result_index, func = trainers[rttype, stokes]
-    except:
-        raise Exception('no training info for rttype=%r, stokes=%r' % (rttype, stokes))
+    trainer_name = rinfo['trainer']
+    trainer_func = globals().get(trainer_name + '_trainer')
+    if trainer_func is None:
+        die('unknown trainer function %r', trainer_name)
 
     m = NSModel()
-    m.ns_setup(result_index, sd)
+    m.ns_setup(rinfo['_index'], sd)
     t0 = time.time()
-    func(m)
+    trainer_func(m)
     m.training_wall_clock = time.time() - t0
     return m
 
@@ -308,21 +90,19 @@ def make_parser():
                     help='The path to the sample data directory.')
     ap.add_argument('nndir', type=str, metavar='NNDIR',
                     help='The path to the neural-net directory.')
-    ap.add_argument('rttype', type=str, metavar='RTTYPE',
-                    help='The RT coefficient type: j or alpha.')
-    ap.add_argument('stokes', type=str, metavar='STOKES',
-                    help='The Stokes parameter: i q or v.')
+    ap.add_argument('result_name', type=str, metavar='RESULT-NAME',
+                    help='The name of the simulation result to train on.')
     return ap
 
 
 def train_cli(args):
     settings = make_parser().parse_args(args=args)
-    m = load_data_and_train(settings.datadir, settings.nndir, settings.rttype, settings.stokes)
-    print('Achieved MSE of %g in %.1f seconds for %s %s.' %
-          (m.final_mse, m.training_wall_clock, settings.rttype, settings.stokes))
+    m = load_data_and_train(settings.datadir, settings.nndir, settings.result_name)
+    print('Achieved MSE of %g in %.1f seconds for %s.' %
+          (m.final_mse, m.training_wall_clock, settings.result_name))
 
     if settings.plot:
         page_results(m, residuals=settings.residuals)
 
-    outpath = str(Path(settings.nndir) / ('%s_%s.h5' % (settings.rttype, settings.stokes)))
+    outpath = str(Path(settings.nndir) / ('%s.h5' % settings.result_name))
     m.save(outpath, overwrite=True)

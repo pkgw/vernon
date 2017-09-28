@@ -14,6 +14,7 @@ Approximator
 DirectMapping
 DomainRange
 LogMapping
+LogitMapping
 Mapping
 NegLogMapping
 NinthRootMapping
@@ -143,6 +144,20 @@ class LogMapping(Mapping):
         return (p > 0)
 
 
+class LogitMapping(Mapping):
+    desc = 'logit'
+
+    def _to_xform(self, p):
+        return np.log(p / (1. - p))
+
+    def _from_xform(self, x):
+        return np.exp(x) / (np.exp(x) + 1)
+
+    def _is_valid(self, p):
+        # Infinities are hard to deal with so we don't allow p = 0 or p = 1.
+        return (p > 0) & (p < 1)
+
+
 class NegLogMapping(Mapping):
     desc = 'neg_log'
 
@@ -172,6 +187,7 @@ class NinthRootMapping(Mapping):
 _mappings = {
     'direct': DirectMapping,
     'log': LogMapping,
+    'logit': LogitMapping,
     'neg_log': NegLogMapping,
     'ninth_root': NinthRootMapping,
 }
@@ -278,22 +294,30 @@ class DomainRange(object):
 
 
     @classmethod
-    def from_serialized(cls, config_path):
+    def from_serialized(cls, config_path, result_to_extract=None):
+        """`result_to_extract` is a total lazy hack for the training tool."""
         with Path(config_path).open('rt') as f:
             info = pytoml.load(f)
 
         inst = cls()
         inst.pmaps = []
         inst.rmaps = []
+        extracted_info = None
 
         for subinfo in info['params']:
             inst.pmaps.append(mapping_from_dict(subinfo))
 
-        for subinfo in info['results']:
+        for i, subinfo in enumerate(info['results']):
+            if result_to_extract is not None and subinfo['name'] == result_to_extract:
+                extracted_info = subinfo
+                extracted_info['_index'] = i
             inst.rmaps.append(mapping_from_dict(subinfo))
 
         inst.n_params = len(inst.pmaps)
         inst.n_results = len(inst.rmaps)
+
+        if result_to_extract is not None:
+            return inst, extracted_info
         return inst
 
 
