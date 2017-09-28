@@ -212,23 +212,28 @@ def mapping_from_dict(info):
 
 
 def basic_load(datadir, drop_metadata=True):
+    import warnings
+
     datadir = Path(datadir)
     chunks = []
     param_names = None
 
-    for item in datadir.glob('*.txt'):
-        if param_names is None:
-            with item.open('rt') as f:
-                first_line = f.readline()
-                assert first_line[0] == '#'
-                param_names = first_line.strip().split()[1:]
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=UserWarning)
 
-        c = np.loadtxt(str(item))
-        if not c.size or c.ndim != 2:
-            continue
+        for item in datadir.glob('*.txt'):
+            if param_names is None:
+                with item.open('rt') as f:
+                    first_line = f.readline()
+                    assert first_line[0] == '#'
+                    param_names = first_line.strip().split()[1:]
 
-        assert c.shape[1] > len(param_names)
-        chunks.append(c)
+            c = np.loadtxt(str(item))
+            if not c.size or c.ndim != 2:
+                continue
+
+            assert c.shape[1] > len(param_names)
+            chunks.append(c)
 
     data = np.vstack(chunks)
 
