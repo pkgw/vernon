@@ -254,7 +254,7 @@ class NeuroSynchrotronCalculator(SynchrotronCalculator):
     """
     def __init__(self, nn_dir):
         import neurosynchro
-        self.apx = neurosynchro.Approximator(nn_dir)
+        self.apx = neurosynchro.PhysicalApproximator(nn_dir)
 
         self.param_names = []
 

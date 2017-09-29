@@ -10,15 +10,16 @@ physical input parameters..
 from __future__ import absolute_import, division, print_function
 
 __all__ = '''
-Approximator
 DirectMapping
 DomainRange
 LogMapping
 LogitMapping
 Mapping
+NaiveApproximator
 NegLogMapping
 NinthRootMapping
 NSModel
+PhysicalApproximator
 SampleData
 basic_load
 mapping_from_dict
@@ -520,7 +521,7 @@ class NSModel(models.Sequential):
         return p
 
 
-class Approximator(object):
+class NaiveApproximator(object):
     """Approximate the eight nontrivial RT coefficients:
 
     0. j_I - Stokes I emission
@@ -531,6 +532,9 @@ class Approximator(object):
     5. alpha_V - Stokes V absorption
     6. rho_Q - Faraday conversion
     7. rho_V - Faraday rotation
+
+    Independent neural networks are used for each parameter, which can lead to
+    unphysical results (e.g., |j_Q| > j_I).
 
     """
     def __init__(self, nn_dir):
@@ -619,4 +623,135 @@ class Approximator(object):
         # j_I**2 >= j_Q**2 + j_U**2 + j_V**2. I do not know how what, if any,
         # invariants apply to the alpha/rho parameters.
 
+        return result
+
+
+class PhysicalApproximator(object):
+    """Approximate the eight nontrivial RT coefficients using a more
+    physically-based parameterization.
+
+    """
+    results = 'j_I alpha_I j_frac_pol alpha_frac_pol j_V_share alpha_V_share rel_rho_Q rel_rho_V'.split()
+
+    def __init__(self, nn_dir):
+        self.domain_range = DomainRange.from_serialized(os.path.join(nn_dir, 'nn_config.toml'))
+
+        for i, r in enumerate(self.results):
+            m = models.load_model(
+                os.path.join(nn_dir, '%s.h5' % r),
+                custom_objects = {'NSModel': NSModel}
+            )
+            m.result_index = i
+            m.domain_range = self.domain_range
+            setattr(self, r, m)
+
+    @broadcastize(4, ret_spec=None)
+    def compute_all_nontrivial(self, nu, B, n_e, theta, **kwargs):
+        # Turn the standard parameters into the ones used in our computations
+
+        no_B = ~(B > 0)
+        nu_cyc = cgs.e * B / (2 * np.pi * cgs.me * cgs.c)
+        nu_cyc[no_B] = 1e7 # fake to avoid div-by-0 for now
+        kwargs['s'] = nu / nu_cyc
+
+        # We are paranoid and assume that theta could take on any value ...
+        # even though we do no bounds-checking for whether any of the *other*
+        # inputs overlap the values that we used to train the neural nets.
+
+        theta = theta % (2 * np.pi)
+        w = (theta > np.pi)
+        theta[w] = 2 * np.pi - theta[w]
+        flip = (theta > 0.5 * np.pi)
+        theta[flip] = np.pi - theta[flip]
+        kwargs['theta'] = theta
+
+        # XXX this code shouldn't know about limits on "s", but it's not
+        # computed until we get here. Note that we just report bounds problems
+        # but don't actually clip.
+
+        if kwargs['s'].min() < 1.:
+            import sys
+            print('neurosynchro quasi-underflow in s:', kwargs['s'].min(), file=sys.stderr)
+        if kwargs['s'].max() > 5e7:
+            import sys
+            print('neurosynchro quasi-overflow in s:', kwargs['s'].max(), file=sys.stderr)
+
+        # Normalize inputs.
+
+        norm = np.empty(nu.shape + (self.domain_range.n_params,))
+        for i, mapping in enumerate(self.domain_range.pmaps):
+            norm[...,i] = mapping.phys_to_norm(kwargs[mapping.name])
+
+        # Compute base outputs.
+
+        j_I = self.domain_range.rmaps[0].norm_to_phys(self.j_I.predict(norm)[...,0])
+        alpha_I = self.domain_range.rmaps[1].norm_to_phys(self.alpha_I.predict(norm)[...,0])
+        j_frac_pol = self.domain_range.rmaps[2].norm_to_phys(self.j_frac_pol.predict(norm)[...,0])
+        alpha_frac_pol = self.domain_range.rmaps[3].norm_to_phys(self.alpha_frac_pol.predict(norm)[...,0])
+        j_V_share = self.domain_range.rmaps[4].norm_to_phys(self.j_V_share.predict(norm)[...,0])
+        alpha_V_share = self.domain_range.rmaps[5].norm_to_phys(self.alpha_V_share.predict(norm)[...,0])
+        rel_rho_Q = self.domain_range.rmaps[6].norm_to_phys(self.rel_rho_Q.predict(norm)[...,0])
+        rel_rho_V = self.domain_range.rmaps[7].norm_to_phys(self.rel_rho_V.predict(norm)[...,0])
+
+        # Patch up B = 0 in the obvious way. (Although if we ever have to deal
+        # with nontrivial cold plasma densities, zones of zero B might affect
+        # the RT if they cause refraction or what-have-you.)
+
+        j_I[no_B] = 0.
+        alpha_I[no_B] = 0.
+
+        # Un-transform, baking in the invariant that our Q parameters are
+        # always negative and the V parameters are always positive (given our
+        # theta normalization).
+
+        j_P = j_frac_pol * j_I
+        j_V = j_V_share * j_P
+        j_Q = -np.sqrt(1 - j_V_share**2) * j_P
+
+        alpha_P = alpha_frac_pol * alpha_I
+        alpha_V = alpha_V_share * alpha_P
+        alpha_Q = -np.sqrt(1 - alpha_V_share**2) * alpha_P
+
+        rho_Q = rel_rho_Q * alpha_I
+        rho_V = rel_rho_V * alpha_I
+
+        # Now apply the known scalings.
+
+        n_e_scale = n_e / hardcoded_ne_ref
+        j_I *= n_e_scale
+        alpha_I *= n_e_scale
+        j_Q *= n_e_scale
+        alpha_Q *= n_e_scale
+        j_V *= n_e_scale
+        alpha_V *= n_e_scale
+        rho_Q *= n_e_scale
+        rho_V *= n_e_scale
+
+        freq_scale = nu / hardcoded_nu_ref
+        j_I *= freq_scale
+        alpha_I /= freq_scale
+        j_Q *= freq_scale
+        alpha_Q /= freq_scale
+        j_V *= freq_scale
+        alpha_V /= freq_scale
+        rho_Q /= freq_scale
+        rho_V /= freq_scale
+
+        theta_sign_term = np.ones(n_e.shape, dtype=np.int)
+        theta_sign_term[flip] = -1
+        j_V *= flip
+        alpha_V *= flip
+        rho_V *= flip
+
+        # Pack it up and we're done.
+
+        result = np.empty(n_e.shape + (8,))
+        result[:,0] = j_I
+        result[:,1] = alpha_I
+        result[:,2] = j_Q
+        result[:,3] = alpha_Q
+        result[:,4] = j_V
+        result[:,5] = alpha_V
+        result[:,6] = rho_Q
+        result[:,7] = rho_V
         return result
