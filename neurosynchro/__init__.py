@@ -44,6 +44,8 @@ hardcoded_ne_ref = 1.0
 
 
 class Mapping(object):
+    trainer = None
+
     def __init__(self, name):
         self.name = name
 
@@ -93,6 +95,10 @@ class Mapping(object):
         d = OrderedDict()
         d['name'] = self.name
         d['maptype'] = self.desc
+
+        if self.trainer is not None:
+            d['trainer'] = self.trainer
+
         d['x_mean'] = self.x_mean
         d['x_std'] = self.x_std
         d['phys_min'] = self.p_min
@@ -108,6 +114,8 @@ class Mapping(object):
             raise ValueError('info is for maptype %s but this class is %s' % (info['maptype'], cls.desc))
 
         inst = cls(str(info['name']))
+        if 'trainer' in info:
+            inst.trainer = info['trainer']
         inst.x_mean = float(info['x_mean'])
         inst.x_std = float(info['x_std'])
         inst.p_min = float(info['phys_min'])
@@ -201,9 +209,12 @@ class Passthrough(object):
         return self.d
 
 
-def mapping_from_samples(name, maptype, phys_samples):
-    cls = _mappings[maptype]
-    return cls.from_samples(name, phys_samples)
+def mapping_from_info_and_samples(info, phys_samples):
+    cls = _mappings[info['maptype']]
+    inst = cls.from_samples(info['name'], phys_samples)
+    if 'trainer' in info:
+        inst.trainer = info['trainer']
+    return inst
 
 def mapping_from_dict(info):
     maptype = str(info['maptype'])
@@ -286,12 +297,12 @@ class DomainRange(object):
         assert confirmed_ok
 
         for i, pinfo in enumerate(info['params']):
-            inst.pmaps.append(mapping_from_samples(pinfo['name'], pinfo['maptype'], phys_samples[:,i]))
+            inst.pmaps.append(mapping_from_info_and_samples(pinfo, phys_samples[:,i]))
 
         for i, rinfo in enumerate(info['results']):
             if i >= base_result_idx and i - base_result_idx + inst.n_params < phys_samples.shape[1]:
-                inst.rmaps.append(mapping_from_samples(rinfo['name'], rinfo['maptype'],
-                                                       phys_samples[:,i-base_result_idx+inst.n_params]))
+                ps = phys_samples[:,i-base_result_idx+inst.n_params]
+                inst.rmaps.append(mapping_from_info_and_samples(rinfo, ps))
             else:
                 inst.rmaps.append(Passthrough(rinfo))
 
