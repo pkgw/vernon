@@ -73,7 +73,7 @@ class GrtransRTIntegrator(object):
 
 
 # Command-line interface to jobs that do the RT integration for a series of
-# frames at a series of frequencie
+# frames at a series of frequencies
 
 import argparse, io, os.path, sys
 
@@ -90,6 +90,10 @@ def integrate_cli(args):
                     help='The name of the frame to render in the HDF5 file.')
     ap.add_argument('frequency', metavar='FREQ', type=float,
                     help='The frequency to model, in GHz.')
+    ap.add_argument('start_row', metavar='NUMBER', type=int,
+                    help='The top row of the sub-image to be made.')
+    ap.add_argument('n_rows', metavar='NUMBER', type=int,
+                    help='The number of rows in the sub-image to be made.')
     settings = ap.parse_args(args=args)
 
     from .geometry import RTOnlySetup, PrecomputedImageMaker
@@ -102,9 +106,14 @@ def integrate_cli(args):
     setup = RTOnlySetup(synch_calc, rad_trans, settings.frequency * 1e9)
     imaker = PrecomputedImageMaker(setup, settings.assembled_path)
     imaker.select_frame_by_name(settings.frame_name)
-    img = imaker.compute(parallel=False) # for cluster jobs, do not parallelize individual tasks
+    img = imaker.compute(
+        parallel = False, # for cluster jobs, do not parallelize individual tasks
+        first_row = settings.start_row,
+        n_rows = settings.n_rows,
+    )
 
-    with io.open('archive/%s_%s.npy' % (settings.frame_name, freq_code), 'wb') as f:
+    fn = 'archive/%s_%s_%d_%d.npy' % (settings.frame_name, freq_code, settings.start_row, settings.n_rows)
+    with io.open(fn, 'wb') as f:
         np.save(f, img)
 
 
@@ -118,6 +127,9 @@ def seed_cli(args):
                     help='The high end of the frequency range to process, in GHz.')
     ap.add_argument('-n', dest='n_freqs', type=int, default=3,
                     help='The number of frequencies to process.')
+    ap.add_argument('-g', dest='n_row_groups', type=int, metavar='NUMBER', default=1,
+                    help='The number of groups into which the rows are broken '
+                    'for processing [%(default)d].')
     ap.add_argument('assembled_path', metavar='ASSEMBLED-PATH',
                     help='Path to the HDF5 file with "assembled" output from "prepray".')
     ap.add_argument('nn_dir', metavar='NN-PATH',
@@ -128,17 +140,37 @@ def seed_cli(args):
     nn_dir = os.path.realpath(settings.nn_dir)
 
     import h5py
-    ds = h5py.File(assembled)
-    frame_names = sorted(x for x in ds if x.startswith('frame'))
+    with h5py.File(assembled) as ds:
+        frame_names = sorted(x for x in ds if x.startswith('frame'))
+        n_rows = ds[frame_names[0]]['n_e'].shape[0]
 
     freqs = np.logspace(np.log10(settings.nu_low), np.log10(settings.nu_high), settings.n_freqs)
 
-    print('Number of tasks:', len(frame_names) * settings.n_freqs, file=sys.stderr)
+    if settings.n_row_groups == 1:
+        start_rows = [0]
+        row_heights = [n_rows]
+    else:
+        # If we were cleverer we could try to make the groups all about equal
+        # sizes, but this is probably going to all be powers of 2 anyway.
+        rest_height = n_rows // settings.n_row_groups
+        first_height = n_rows - (settings.n_row_groups - 1) * rest_height
+        start_rows = [0, first_height]
+        row_heights = [first_height, rest_height]
+
+        for i in range(settings.n_row_groups - 2):
+            start_rows.append(start_rows[-1] + rest_height)
+            row_heights.append(rest_height)
+
+    print('Number of tasks:', len(frame_names) * settings.n_freqs * settings.n_row_groups,
+          file=sys.stderr)
 
     for frame_name in frame_names:
-        for i, freq in enumerate(freqs):
-            print('%s_%04d integrate _integrate %s %s %s %.3f' %
-                  (frame_name, i, assembled, nn_dir, frame_name, freq))
+        for ifreq, freq in enumerate(freqs):
+            for icg in range(settings.n_row_groups):
+                start_row = start_rows[icg]
+                n_rows = row_heights[icg]
+                print('%s_%d_%d integrate _integrate %s %s %s %.3f %d %d' %
+                      (frame_name, ifreq, icg, assembled, nn_dir, frame_name, freq, start_row, n_rows)
 
 
 def entrypoint(argv):
