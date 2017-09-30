@@ -102,7 +102,7 @@ def integrate_cli(args):
     setup = RTOnlySetup(synch_calc, rad_trans, settings.frequency * 1e9)
     imaker = PrecomputedImageMaker(setup, settings.assembled_path)
     imaker.select_frame_by_name(settings.frame_name)
-    img = imaker.compute()
+    img = imaker.compute(parallel=False) # for cluster jobs, do not parallelize individual tasks
 
     with io.open('archive/%s_%s.npy' % (settings.frame_name, freq_code), 'wb') as f:
         np.save(f, img)

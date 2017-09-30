@@ -1401,7 +1401,57 @@ class ImageMaker(object):
         return self.image_ray_func(lambda r: r.integrate(whole_ray=whole_ray), **kwargs)
 
 
-    def image_ray_func(self, func, printiter=False, printrows=False):
+    def _prep_for_multiprocessing(self):
+        """This is a hack for parallelized imaging with the PrecomputedImakerMaker.
+        See that class for details.
+
+        """
+        pass
+
+
+    def image_ray_func(self, func, printiter=False, printrows=False, parallel=True):
+        from pwkit.parallel import make_parallel_helper
+        phelp = make_parallel_helper(parallel)
+
+        if parallel is False:
+            return self._image_ray_func_serial(func, printiter=printiter, printrows=printrows)
+
+        if printiter or printrows:
+            raise ValueError('cannot use printiter or printrows when parallelizing')
+
+        self._prep_for_multiprocessing()
+
+        # Do a sample computation to figure out the shape of the returned data
+        sample_ray = self.get_ray(0, 0)
+        sample_value = func(sample_ray)
+        v_shape = np.shape(sample_value)
+
+        def callback(iy, fixed_args, var_args):
+            (func,) = fixed_args
+
+            buf = np.empty(v_shape + (self.nx,))
+
+            for ix in range(self.nx):
+                ray = self.get_ray(ix, iy)
+                buf[...,ix] = func(ray)
+
+            return buf
+
+        with phelp.get_ppmap() as ppmap:
+            rows = ppmap(callback, (func,), range(self.ny))
+
+        # `rows` will have shape (ny, {v_shape}, nx). We need to transpose it
+        # (in a generalized sense) to get to ({v_shape}, ny, nx).
+
+        rows = np.array(rows)
+        return np.moveaxis(rows, 0, -2)
+
+
+    def _image_ray_func_serial(self, func, printiter=False, printrows=False):
+        """We break this out as a separate function since the serial version can give
+        a few more diagnostics that could come in handy.
+
+        """
         data = None
         if printrows:
             from time import time
@@ -1515,6 +1565,25 @@ class PrecomputedImageMaker(ImageMaker):
         return self
 
 
+    def _prep_for_multiprocessing(self):
+        """OK, the parallelized imaging hack. When imaging we get our per-ray data
+        from an HD5 data set. When we fork child processes to do the
+        parallelized imaging, however, every child shares the same handle to
+        the underlying file, so they all step on each others' toes as they
+        seek around in the file. Here, we swap out the relevant HDF5 handle
+        with preloaded data *before* we start the parallel processing, which
+        avoids the problem.
+
+        """
+        h5_cfg = self.cur_frame_group
+        dict_cfg = dict()
+
+        for itemname in h5_cfg:
+            dict_cfg[itemname] = h5_cfg[itemname][...]
+
+        self.cur_frame_group = dict_cfg
+
+
     def get_ray(self, ix, iy):
         if ix < 0 or ix >= self.nx:
             raise ValueError('bad ix (%r); nx = %d' % (ix, self.nx))
@@ -1523,6 +1592,10 @@ class PrecomputedImageMaker(ImageMaker):
 
         n = self.cur_frame_group['counts'][iy,ix]
         ray = Ray(None, None, None, self.setup, no_init=True)
+        # We don't have saved x/y values, but it can be useful to have some
+        # kind of positional diagnostic, so:
+        ray.ix = ix
+        ray.iy = iy
         sl = slice(0, n)
 
         for itemname in self.cur_frame_group:
