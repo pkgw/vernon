@@ -739,9 +739,9 @@ class PhysicalApproximator(object):
 
         theta_sign_term = np.ones(n_e.shape, dtype=np.int)
         theta_sign_term[flip] = -1
-        j_V *= flip
-        alpha_V *= flip
-        rho_V *= flip
+        j_V *= theta_sign_term
+        alpha_V *= theta_sign_term
+        rho_V *= theta_sign_term
 
         # Pack it up and we're done.
 
