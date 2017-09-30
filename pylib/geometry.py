@@ -1402,7 +1402,7 @@ class ImageMaker(object):
 
 
     def _prep_for_multiprocessing(self):
-        """This is a hack for parallelized imaging with the PrecomputedImakerMaker.
+        """This is a hack for parallelized imaging with the PrecomputedImageMaker.
         See that class for details.
 
         """
