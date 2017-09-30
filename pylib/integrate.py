@@ -23,9 +23,11 @@ class GrtransRTIntegrator(object):
     the grtrans integrations to converge. For LSODA, at least.
 
     """
+    max_step_size = None
     frac_max_step_size = 1e-4
+    max_steps = 100000
 
-    def integrate(self, x, j, a, rho, **kwargs):
+    def integrate(self, x, j, a, rho, max_step_size=None, frac_max_step_size=None, max_steps=None, **kwargs):
         """Arguments:
 
         x
@@ -36,15 +38,37 @@ class GrtransRTIntegrator(object):
           Array, shape (n, 4). Absorption coefficients, in cm^-1.
         rho
           Array, shape (n, 3). Faraday mixing coefficients.
+        max_step_size (=None)
+          The maximum step size to take, in units of `x`. If unspecified here,
+          `self.max_step_size` is used.
+        frac_max_step_size (=None)
+          The maximum step size to take, as a fraction of the range of `x`. If
+          unspecified here, `self.frac_max_step_size` is used.
+        max_steps (=None)
+          The maximum number of steps to take. If unspecified here,
+          `self.max_steps` is used.
         kwargs
           Forwarded on to grtrans.integrate_ray().
         Returns
           Array of shape (n,4): Stokes intensities along the ray, in erg/(s Hz sr cm^2).
 
         """
+        if max_step_size is None:
+            max_step_size = self.max_step_size
+        if frac_max_step_size is None:
+            frac_max_step_size = self.frac_max_step_size
+        if max_steps is None:
+            max_steps = self.max_steps
+
         from grtrans import integrate_ray
         K = np.concatenate((a, rho), axis=1)
-        iquv = integrate_ray(x, j, K, frac_max_step_size=self.frac_max_step_size, **kwargs)
+        iquv = integrate_ray(
+            x, j, K,
+            max_step_size = max_step_size,
+            frac_max_step_size = frac_max_step_size,
+            max_steps = max_steps,
+            **kwargs
+        )
         return iquv.T
 
 
