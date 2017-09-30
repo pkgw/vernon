@@ -1409,15 +1409,20 @@ class ImageMaker(object):
         pass
 
 
-    def image_ray_func(self, func, printiter=False, printrows=False, parallel=True):
+    def image_ray_func(self, func, first_row=0, n_rows=None, printiter=False, printrows=False, parallel=True):
         from pwkit.parallel import make_parallel_helper
         phelp = make_parallel_helper(parallel)
 
         if parallel is False:
-            return self._image_ray_func_serial(func, printiter=printiter, printrows=printrows)
+            return self._image_ray_func_serial(func, first_row=first_row, n_rows=n_rows,
+                                               printiter=printiter, printrows=printrows)
 
         if printiter or printrows:
             raise ValueError('cannot use printiter or printrows when parallelizing')
+
+        if n_rows is None:
+            n_rows = self.ny
+        row_indices = range(first_row, first_row + n_rows)
 
         self._prep_for_multiprocessing()
 
@@ -1426,56 +1431,61 @@ class ImageMaker(object):
         sample_value = func(sample_ray)
         v_shape = np.shape(sample_value)
 
-        def callback(iy, fixed_args, var_args):
+        def callback(iyrel, fixed_args, var_arg):
             (func,) = fixed_args
+            iyabs = var_arg
 
             buf = np.empty(v_shape + (self.nx,))
 
             for ix in range(self.nx):
-                ray = self.get_ray(ix, iy)
+                ray = self.get_ray(ix, iyabs)
                 buf[...,ix] = func(ray)
 
             return buf
 
         with phelp.get_ppmap() as ppmap:
-            rows = ppmap(callback, (func,), range(self.ny))
+            rows = ppmap(callback, (func,), row_indices)
 
-        # `rows` will have shape (ny, {v_shape}, nx). We need to transpose it
-        # (in a generalized sense) to get to ({v_shape}, ny, nx).
+        # `rows` will have shape (n_rows, {v_shape}, nx). We need to transpose it
+        # (in a generalized sense) to get to ({v_shape}, n_rows, nx).
 
         rows = np.array(rows)
         return np.moveaxis(rows, 0, -2)
 
 
-    def _image_ray_func_serial(self, func, printiter=False, printrows=False):
+    def _image_ray_func_serial(self, func, first_row=0, n_rows=None, printiter=False, printrows=False):
         """We break this out as a separate function since the serial version can give
         a few more diagnostics that could come in handy.
 
         """
+        if n_rows is None:
+            n_rows = self.ny
+        row_indices = range(first_row, first_row + n_rows)
+
         data = None
         if printrows:
             from time import time
             tprev = time()
 
-        for iy in range(self.ny):
+        for iyrel, iyabs in enumerate(row_indices):
             for ix in range(self.nx):
                 if printiter:
-                    print(ix, iy, self._xvals[ix], self._yvals[iy])
+                    print(ix, iyabs, self._xvals[ix], self._yvals[iyabs])
 
-                ray = self.get_ray(ix, iy)
+                ray = self.get_ray(ix, iyabs)
                 value = func(ray)
 
                 if data is None:
                     v_shape = np.shape(value)
                     if v_shape == ():
                         v_shape = (1,)
-                    data = np.zeros(v_shape + (self.ny, self.nx))
+                    data = np.zeros(v_shape + (n_rows, self.nx))
 
-                data[:,iy,ix] = value
+                data[:,iyrel,ix] = value
 
             if printrows:
                 t = time()
-                print('row %d: %.2f seconds' % (iy, t - tprev))
+                print('row %d: %.2f seconds' % (iyabs, t - tprev))
                 tprev = t
 
         return data
