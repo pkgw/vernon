@@ -211,12 +211,11 @@ def assemble_cli(args):
     n_rows = 0
     n_cols = n_vals = None
     max_start_col = -1
-    max_n_samps = 0
 
     for path in glob.glob(settings.glob):
         base = os.path.splitext(os.path.basename(path))[0]
         bits = base.split('_')
-        frame_num = int(bits[-3])
+        frame_num = int(bits[-3].replace('frame', ''))
         row_num = int(bits[-2])
         start_col = int(bits[-1])
 
@@ -228,16 +227,16 @@ def assemble_cli(args):
                 counts = np.load(f)
                 arr = np.load(f)
 
-            n_vals, width, cur_max_n_samps = arr.shape
+            n_vals, width, _ = arr.shape
             assert n_vals == len(dg83_ray_parameters)
             n_cols = start_col + width
             max_start_col = start_col
-            max_n_samps = max(max_n_samps, cur_max_n_samps)
 
         info_by_frame.setdefault(frame_num, []).append((row_num, start_col, path))
 
     with h5py.File(settings.outpath) as ds:
         for frame_num, info in info_by_frame.items():
+            max_n_samps = 16
             counts = np.zeros((n_rows, n_cols), dtype=np.int)
             data = np.zeros((n_vals, n_rows, n_cols, max_n_samps))
 
@@ -246,8 +245,16 @@ def assemble_cli(args):
                     i_counts = np.load(f)
                     i_data = np.load(f)
 
+                this_n_samps = i_data.shape[2]
+
+                if this_n_samps > max_n_samps:
+                    new_data = np.zeros((n_vals, n_rows, n_cols, this_n_samps))
+                    new_data[...,:max_n_samps] = data
+                    max_n_samps = this_n_samps
+                    data = new_data
+
                 counts[row_num,start_col:start_col+width] = i_counts
-                data[:,row_num,start_col:start_col+width,:] = i_data
+                data[:,row_num,start_col:start_col+width,:this_n_samps] = i_data
 
             ds['/frame%04d/counts' % frame_num] = counts
 
