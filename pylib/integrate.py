@@ -229,14 +229,14 @@ def assemble_cli(args):
         bits = base.split('_')
         image_id = '/'.join(bits[:-2])
         start_row = int(bits[-2])
-        n_rows = int(bits[-1])
+        this_n_rows = int(bits[-1])
 
         if start_row > max_start_row:
             with io.open(path, 'rb') as f:
                 arr = np.load(f)
 
             n_vals, _, n_cols = arr.shape
-            n_rows = start_row + n_rows
+            n_rows = max(n_rows, start_row + this_n_rows)
             max_start_row = start_row
 
         info_by_image.setdefault(image_id, []).append((start_row, path))
