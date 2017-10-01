@@ -760,7 +760,7 @@ class DG83Distribution(object):
     model is based in because it is fancy.
 
     """
-    parameter_names = ['n_e', 'n_e_detailed', 'n_e_cold', 'p', 'k']
+    parameter_names = ['n_e', 'n_e_cold', 'p', 'k']
 
     def __init__(self, bfield, n_alpha, n_E, E0, E1):
         self.bfield = bfield
@@ -848,8 +848,11 @@ class DG83Distribution(object):
             p[idx] = mdl.params[1]
             k[idx] = mdl.params[2]
 
-        # for now:
-        return (n_e, f, n_e_cold, p, k)
+        # Some parts of the code can handle `f` as a return value, so that we
+        # can look at the detailed distribution function that's going into the
+        # fit for p and k. But the new dynamic ray-sampling code can't handle
+        # it, so I'm not returning it at the moment.
+        return (n_e, n_e_cold, p, k)
 
 
 
