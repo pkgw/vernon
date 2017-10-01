@@ -14,7 +14,7 @@ from __future__ import absolute_import, division, print_function
 __all__ = '''
 '''.split()
 
-import argparse, io, sys
+import argparse, io, os.path, sys
 import numpy as np
 from pwkit.cli import die
 
@@ -42,10 +42,15 @@ def make_model_parser(prog='preprays', allow_cml=True):
                     help='The physical aspect ratio of the image [%(default).1f].')
     ap.add_argument('-s', dest='max_n_samps', type=int, metavar='NUMBER', default=1500,
                     help='The maximum number of model samples allowed along each ray [%(default)d].')
+    ap.add_argument('-f', dest='ghz', type=float, metavar='GHz', default=1.,
+                    help='The minimum radio frequency that will be imaged from the data [%(default).1f].')
 
     if allow_cml:
         ap.add_argument('-C', dest='cml', type=float, metavar='NUMBER', default=0.,
                         help='The central meridian longitude [%(default).1f].')
+
+    ap.add_argument('nn_dir', metavar='NN-PATH',
+                    help='Path to the trained neural network data for the RT coefficients.')
 
     return ap
 
@@ -56,7 +61,6 @@ dg83_ray_parameters = 's B theta psi n_e p n_e_cold k'.split()
 
 def make_compute_dg83_parser():
     ap = make_model_parser(prog='preprays _do-dg83')
-    ap.add_argument('ident')
     ap.add_argument('frame_num', type=int)
     ap.add_argument('row_num', type=int)
     ap.add_argument('start_col', type=int)
@@ -69,9 +73,10 @@ def compute_dg83_cli(args):
 
     from . import geometry
     setup = geometry.dg83_setup(
+        ghz = settings.ghz,
         lat_of_cen = settings.loc,
         cml = settings.cml,
-        no_synch = True,
+        nn_dir = settings.nn_dir,
     )
 
     half_radii_per_xpix = settings.xhw / settings.n_cols
@@ -106,8 +111,8 @@ def compute_dg83_cli(args):
     obs_max_n_samps = n_samps.max()
     data = data[:,:,:obs_max_n_samps]
 
-    fn = 'archive/%s_%04d_%04d_%04d.npy' % (settings.ident, settings.frame_num,
-                                            settings.row_num, settings.start_col)
+    fn = 'archive/frame%04d_%04d_%04d.npy' % (settings.frame_num,
+                                              settings.row_num, settings.start_col)
 
     with io.open(fn, 'wb') as f:
         np.save(f, n_samps)
@@ -122,8 +127,6 @@ def make_seed_dg83_parser():
     ap.add_argument('-g', dest='n_col_groups', type=int, metavar='NUMBER', default=2,
                     help='The number of groups into which the columns are '
                     'broken for processing [%(default)d].')
-    ap.add_argument('ident', metavar='IDENT',
-                    help='A unique identifier that the output file names will start with.')
     return ap
 
 
@@ -131,6 +134,8 @@ def seed_dg83_cli(args):
     settings = make_seed_dg83_parser().parse_args(args=args)
 
     print('Physical parameters:', file=sys.stderr)
+    print('   Neural network data:', settings.nn_dir, file=sys.stderr)
+    print('   Targeted minimum frequency to image: %.3f' % settings.ghz, file=sys.stderr)
     print('   Latitude of center:', settings.loc, file=sys.stderr)
     print('   Image half-width in radii:', settings.xhw, file=sys.stderr)
     half_radii_per_xpix = settings.xhw / settings.n_cols
@@ -146,16 +151,17 @@ def seed_dg83_cli(args):
     print('   Max # samples along each ray:', settings.max_n_samps, file=sys.stderr)
     print('Job parameters:', file=sys.stderr)
     print('   Column groups:', settings.n_col_groups, file=sys.stderr)
-    print('   Output file identifier:', settings.ident, file=sys.stderr)
     n_tasks = settings.n_cml * settings.n_rows * settings.n_col_groups
     print('   Total tasks:', n_tasks, file=sys.stderr)
 
     cmls = np.linspace(0., 360., settings.n_cml + 1)[:-1]
 
-    common_args = '-r %d -c %d -A %d -E %d -L %.3f -w %.3f -a %.3f -s %d %s' % \
+    nn_dir = os.path.realpath(settings.nn_dir)
+
+    common_args = '-r %d -c %d -A %d -E %d -L %.3f -w %.3f -a %.3f -s %d -f %.3f %s' % \
         (settings.n_rows, settings.n_cols, settings.n_alpha, settings.n_E,
          settings.loc, settings.xhw, settings.aspect, settings.max_n_samps,
-         settings.ident)
+         settings.ghz, nn_dir)
 
     if settings.n_col_groups == 1:
         first_width = rest_width = settings.n_cols
@@ -179,8 +185,8 @@ def seed_dg83_cli(args):
         for i_row in range(settings.n_rows):
             for i_col in range(settings.n_col_groups):
                 taskid = '%d_%d_%d' % (frame_num, i_row, i_col)
-                print('%s preprays _do-dg83 %s -C %.3f %d %d %d %d' %
-                      (taskid, common_args, cml, frame_num, i_row, start_cols[i_col], col_widths[i_col]))
+                print('%s preprays _do-dg83 -C %.3f %s %d %d %d %d' %
+                      (taskid, cml, common_args, frame_num, i_row, start_cols[i_col], col_widths[i_col]))
 
 
 # Assembling the numpy files into one big HDF
