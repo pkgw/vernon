@@ -970,8 +970,14 @@ class BasicRayTracer(object):
 
 class FormalRayTracer(BasicRayTracer):
     warn_n_pts = 1000
-    min_n_pts = 200
 
+    max_step_size_factor = 0.05
+    """When sampling along the ray, the maximum allowed step size is this number
+    times the ray's current distance from the center of the body. This setup
+    allows more dense sampling close to the body, where the spatial variations
+    in the particle populations are expected to be densest.
+
+    """
     def _sample_ray(self, x, y, z0, z1, setup, max_dxlam1=50.):
         """This function choses to sample the ray in such a way that it should be
         possible to integrate the RT successfully using the "formal"
@@ -997,9 +1003,8 @@ class FormalRayTracer(BasicRayTracer):
         # derivatives to actually catch those variations in a well-founded
         # manner.)
 
-        max_step_size = (z1 - z0) / self.min_n_pts
         min_step_size = 1e-5 * (z1 - z0)
-        buf = np.empty((self.min_n_pts, 15 + len(setup.distrib.parameter_names)))
+        buf = np.empty((64, 15 + len(setup.distrib.parameter_names)))
         i = 0
         z = z0
 
@@ -1028,6 +1033,8 @@ class FormalRayTracer(BasicRayTracer):
             q = 0.5 *  (a2 - rho2)
             lam1 = np.sqrt(np.sqrt(q**2 + arho**2) + q)
             dx = max_dxlam1 / lam1
+
+            max_step_size = self.max_step_size_factor * bc[2]
 
             dz = dx / setup.radius
             dz = min(dz, max_step_size)
