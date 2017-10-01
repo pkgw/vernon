@@ -15,12 +15,41 @@ from pwkit.astutil import halfpi, twopi
 from pwkit.numutil import broadcastize
 
 
-class GrtransRTIntegrator(object):
-    """Perform radiative-transfer integration along a ray using the integrator in
-    `grtrans`.
+class FormalRTIntegrator(object):
+    """Perform radiative-transfer integration along a ray using the "formal"
+    integrator in `grtrans`.
+
+    The sampling must be such that `exp(deltax * lambda1)` has a reasonable
+    value, where lambda1 depends on the alpha and rho coefficients. See
+    pylib.geometry.BasicRayTracer.create_ray_for_formal.
+
+    """
+    def integrate(self, x, j, a, rho):
+        """Arguments:
+
+        x
+          1D array, shape (n,). "path length along the ray starting from its minimum"
+        j
+          Array, shape (n, 4). Emission coefficients, in erg/(s Hz sr cm^3).
+        a
+          Array, shape (n, 4). Absorption coefficients, in cm^-1.
+        rho
+          Array, shape (n, 3). Faraday mixing coefficients.
+        Returns
+          Array of shape (n,4): Stokes intensities along the ray, in erg/(s Hz sr cm^2).
+
+        """
+        from grtrans import integrate_ray_formal
+        K = np.concatenate((a, rho), axis=1)
+        return integrate_ray_formal(x, j, K).T
+
+
+class LSODARTIntegrator(object):
+    """Perform radiative-transfer integration along a ray using the LSODA
+    integrator in `grtrans`.
 
     Experience shows that small values of frac_max_step_size are needed for
-    the grtrans integrations to converge. For LSODA, at least.
+    the grtrans LSODA integrations to converge.
 
     """
     max_step_size = None
@@ -60,9 +89,9 @@ class GrtransRTIntegrator(object):
         if max_steps is None:
             max_steps = self.max_steps
 
-        from grtrans import integrate_ray
+        from grtrans import integrate_ray_lsoda
         K = np.concatenate((a, rho), axis=1)
-        iquv = integrate_ray(
+        iquv = integrate_ray_lsoda(
             x, j, K,
             max_step_size = max_step_size,
             frac_max_step_size = frac_max_step_size,

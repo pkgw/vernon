@@ -1477,11 +1477,11 @@ def dg83_setup(
     o2b = ObserverToBodycentric(lat_of_cen, cml)
     bfield = JupiterD4Field()
     distrib = DG83Distribution(bfield, n_alpha, n_E, E0, E1)
-    ray_tracer = BasicRayTracer()
+    ray_tracer = FormalRayTracer()
     ray_tracer.ne0_cutoff = 1e-6
 
-    from .integrate import GrtransRTIntegrator
-    rad_trans = GrtransRTIntegrator()
+    from .integrate import FormalRTIntegrator
+    rad_trans = FormalRTIntegrator()
 
     if no_synch:
         synch_calc = None
