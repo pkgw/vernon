@@ -40,8 +40,8 @@ def make_model_parser(prog='preprays', allow_cml=True):
                     help='The half-width of the image in body radii [%(default).1f].')
     ap.add_argument('-a', dest='aspect', type=float, metavar='RATIO', default=1.,
                     help='The physical aspect ratio of the image [%(default).1f].')
-    ap.add_argument('-s', dest='n_samps', type=int, metavar='NUMBER', default=300,
-                    help='The number of model samples to compute along each ray [%(default)d].')
+    ap.add_argument('-s', dest='max_n_samps', type=int, metavar='NUMBER', default=1500,
+                    help='The maximum number of model samples allowed along each ray [%(default)d].')
 
     if allow_cml:
         ap.add_argument('-C', dest='cml', type=float, metavar='NUMBER', default=0.,
@@ -74,8 +74,6 @@ def compute_dg83_cli(args):
         no_synch = True,
     )
 
-    setup.ray_tracer.nsamps = settings.n_samps
-
     half_radii_per_xpix = settings.xhw / settings.n_cols
     half_radii_per_ypix = half_radii_per_xpix / settings.aspect
     half_height = half_radii_per_ypix * settings.n_rows
@@ -88,19 +86,25 @@ def compute_dg83_cli(args):
         yhalfsize = half_height,
     )
 
-    # XXX gross hardcoding of ray sampling methodology
     n_vals = len(dg83_ray_parameters)
-    max_n_samps = setup.ray_tracer.nsamps
-    data = np.zeros((n_vals, settings.n_cols_to_compute, max_n_samps))
+    data = np.zeros((n_vals, settings.n_cols_to_compute, settings.max_n_samps))
     n_samps = np.zeros((settings.n_cols_to_compute,), dtype=np.int)
 
     for i in range(settings.n_cols_to_compute):
         ray = imaker.get_ray(settings.start_col + i, settings.row_num)
+
+        if ray.s.size >= settings.max_n_samps:
+            die('too many samples required for ray at ix=%d iy=%d: max=%d, got=%d',
+                settings.start_col + i, settings.row_num, setting.max_n_samps, ray.s.size)
+
         n_samps[i] = ray.s.size
         sl = slice(0, ray.s.size)
 
         for j, pname in enumerate(dg83_ray_parameters):
             data[j,i,sl] = getattr(ray, pname)
+
+    obs_max_n_samps = n_samps.max()
+    data = data[:,:,:obs_max_n_samps]
 
     fn = 'archive/%s_%04d_%04d_%04d.npy' % (settings.ident, settings.frame_num,
                                             settings.row_num, settings.start_col)
@@ -139,7 +143,7 @@ def seed_dg83_cli(args):
     print('   CMLs to image:', settings.n_cml, file=sys.stderr)
     print('   Rows (height; y):', settings.n_rows, file=sys.stderr)
     print('   Columns (width; x):', settings.n_cols, file=sys.stderr)
-    print('   Samples along each ray:', settings.n_samps, file=sys.stderr)
+    print('   Max # samples along each ray:', settings.max_n_samps, file=sys.stderr)
     print('Job parameters:', file=sys.stderr)
     print('   Column groups:', settings.n_col_groups, file=sys.stderr)
     print('   Output file identifier:', settings.ident, file=sys.stderr)
@@ -150,7 +154,7 @@ def seed_dg83_cli(args):
 
     common_args = '-r %d -c %d -A %d -E %d -L %.3f -w %.3f -a %.3f -s %d %s' % \
         (settings.n_rows, settings.n_cols, settings.n_alpha, settings.n_E,
-         settings.loc, settings.xhw, settings.aspect, settings.n_samps,
+         settings.loc, settings.xhw, settings.aspect, settings.max_n_samps,
          settings.ident)
 
     if settings.n_col_groups == 1:
