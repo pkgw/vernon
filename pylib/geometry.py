@@ -855,7 +855,6 @@ class DG83Distribution(object):
         return (n_e, n_e_cold, p, k)
 
 
-
 class BasicRayTracer(object):
     """Class the implements the definition of a ray through the magnetosphere. By
     definition, rays end at a specified X/Y location in observer coordinates,
@@ -890,7 +889,7 @@ class BasicRayTracer(object):
     nsamps = 300
     "Number of points to sample along the ray."
 
-    def create_ray(self, x, y, setup):
+    def create_ray(self, x, y, setup, **kwargs):
         """Create and initialize a Ray object to trace a particular ray path.
 
         x
@@ -901,8 +900,8 @@ class BasicRayTracer(object):
           inclination angle is relative to the y axis.
         setup
           A VanAllenSetup instance.
-
-        Returns: an initialized Ray class.
+        Returns:
+          An initialized Ray instance.
 
         """
         if x**2 + y**2 <= 1:
@@ -915,7 +914,7 @@ class BasicRayTracer(object):
         z1 = self.way_front_z
 
         # If ne(z0) = 0, the emission and absorption coefficients are zero,
-        # the ODE integrator take really big steps, and the results are bad.
+        # the ODE integrator takes really big steps, and the results are bad.
         # So we patch up the bounds to find a start point with a very small
         # but nonzero density to make sure we get going.
         #
@@ -959,10 +958,114 @@ class BasicRayTracer(object):
                 raise RuntimeError('could not find suitable ending point: %r %r %r'
                                    % (z1, zstart, info))
 
-        # OK, we have good bounds. For now we just sample the ray idiotically,
-        # always with a fixed number of samples.
+        # OK, we finally have good bounds. Sample the ray between them.
 
+        return self._sample_ray(x, y, z0, z1, setup, **kwargs)
+
+
+    def _sample_ray(self, x, y, z0, z1, setup):
+        "The default implementation always uses a fixed number of samples."
         return Ray(x, y, np.linspace(z0, z1, self.nsamps), setup)
+
+
+class FormalRayTracer(BasicRayTracer):
+    warn_n_pts = 1000
+    min_n_pts = 200
+
+    def _sample_ray(self, x, y, z0, z1, setup, max_dxlam1=50.):
+        """This function choses to sample the ray in such a way that it should be
+        possible to integrate the RT successfully using the "formal"
+        integrator of provided by "grtrans". In order to accomplish this, the
+        sampling of the ray is calculated dynamically.
+
+        NOTE that this calculation cares about the value of `setup.nu`! It
+        should be set to the *lowest* frequency that will be used for
+        ray-tracing.
+
+        max_dxlam1 = 50
+          The maximum value of the `dx * lambda1` parameter that will be used
+          inside the grtrans "formal" integrator. The "formal" calculations
+          involve computations of `exp(dx * lambda1)`, so this parameter
+          cannot be too high or the numerics will fail. However, the bigger
+          this parameter it is, the fewer steps we need to take along the ray.
+
+        """
+        # Dynamically sample along the ray with sufficient density that the
+        # formal integrator will be OK. We enforce a minimum number of points
+        # to try to capture spatial variations in the model that we might not
+        # catch if we're just going by the RT conditions. (TODO: use
+        # derivatives to actually catch those variations in a well-founded
+        # manner.)
+
+        max_step_size = (z1 - z0) / self.min_n_pts
+        min_step_size = 1e-5 * (z1 - z0)
+        buf = np.empty((self.min_n_pts, 15 + len(setup.distrib.parameter_names)))
+        i = 0
+        z = z0
+
+        while z <= z1:
+            if i >= self.warn_n_pts and i % self.warn_n_pts == 0:
+                print('XXX challenging ray:', i)
+
+            bc = setup.o2b(x, y, z)
+            bhat = setup.bfield.bhat(*bc)
+            theta = setup.o2b.theta_zhat(x, y, z, *bhat)
+            B = setup.bfield.bmag(*bc)
+            psi = setup.o2b.theta_yhat_projected(x, y, z, *bhat)
+            mc = setup.bfield(*bc)
+            dsamps = setup.distrib.get_samples(*mc)
+
+            d_extras = dict(zip(setup.distrib.parameter_names, dsamps))
+            sc_extras = dict((n, d_extras[n]) for n in setup.synch_calc.param_names)
+
+            j, alpha, rho = setup.synch_calc.get_coeffs(
+                setup.nu, B, dsamps[0], theta, psi, **sc_extras
+            )
+
+            a2 = (alpha[0,1:]**2).sum()
+            rho2 = (rho[0,1:]**2).sum()
+            arho = alpha[0,1] * rho[0,0] + alpha[0,2] * rho[0,1] + alpha[0,3] * rho[0,2]
+            q = 0.5 *  (a2 - rho2)
+            lam1 = np.sqrt(np.sqrt(q**2 + arho**2) + q)
+            dx = max_dxlam1 / lam1
+
+            dz = dx / setup.radius
+            dz = min(dz, max_step_size)
+            dz = min(dz, z1 - z)
+            dz = max(dz, min_step_size) # among other things, this gets us past z1 at the end of the ray
+
+            buf[i,0] = z
+            buf[i,1] = B
+            buf[i,2] = theta
+            buf[i,3] = psi
+            buf[i,4:8] = j
+            buf[i,8:12] = alpha
+            buf[i,12:15] = rho
+            buf[i,15:] = dsamps
+
+            if i == buf.shape[0] - 1:
+                new_buf = np.empty((buf.shape[0] * 2, buf.shape[1]))
+                new_buf[:buf.shape[0]] = buf
+                buf = new_buf
+
+            i += 1
+            z += dz
+
+        buf = buf[:i]
+
+        r = Ray(x, y, buf[:,0], setup, no_init=True)
+        r.s = (r.z - r.z[0]) * setup.radius
+        r.B = buf[:,1]
+        r.theta = buf[:,2]
+        r.psi = buf[:,3]
+        r.j = buf[:,4:8]
+        r.alpha = buf[:,8:12]
+        r.rho = buf[:,12:15]
+
+        for idx, n in enumerate(setup.distrib.parameter_names):
+            setattr(r, n, buf[:,idx + 15])
+
+        return r
 
 
 class Ray(object):
@@ -1262,8 +1365,8 @@ class VanAllenSetup(object):
         self.nu = nu
 
 
-    def get_ray(self, x, y):
-        return self.ray_tracer.create_ray(x, y, self)
+    def get_ray(self, x, y, **kwargs):
+        return self.ray_tracer.create_ray(x, y, self, **kwargs)
 
 
 def basic_setup(
