@@ -202,13 +202,70 @@ def seed_cli(args):
                       (frame_name, ifreq, icg, assembled, nn_dir, frame_name, freq, start_row, n_rows))
 
 
+# Assembling the numpy files into one big HDF
+
+def make_assemble_parser():
+    ap = argparse.ArgumentParser(
+        prog = 'integrate assemble'
+    )
+    ap.add_argument('glob',
+                    help='A shell glob expression to match the Numpy data files.')
+    ap.add_argument('outpath',
+                    help='The name of the HDF file to produce.')
+    return ap
+
+
+def assemble_cli(args):
+    import glob, h5py, os.path
+    settings = make_assemble_parser().parse_args(args=args)
+
+    info_by_image = {}
+    n_rows = 0
+    n_cols = n_vals = None
+    max_start_row = -1
+
+    for path in glob.glob(settings.glob):
+        base = os.path.splitext(os.path.basename(path))[0]
+        bits = base.split('_')
+        image_id = '/'.join(bits[:-2])
+        start_row = int(bits[-2])
+        n_rows = int(bits[-1])
+
+        if start_row > max_start_row:
+            with io.open(path, 'rb') as f:
+                arr = np.load(f)
+
+            n_vals, _, n_cols = arr.shape
+            n_rows = start_row + n_rows
+            max_start_row = start_row
+
+        info_by_image.setdefault(image_id, []).append((start_row, path))
+
+    with h5py.File(settings.outpath) as ds:
+        for image_id, info in info_by_image.items():
+            data = np.zeros((n_vals, n_rows, n_cols))
+
+            for start_row, path in info:
+                with io.open(path, 'rb') as f:
+                    i_data = np.load(f)
+
+                height = i_data.shape[1]
+                data[:,start_row:start_row+height] = i_data
+
+            ds['/' + image_id] = data
+
+
+# Entrypoint
+
 def entrypoint(argv):
     if len(argv) == 1:
-        die('must supply a subcommand: "seed"')
+        die('must supply a subcommand: "assemble", "seed"')
 
     if argv[1] == 'seed':
         seed_cli(argv[2:])
     elif argv[1] == '_integrate':
         integrate_cli(argv[2:])
+    elif argv[1] == 'assemble':
+        assemble_cli(argv[2:])
     else:
         die('unrecognized subcommand %r', argv[1])
