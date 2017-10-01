@@ -1327,10 +1327,9 @@ def basic_setup(
 
 
 def dg83_setup(
-        nu = 95,
+        ghz = 95,
         lat_of_cen = 10,
         cml = 20,
-        dipole_tilt = 15,
         n_alpha = 10,
         n_E = 10,
         E0 = 0.1,
@@ -1341,12 +1340,20 @@ def dg83_setup(
     """Create and return a VanAllenSetup object prepared to use the Divine &
     Garrett 1983 model of Jupiter's magnetic field and plasma.
 
-    nu
+    ghz
       The observing frequency, in GHz.
     lat_of_cen
       The body's latitude-of-center, in degrees.
     cml
       The body's central meridian longitude, in degrees.
+    n_alpha
+      Number of pitch angles to sample when deriving p/k distribution parameters.
+    n_E
+      Number of energies to sample when deriving p/k distribution parameters.
+    E0
+      Low end of energy sampling regime, in MeV.
+    E1
+      High end of energy sampling regime, in MeV.
     nn_dir
       The directory with the neural-network data used to generate synchrotron
       radiative transfer coefficients.
@@ -1356,8 +1363,6 @@ def dg83_setup(
       actually do any radiative transfer.
 
     """
-    # Unit conversions:
-    nu *= 1e9
     lat_of_cen *= astutil.D2R
     cml *= astutil.D2R
 
@@ -1379,7 +1384,7 @@ def dg83_setup(
         synch_calc = NeuroSynchrotronCalculator(nn_dir=nn_dir)
 
     return VanAllenSetup(o2b, bfield, distrib, ray_tracer, synch_calc,
-                         rad_trans, cgs.rjup, nu)
+                         rad_trans, cgs.rjup, ghz * 1e9)
 
 
 class ImageMaker(object):
