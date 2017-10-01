@@ -645,6 +645,8 @@ class PhysicalApproximator(object):
             m.domain_range = self.domain_range
             setattr(self, r, m)
 
+        print('!!! neurosynchro.PhysicalApproximator: HARDCODED INPUT CLIPPING')
+
     @broadcastize(4, ret_spec=None)
     def compute_all_nontrivial(self, nu, B, n_e, theta, **kwargs):
         # Turn the standard parameters into the ones used in our computations
@@ -675,6 +677,11 @@ class PhysicalApproximator(object):
         if kwargs['s'].max() > 5e7:
             import sys
             print('neurosynchro quasi-overflow in s:', kwargs['s'].max(), file=sys.stderr)
+
+        # XXX Even worse encapsulation breakage. I need to figure out the plan here.
+
+        kwargs['p'] = np.clip(kwargs['p'], 1.5, 7)
+        kwargs['k'] = np.clip(kwargs['k'], 0., 9)
 
         # Normalize inputs.
 
