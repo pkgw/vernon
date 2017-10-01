@@ -19,6 +19,8 @@ def view_cube_cli(args):
                     help='What kind of stretch to use on the data.')
     ap.add_argument('-p', dest='outer_plane_number', metavar='P', type=int,
                     help='Isolate the outermost P\'th plane of the cube before viewing.')
+    ap.add_argument('-f', dest='y_flip', action='store_true',
+                    help='Render the cube so that the first row is at the bottom.')
     ap.add_argument('FILES', nargs='+',
                     help='The numpy save file to load')
 
@@ -38,6 +40,11 @@ def view_cube_cli(args):
         stretch = lambda data: (data < 0).astype(np.int)
     else:
         cli.die('unknown stretch specification %r', stretch_spec)
+
+    if settings.y_flip:
+        y_slice = slice(None, None, -1)
+    else:
+        y_slice = slice(None, None)
 
     def describe(a):
         print('Min/max/med: %.16e  %.16e  %.16e' % (
@@ -63,15 +70,15 @@ def view_cube_cli(args):
 
     if a.ndim == 2:
         stretched = stretch(describe(a))
-        view(stretched[::-1], yflip=True)
+        view(stretched[y_slice], yflip=settings.y_flip)
     elif a.ndim == 3:
         stretched = stretch(describe(a))
-        cycle(stretched[:,::-1], yflip=True)
+        cycle(stretched[:,y_slice], yflip=settings.y_flip)
     elif a.ndim == 4:
         print('Shape:', a.shape)
         for i in range(a.shape[0]):
             stretched = stretch(describe(a[i]))
-            cycle(stretched[:,::-1], yflip=True)
+            cycle(stretched[:,y_slice], yflip=settings.y_flip)
     else:
         cli.die('cannot handle %d-dimensional arrays', a.ndim)
 
@@ -90,6 +97,8 @@ def view_hdf5_cli(args):
                     help='Isolate the outermost P\'th plane of the cube before viewing.')
     ap.add_argument('-T', dest='transpose', action='store_true',
                     help='Transpose the array before viewing.')
+    ap.add_argument('-f', dest='y_flip', action='store_true',
+                    help='Render the cube so that the first row is at the bottom.')
     ap.add_argument('FILE', metavar='HDF5-PATH',
                     help='The HDF5 file to load')
     ap.add_argument('ITEM', metavar='ITEM-NAME',
@@ -112,6 +121,11 @@ def view_hdf5_cli(args):
     else:
         cli.die('unknown stretch specification %r', stretch_spec)
 
+    if settings.y_flip:
+        y_slice = slice(None, None, -1)
+    else:
+        y_slice = slice(None, None)
+
     def describe(a):
         print('Final shape:', repr(a.shape))
         print('Min/max/med: %.16e  %.16e  %.16e' % (
@@ -133,15 +147,15 @@ def view_hdf5_cli(args):
 
     if a.ndim == 2:
         stretched = stretch(describe(a))
-        view(stretched[::-1], yflip=True)
+        view(stretched[y_slice], yflip=settings.y_flip)
     elif a.ndim == 3:
         stretched = stretch(describe(a))
-        cycle(stretched[:,::-1], yflip=True)
+        cycle(stretched[:,y_slice], yflip=settings.y_flip)
     elif a.ndim == 4:
         print('Shape:', a.shape)
         for i in range(a.shape[0]):
             stretched = stretch(describe(a[i]))
-            cycle(stretched[:,::-1], yflip=True)
+            cycle(stretched[:,y_slice], yflip=settings.y_flip)
     else:
         cli.die('cannot handle %d-dimensional arrays', a.ndim)
 
