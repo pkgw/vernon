@@ -1353,8 +1353,8 @@ class VanAllenSetup(object):
       An object used to calculate synchrotron emission coefficients; an
       instance of synchrotron.SynchrotronCalculator.
     rad_trans
-      An object used to perform the radiative transfer integration. Currenly this
-      must be an instance of GrtransRTIntegrator.
+      An object used to perform the radiative transfer integration; an instance of
+      one of the RTIntegrator classes in `integrate`.
     radius
       The body's radius, in cm.
     nu
@@ -1429,8 +1429,8 @@ def basic_setup(
     distrib = SimpleTorusDistribution(r1, r2, ne0, p)
     ray_tracer = BasicRayTracer()
 
-    from .integrate import GrtransRTIntegrator
-    rad_trans = GrtransRTIntegrator()
+    from .integrate import LSODARTIntegrator
+    rad_trans = LSODARTIntegrator()
 
     from .synchrotron import NeuroSynchrotronCalculator
     synch_calc = NeuroSynchrotronCalculator(nn_dir=nn_dir)
@@ -1654,8 +1654,8 @@ class RTOnlySetup(object):
       An object used to calculate synchrotron emission coefficients; an
       instance of synchrotron.SynchrotronCalculator.
     rad_trans
-      An object used to perform the radiative transfer integration. Currenly this
-      must be an instance of GrtransRTIntegrator.
+      An object used to perform the radiative transfer integration; an
+      instance of one of the RTIntegrator classes in `integrate`.
     nu
       The frequency for which to run the simulations, in Hz.
 

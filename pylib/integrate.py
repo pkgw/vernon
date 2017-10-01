@@ -131,7 +131,7 @@ def integrate_cli(args):
     freq_code = ('nu%.3f' % settings.frequency).replace('.', 'p')
 
     synch_calc = NeuroSynchrotronCalculator(settings.nn_dir)
-    rad_trans = GrtransRTIntegrator()
+    rad_trans = FormalRTIntegrator()
     setup = RTOnlySetup(synch_calc, rad_trans, settings.frequency * 1e9)
     imaker = PrecomputedImageMaker(setup, settings.assembled_path)
     imaker.select_frame_by_name(settings.frame_name)
