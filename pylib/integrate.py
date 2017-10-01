@@ -170,7 +170,7 @@ def seed_cli(args):
                 start_row = start_rows[icg]
                 n_rows = row_heights[icg]
                 print('%s_%d_%d integrate _integrate %s %s %s %.3f %d %d' %
-                      (frame_name, ifreq, icg, assembled, nn_dir, frame_name, freq, start_row, n_rows)
+                      (frame_name, ifreq, icg, assembled, nn_dir, frame_name, freq, start_row, n_rows))
 
 
 def entrypoint(argv):
