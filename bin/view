@@ -101,7 +101,7 @@ def view_hdf5_cli(args):
                     help='Render the cube so that the first row is at the bottom.')
     ap.add_argument('FILE', metavar='HDF5-PATH',
                     help='The HDF5 file to load')
-    ap.add_argument('ITEM', metavar='ITEM-NAME',
+    ap.add_argument('ITEMS', nargs='+', metavar='ITEM-NAMES',
                     help='The name of the item within the file to view')
 
     settings = ap.parse_args(args=args)
@@ -136,11 +136,19 @@ def view_hdf5_cli(args):
         ))
         return a # convenience
 
-    with h5py.File(settings.FILE) as ds:
-        a = ds[settings.ITEM][...]
+    arrays = []
 
-    if settings.outer_plane_number is not None:
-        a = a[settings.outer_plane_number]
+    with h5py.File(settings.FILE) as ds:
+        for item in settings.ITEMS:
+            a = ds[item][...]
+            if settings.outer_plane_number is not None:
+                a = a[settings.outer_plane_number]
+            arrays.append(a)
+
+    if len(arrays) > 2:
+        a = np.stack(arrays)
+    else:
+        a = arrays[0]
 
     if settings.transpose:
         a = a.T
