@@ -1,4 +1,5 @@
 #! /usr/bin/env python
+# -*- mode: python; coding: utf-8 -*-
 # Copyright 2018 Peter Williams and collaborators
 # Licensed under the MIT License.
 
