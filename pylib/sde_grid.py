@@ -204,6 +204,28 @@ def det3(c):
     )
 
 
+def change_length_scales(arr, *coords):
+    """Calculate the length scales over which *arr* changes, in units of its
+    underlying coordinate values. It is assumed that arr's shape corresponds
+    to (L, alpha, p). The length scales returned are ordered as (p, alpha, L),
+    though.
+
+    """
+    ddl, dda, ddp = np.gradient(arr, *coords)
+
+    # small derivatives => large spatial scales => no worries about stepping
+    # too far => precision not relevant: it is safe to make derivatives bigger
+    # (This tweak is essentially about avoiding division by zero.)
+
+    for a in ddp, dda, ddl:
+        aa = np.abs(a)
+        tiny = 1e-8 * aa.max()
+        too_small = aa < tiny
+        a[too_small] = tiny * np.where(a[too_small] < 0, -1, 1)
+
+    return np.abs(arr / ddp), np.abs(arr / dda), np.abs(arr / ddl)
+
+
 class Gridder(object):
     def __init__(self, p, alpha, L):
         self.p = p
@@ -463,14 +485,55 @@ class Gridder(object):
 
         root = np.matmul(eigenvectors, np.matmul(diag, np.linalg.inv(eigenvectors)))
 
-        b = [[None], [None, None], [None, None, None]]
-        b[0][0] = root[...,0,0]
-        b[1][0] = root[...,1,0]
-        b[1][1] = root[...,1,1]
-        b[2][0] = root[...,2,0]
-        b[2][1] = root[...,2,1]
-        b[2][2] = root[...,2,2]
-        return b
+        self.b = [[None], [None, None], [None, None, None]]
+        self.b[0][0] = root[...,0,0]
+        self.b[1][0] = root[...,1,0]
+        self.b[1][1] = root[...,1,1]
+        self.b[2][0] = root[...,2,0]
+        self.b[2][1] = root[...,2,1]
+        self.b[2][2] = root[...,2,2]
+        return self
+
+
+    def compute_delta_t(self):
+        """Compute the allowable step sizes at each grid point. The goal is to make
+        sure the particle doesn't zoom past areas where the diffusion
+        coefficients vary quickly, and that individual steps are dominated by
+        diffusion rather than advection terms.
+
+        """
+        # We set the target step size based on the rates at which the
+        # diffusion coefficients change as a function of the various
+        # coordinates; i.e., their spatial derivatives. Specifically, three
+        # derivatives each of nine coefficient grids! But we're setting limits
+        # here, so we just need to keep track of which is length scale is
+        # smallest in each grid cell for the three coordinates.
+        #
+        # We're hardcoding the fact that our arrays are shaped like [L, alpha,
+        # p].
+        #
+        # We start by enforcing simple hard caps on maximum length scales:
+
+        sp = self.p.copy()
+        sa = 0.25 # ~15 degrees
+        sl = 1.
+
+        for arr in self.a + self.b[0] + self.b[1] + self.b[2]:
+            ddl, dda, ddp = np.gradient(arr, self.L.flat, self.alpha.flat, self.p.flat)
+
+            # small derivatives => large spatial scales => no worries about
+            # stepping too far => it's safe to increase derivatives
+            for a in ddl, dda, ddp:
+                aa = np.abs(a)
+                tiny = 1e-8 * aa.max()
+                too_small = aa < tiny
+                a[too_small] = tiny * np.where(a[too_small] < 0, -1, 1)
+
+            sp = np.minimum(sp, np.abs(arr / ddp))
+            sa = np.minimum(sa, np.abs(arr / dda))
+            sl = np.minimum(sl, np.abs(arr / ddl))
+
+        return sp, sa, sl
 
 
 # Command-line interfaces
