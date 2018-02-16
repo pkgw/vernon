@@ -8,10 +8,10 @@ equation bits.
 
 """
 from pwkit import cli
-from pylib import sde_grid
+import sde
 import sys
 
 cli.unicode_stdio()
 cli.propagate_sigint()
 cli.backtrace_on_usr1()
-sde_grid.entrypoint(sys.argv)
+sde.entrypoint(sys.argv)
