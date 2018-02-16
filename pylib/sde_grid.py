@@ -269,6 +269,16 @@ class Gridder(object):
         return cls(p, alpha, l)
 
 
+    @classmethod
+    def new_from(cls, other):
+        """Helper for interactive use when reloading the module a lot."""
+        inst = cls(other.p, other.alpha, other.L)
+        inst.a = other.a
+        inst.b = other.b
+        inst.c = other.c
+        return inst
+
+
     def dipole(self, *, B0, radius):
         self.B0 = float(B0)
         self.radius = float(radius)
@@ -495,7 +505,7 @@ class Gridder(object):
         return self
 
 
-    def compute_delta_t(self):
+    def compute_delta_t(self, *, spatial_factor=0.05, advection_factor=0.2):
         """Compute the allowable step sizes at each grid point. The goal is to make
         sure the particle doesn't zoom past areas where the diffusion
         coefficients vary quickly, and that individual steps are dominated by
@@ -533,7 +543,36 @@ class Gridder(object):
             sa = np.minimum(sa, np.abs(arr / dda))
             sl = np.minimum(sl, np.abs(arr / ddl))
 
-        return sp, sa, sl
+        length_scales = [sp, sa, sl]
+
+        # Now we can calculate the delta-t limit based on spatial variation of the above values.
+        # The criterion is that delta-t must be much much less than L_i**2 / sum(b_ij**2) for
+        # where i runs over the three coordinate axes.
+
+        delta_t = np.zeros_like(self.b[0][0])
+        delta_t.fill(np.finfo(delta_t.dtype).max)
+
+        for i in range(3):
+            b_squared = 0
+
+            for j in range(3):
+                if j <= i:
+                    b_squared += self.b[i][j]**2
+                else:
+                    b_squared += self.b[j][i]**2
+
+            b_squared[b_squared == 0] = 1. # will only yield more conservative values
+            delta_t = np.minimum(delta_t, spatial_factor * length_scales[i]**2 / b_squared)
+
+            # Augment this with the Krülls & Achterberg (1994) criterion that the
+            # stochastic component dominate the advection component.
+            # TBD this (currently?) yields absurdly small values.
+
+            ##print('R', i, np.nanmedian(advection_factor * b_squared / self.a[i]**2))
+            ##delta_t = np.minimum(delta_t, advection_factor * b_squared / self.a[i]**2)
+
+        self.dt = delta_t
+        return self
 
 
 # Command-line interfaces
@@ -570,7 +609,8 @@ def gen_grid_cli(args):
             .electron_cgs()
             .basic_radial_diffusion(D0=DLL_at_L1, n=k_LL)
             .summers_pa_coefficients(alpha_star, R_summers, x_m, delta_x, max_wave_lat))
-    b = grid.compute_b()
+    grid.compute_b()
+    grid.compute_delta_t()
 
     # That's it!
 
@@ -580,7 +620,9 @@ def gen_grid_cli(args):
 
         for i in range(3):
             for j in range(i + 1):
-                np.save(f, b[i][j])
+                np.save(f, grid.b[i][j])
+
+        np.save(f, grid.dt)
 
 
 def entrypoint(argv):
