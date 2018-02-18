@@ -303,7 +303,6 @@ class Gridder(object):
     def electron_cgs(self):
         return self.particle(m0=cgs.me, c_squared=cgs.c**2)
 
-
     def basic_radial_diffusion(self, *, D0, n):
         """Radial diffusion is basic in a certain sense, but it is nasty to express in
         the p/a/L basis.
@@ -563,10 +562,10 @@ class Gridder(object):
 
             # Augment this with the Krülls & Achterberg (1994) criterion that the
             # stochastic component dominate the advection component.
-            # TBD this (currently?) yields absurdly small values.
 
-            ##print('R', i, np.nanmedian(advection_factor * b_squared / self.a[i]**2))
-            ##delta_t = np.minimum(delta_t, advection_factor * b_squared / self.a[i]**2)
+            a_squared = self.a[i]**2
+            a_squared[a_squared == 0] = 1.
+            delta_t = np.minimum(delta_t, advection_factor * b_squared / a_squared)
 
         self.dt = delta_t
         return self
