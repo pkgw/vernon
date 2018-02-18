@@ -210,6 +210,7 @@ def change_length_scales(arr, *coords):
     to (L, alpha, p). The length scales returned are ordered as (p, alpha, L),
     though.
 
+    XXX BROKEN SHOULD REPLACE ZEROS WITH MIN(ABS(aa))
     """
     ddl, dda, ddp = np.gradient(arr, *coords)
 
@@ -224,6 +225,60 @@ def change_length_scales(arr, *coords):
         a[too_small] = tiny * np.where(a[too_small] < 0, -1, 1)
 
     return np.abs(arr / ddp), np.abs(arr / dda), np.abs(arr / ddl)
+
+
+@broadcastize(1, 1)
+def theta_m(y):
+    """Calculate the mirrororing colatitude given y. Also implemented in the
+    summers2005 C code (although that computes colatitude). Uses approach
+    outlined in Shprits 2006, equation 10.
+
+    """
+    c2l = np.empty(y.shape)
+    c2l.fill(np.nan)
+
+    for i in range(y.size):
+        y4 = y.flat[i]**4
+        coeffs = [1., 0, 0, 0, 0, 3 * y4, -4 * y4] # [x^6, ..., x^0]
+        roots = np.roots(coeffs) # these are values of cos^2(lambda_m)
+
+        for root in roots:
+            if root.imag == 0 and root.real >= 0:
+                c2l.flat[i] = root.real
+                break
+
+        # if no root is found, we'll have a NaN in this element of c2l
+
+    # cos(lat) = sin(colat), so:
+    return np.arcsin(np.sqrt(c2l))
+
+
+def _synchrotron_loss_integrand(theta, y):
+    k1 = np.sqrt(1 + 3 * np.cos(theta)**2)
+    s2 = np.sin(theta)**2
+    k2 = s2**3 - y**2 * k1
+
+    if k2 <= 0: # rounding noise can cause this
+        return np.inf
+
+    return k1**1.5 / (s2**4 * np.sqrt(k2))
+
+
+@broadcastize(1, 1)
+def synchrotron_loss_integral(y, parallel=True):
+    """The dimensionless integral defining how much synchrotron energy is lost in
+    one dipole magnetosphere bounce, as a function of the equatorial pitch
+    angle.
+
+    """
+    from pwkit.numutil import parallel_quad
+
+    big_y = (y > 0.99999)
+    y[big_y] = 0.01
+    tm = theta_m(y)
+    results = parallel_quad(_synchrotron_loss_integrand, tm, np.pi/2, par_args=(y,), parallel=parallel)[0]
+    results[big_y] = np.sqrt(2) * np.pi / 6 # same limit as the T(y) bounce period function
+    return results
 
 
 class Gridder(object):
@@ -444,23 +499,25 @@ class Gridder(object):
         return self
 
 
-    # def synchrotron_losses_cgs(self):
-    #     """Set the loss rate to be the one implied by synchrotron theory. We have to
-    #     assume that we're in cgs because the expression involves the Thompson
-    #     cross-section.
-    #
-    #     Note that (gamma beta)**2 = (p / mc)**2 so we could dramatically
-    #     simplify the Sympy expressions used for those terms. But it's not like
-    #     that computation is the bottleneck here, in terms of either time or
-    #     precision.
-    #
-    #     TODO: this would be better expressed as a momentum advection term.
-    #
-    #     """
-    #     Psynch = (cgs.sigma_T * sympy.sqrt(self.c_squared) * self.beta**2 *
-    #               self.gamma**2 * self.B**2 / (6 * sympy.pi))
-    #     self.loss_rate = Psynch / self.Ekin
-    #     return self
+    def synchrotron_losses_cgs(self, **kwargs):
+        """Add a momentum advection term corresponding to synchrotron losses.
+
+        This is derived by calculating a bounce-averaged synchrotron
+        luminosity, which is then pretty easy to convert into a momentum loss
+        rate.
+
+        TODO: synchrotron emission might also advect the pitch angle
+        ("synchrotron friction"). It seems as if it is actually unclear as to
+        whether this happens, though! See e.g.
+        https://arxiv.org/abs/1602.09033, which makes it sound as if there is
+        debate on this point.
+
+        """
+        from pwkit.cgs import sigma_T
+        synch_func = synchrotron_loss_integral(self.y, **kwargs)
+        T = bigt(self.y)
+        self.a[0] -= self.gamma**2 * self.beta * sigma_T * self.B**2 * synch_func / (6 * np.pi * T)
+        return self
 
 
     def compute_b(self):
@@ -519,7 +576,7 @@ class Gridder(object):
         return self
 
 
-    def compute_delta_t(self, *, spatial_factor=0.05, advection_factor=0.2):
+    def compute_delta_t(self, *, spatial_factor=0.05, advection_factor=0.2, debug=False):
         """Compute the allowable step sizes at each grid point. The goal is to make
         sure the particle doesn't zoom past areas where the diffusion
         coefficients vary quickly, and that individual steps are dominated by
@@ -567,15 +624,23 @@ class Gridder(object):
 
         for i in range(3):
             b_squared = 0
+            if debug:
+                print('***', i)
 
             for j in range(3):
                 if j <= i:
                     b_squared += self.b[i][j]**2
+                    if debug:
+                        print('    diff component:', i, j, np.median(self.b[i][j]**2))
                 else:
                     b_squared += self.b[j][i]**2
+                    if debug:
+                        print('    diff component:', i, j, np.median(self.b[j][i]**2))
 
             b_squared[b_squared == 0] = 1. # will only yield more conservative values
             delta_t = np.minimum(delta_t, spatial_factor * length_scales[i]**2 / b_squared)
+            if debug:
+                print('  diff actual:', np.median(spatial_factor * length_scales[i]**2 / b_squared))
 
             # Augment this with the Krülls & Achterberg (1994) criterion that the
             # stochastic component dominate the advection component.
@@ -583,6 +648,8 @@ class Gridder(object):
             a_squared = self.a[i]**2
             a_squared[a_squared == 0] = 1.
             delta_t = np.minimum(delta_t, advection_factor * b_squared / a_squared)
+            if debug:
+                print('  advection actual:', np.median(advection_factor * b_squared / a_squared))
 
         self.dt = delta_t
         return self
@@ -621,9 +688,10 @@ def gen_grid_cli(args):
             .dipole(B0 = B0, radius = radius)
             .electron_cgs()
             .basic_radial_diffusion(D0=DLL_at_L1, n=k_LL)
-            .summers_pa_coefficients(n_pl, delta_B, omega_waves, delta_waves, max_wave_lat))
-    grid.compute_b()
-    grid.compute_delta_t()
+            .summers_pa_coefficients(n_pl, delta_B, omega_waves, delta_waves, max_wave_lat)
+            .synchrotron_losses_cgs()
+            .compute_b()
+            .compute_delta_t())
 
     # That's it!
 
