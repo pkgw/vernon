@@ -614,6 +614,10 @@ def gen_grid_cli(args):
     # That's it!
 
     with open(settings.output_path, 'wb') as f:
+        np.save(f, np.ravel(grid.p))
+        np.save(f, np.ravel(grid.alpha))
+        np.save(f, np.ravel(grid.L))
+
         for i in range(3):
             np.save(f, grid.a[i])
 
