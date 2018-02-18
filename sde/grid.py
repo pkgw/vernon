@@ -533,9 +533,8 @@ class Gridder(object):
             # stepping too far => it's safe to increase derivatives
             for a in ddl, dda, ddp:
                 aa = np.abs(a)
-                tiny = 1e-8 * aa.max()
-                too_small = aa < tiny
-                a[too_small] = tiny * np.where(a[too_small] < 0, -1, 1)
+                tiny = aa[aa > 0].min()
+                a[aa == 0] = tiny
 
             sp = np.minimum(sp, np.abs(arr / ddp))
             sa = np.minimum(sa, np.abs(arr / dda))
