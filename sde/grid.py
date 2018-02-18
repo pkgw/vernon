@@ -408,8 +408,7 @@ class Gridder(object):
         from summers2005 import compute
 
         E = self.gamma - 1 # kinetic energy normalized to rest energy
-        print('Calculating %d pitch/momentum diffusion coefficients ...' % E.size)
-        Omega_e = cgs.e * self.B0 / (self.m0 * np.sqrt(self.c_squared))
+        Omega_e = cgs.e * self.B / (self.m0 * np.sqrt(self.c_squared))
 
         daa, dap, dpp = compute(
             E,

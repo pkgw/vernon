@@ -78,6 +78,8 @@ def _compute_inner(E, sin_alpha, Omega_e, alpha_star, R, x_m, delta_x,
     dps = np.empty(E.shape)
     phelp = make_parallel_helper(parallel)
 
+    print('Calculating %d pitch/momentum diffusion coefficients ...' % E.size)
+
     with phelp.get_ppmap() as ppmap:
         data = np.array(ppmap(_compute_core, (mode, handedness, wave_filt),
                               zip(E.flat, sin_alpha.flat, Omega_e.flat, alpha_star.flat,
