@@ -371,8 +371,8 @@ class Gridder(object):
             diff_terms[0][2] = diff_terms[2][0]
             diff_terms[1][2] = diff_terms[2][1]
 
-            # The other bit we need is the spatially-varying part of the Jacobian:
-            jac_factor = 2 * p**2 * y * np.cos(alpha) * L**2 * bigt(y)
+            # The other bit we need is the spatially-varying part of abs(det(Jacobian)):
+            jac_factor = p**2 * y * np.cos(alpha) * L**2 * bigt(y)
 
             return diff_terms, jac_factor
 
