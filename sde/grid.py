@@ -402,11 +402,28 @@ class Gridder(object):
         return self
 
 
-    def summers_pa_coefficients(self, alpha_star, R, x_m, delta_x, max_wave_lat):
+    def summers_pa_coefficients(self, n_pl, delta_B, omega_waves, delta_waves, max_wave_lat):
+        """Incorporate bounce-averaged pitch-angle/momentum diffusion coefficients as
+        analyzed by Summers (2005JGRA..110.8213S, 10.1029/2005JA011159) and
+        Shprits et al (2006JGRA..11110225S, 10.1029/2006JA011725).
+
+        n_pl         - number density of cold plasma particles, in cm^-3
+        delta_B      - amplitude of waves, in Gauss
+        omega_waves  - center of wave frequency spectrum in rad/s
+        delta_waves  - width of the wave frequency spectrum in rad/s
+        max_wave_lat - maximum latitude at which waves are found, in radians
+
+        """
+        from pylib.plasma import omega_plasma
         from summers2005 import compute
 
         E = self.gamma - 1 # kinetic energy normalized to rest energy
-        Omega_e = cgs.e * self.B / (self.m0 * np.sqrt(self.c_squared))
+        omega_pl = omega_plasma(n_pl, self.m0) # assumes we're in cgs; result is rad/s
+        Omega_e = cgs.e * self.B / (self.m0 * np.sqrt(self.c_squared)) # cyclotron frequency in rad/s
+        alpha_star = (Omega_e / omega_pl)**2 # a definition used by S05/S06
+        R = (delta_B / self.B)**2 # ditto
+        x_m = omega_waves / Omega_e # ditto
+        delta_x = delta_waves / Omega_e # ditto
 
         daa, dap, dpp = compute(
             E,
@@ -594,17 +611,17 @@ def gen_grid_cli(args):
     k_LL = 3
 
     # Parameters for Summers (2005) energy/pitch-angle diffusion model
-    alpha_star = 0.16
-    R_summers = 5e-8
-    x_m = 0.35
-    delta_x = 0.2
-    max_wave_lat = 0.5 # radians
+    n_pl = 1e4 # number density of (equatorial?) cold plasma particles, cm^-3
+    delta_B = 1e-4 # amplitude of magnetic waves, in Gauss
+    omega_waves = 1e7 # center of the wave frequency spectrum, in rad/s
+    delta_waves = 5e6 # widtdh of the wave frequency spectrum, in rad/s
+    max_wave_lat = 0.5 # maximum latitude at which waves are found, in radians
 
-    grid = (Gridder.new_demo(n_p = 128, n_alpha=128, n_l = 128)
+    grid = (Gridder.new_demo(n_p = 128, n_alpha = 128, n_l = 128)
             .dipole(B0 = B0, radius = radius)
             .electron_cgs()
             .basic_radial_diffusion(D0=DLL_at_L1, n=k_LL)
-            .summers_pa_coefficients(alpha_star, R_summers, x_m, delta_x, max_wave_lat))
+            .summers_pa_coefficients(n_pl, delta_B, omega_waves, delta_waves, max_wave_lat))
     grid.compute_b()
     grid.compute_delta_t()
 
