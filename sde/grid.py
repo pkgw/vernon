@@ -381,8 +381,7 @@ class Gridder(object):
         offset_diff_terms = [None] * 3
         offset_jac_factors = [None] * 3
 
-        eps = [1e-8, np.zeros_like(self.alpha) + 1e-10, 1e-8]
-        eps[1][self.alpha >= 0.5 * np.pi] = -1e-10
+        eps = [self.p * 1e-6, 1e-5, 1e-6]
 
         offset_diff_terms[0], offset_jac_factors[0] = calc_items_of_interest(self.p + eps[0], self.alpha, self.L)
         offset_diff_terms[1], offset_jac_factors[1] = calc_items_of_interest(self.p, self.alpha + eps[1], self.L)
