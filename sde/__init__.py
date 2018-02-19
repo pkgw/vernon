@@ -9,7 +9,47 @@ equation approach.
 from __future__ import absolute_import, division, print_function
 
 import numpy as np
-from scipy import interpolate
+from scipy import interpolate, special
+from pwkit import cgs
+
+
+class IsotropicMaxwellianBoundary(object):
+    """A boundary condition for high L in which the particles are isotropic and
+    have a (non-relativistic) Maxwell-Boltzman momentum distribution. The
+    integral of the distribution function is 1. (Scaling to actual particle
+    densities should be applied after evaluating the SDE.)
+
+    In the Maxwellian distribution, 99.9% of the particles have momenta in the
+    range [0.1236, 4.2107] * sqrt(m k T). This is therefore the range that
+    must be sampled well among exiting particles in order to get a good
+    measurement using the SDE approach.
+
+    Divine & Garrett (1983) says the "cold" Jovian plasma has a characteristic
+    temperature of around 100 eV, which is around 1.2 MK. The 99.9% momentum
+    range is therefore [4.80e-20, 1.64e-18] g*cm/s = [0.00176, 0.0600] m_e c.
+
+    In the isotropic pitch angle distribution, 99.9% of the particles have
+    pitch angles greater than 0.04483 radians = 2.56 degrees. Note that this
+    value is smaller than our typical loss cone sizes.
+
+    """
+    def __init__(self, T):
+        "T is the particle temperature in Kelvin; it should be non-relativistic."
+        self.T = T
+        mkT = cgs.me * cgs.k * T
+        self.k1 = np.sqrt(2 / (np.pi * mkT**3))
+        self.k2 = -0.5 / mkT
+        self.k3 = 1. / np.sqrt(2 * mkT)
+
+    def at_position(self, p, alpha, L):
+        p2 = p**2
+        return self.k1 * p2 * np.exp(self.k2 * p2) * np.sin(alpha)
+
+    def in_L_cell(self, p0, p1, alpha0, alpha1):
+        p_contrib = ((special.erf(self.k3 * p1) - special.erf(self.k3 * p0)) +
+                     (self.k1 * p0 * np.exp(self.k2 * p0**2) - self.k1 * p1 * np.exp(self.k2 * p1**2)))
+        a_contrib = np.cos(alpha0) - np.cos(alpha1)
+        return p_contrib * a_contrib
 
 
 class RadBeltIntegrator(object):
