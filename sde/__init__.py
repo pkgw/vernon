@@ -226,6 +226,12 @@ class RadBeltIntegrator(object):
                 for j in range(3):
                     delta_pos[i] += self.i_b[i][j](posT) * sqrt_delta_t * lam[j]
 
+            # TODO: I think to do this right, we need to potentially scale
+            # each delta_t to get particles to *exactly* hit the boundaries.
+            # Right now we get particles that zip out to L = 7.7 or whatever,
+            # and so their "final" p and alpha coordinates are not exactly
+            # what they were at the L=7 plane.
+
             pos += delta_pos
             s += delta_t # sigh, terminology all over the place
             step_num += 1
