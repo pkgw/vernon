@@ -94,6 +94,145 @@ class RadBeltIntegrator(object):
         return history[:,:i_step]
 
 
+    def eval_many(self, p0, alpha0, L0, n_particles):
+        pos = np.empty((3, n_particles))
+        pos[0] = p0
+        pos[1] = alpha0
+        pos[2] = L0
+        s = np.zeros(n_particles)
+        step_num = 0
+        final_poses = np.empty((4, n_particles))
+        n_exited = 0
+
+        # See demo2-sde.py for explanation of the algorithm here
+
+        while pos.shape[1]:
+            if step_num % 1000 == 0:
+                print('  Step {}: {} particles left'.format(step_num, pos.shape[1]))
+
+            # momentum too low
+
+            too_cold = np.nonzero(pos[0] <= self.p[0])[0]
+
+            for i_to_remove in too_cold[::-1]:
+                i_last = pos.shape[1] - 1
+                final_poses[0,n_exited] = s[i_to_remove]
+                final_poses[1:,n_exited] = pos[:,i_to_remove]
+
+                if i_to_remove != i_last:
+                    pos[:,i_to_remove] = pos[:,i_last]
+
+                pos = pos[:,:-1]
+                s = s[:-1]
+                n_exited += 1
+
+            if not pos.shape[1]:
+                break
+
+            # momentum too high?
+
+            too_hot = np.nonzero(pos[0] >= self.p[-1])[0]
+            if too_hot.size:
+                print('warning: some particle energies got too high')
+
+            for i_to_remove in too_hot[::-1]:
+                i_last = pos.shape[1] - 1
+                final_poses[0,n_exited] = s[i_to_remove]
+                final_poses[1:,n_exited] = pos[:,i_to_remove]
+
+                if i_to_remove != i_last:
+                    pos[:,i_to_remove] = pos[:,i_last]
+
+                pos = pos[:,:-1]
+                s = s[:-1]
+                n_exited += 1
+
+            if not pos.shape[1]:
+                break
+
+            # Loss cone?
+
+            loss_cone = np.nonzero(pos[1] <= self.alpha[0])[0]
+
+            for i_to_remove in loss_cone[::-1]:
+                i_last = pos.shape[1] - 1
+                final_poses[0,n_exited] = s[i_to_remove]
+                final_poses[1:,n_exited] = pos[:,i_to_remove]
+
+                if i_to_remove != i_last:
+                    pos[:,i_to_remove] = pos[:,i_last]
+
+                pos = pos[:,:-1]
+                s = s[:-1]
+                n_exited += 1
+
+            if not pos.shape[1]:
+                break
+
+            # Mirror at pi/2 pitch angle
+
+            pa_mirror = (pos[1] > 0.5 * np.pi)
+            pos[1,pa_mirror] = np.pi - pos[1,pa_mirror]
+
+            # Surface impact?
+
+            surface_impact = np.nonzero(pos[2] <= self.L[0])[0]
+
+            for i_to_remove in surface_impact[::-1]:
+                i_last = pos.shape[1] - 1
+                final_poses[0,n_exited] = s[i_to_remove]
+                final_poses[1:,n_exited] = pos[:,i_to_remove]
+
+                if i_to_remove != i_last:
+                    pos[:,i_to_remove] = pos[:,i_last]
+
+                pos = pos[:,:-1]
+                s = s[:-1]
+                n_exited += 1
+
+            if not pos.shape[1]:
+                break
+
+            # Hit the source boundary?
+
+            outer_edge = np.nonzero(pos[2] >= self.L[-1])[0]
+
+            for i_to_remove in outer_edge[::-1]:
+                i_last = pos.shape[1] - 1
+                final_poses[0,n_exited] = s[i_to_remove]
+                final_poses[1:,n_exited] = pos[:,i_to_remove]
+
+                if i_to_remove != i_last:
+                    pos[:,i_to_remove] = pos[:,i_last]
+
+                pos = pos[:,:-1]
+                s = s[:-1]
+                n_exited += 1
+
+            if not pos.shape[1]:
+                break
+
+            # Now we can finally advance the remaining particles
+
+            lam = np.random.normal(size=pos.shape)
+            posT = pos.T
+            delta_t = self.i_dt(posT)
+            sqrt_delta_t = np.sqrt(delta_t)
+            delta_pos = np.zeros(pos.shape)
+
+            for i in range(3):
+                delta_pos[i] += self.i_a[i](posT) * delta_t
+
+                for j in range(3):
+                    delta_pos[i] += self.i_b[i][j](posT) * sqrt_delta_t * lam[j]
+
+            pos += delta_pos
+            s += delta_t # sigh, terminology all over the place
+            step_num += 1
+
+        return final_poses[:,:n_exited]
+
+
 # Command-line interface
 
 from pwkit.cli import die
