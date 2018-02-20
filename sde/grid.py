@@ -282,12 +282,16 @@ def synchrotron_loss_integral(y, parallel=True):
 
 
 class Gridder(object):
-    def __init__(self, p, alpha, L):
-        self.p = p
-        self.alpha = alpha
-        self.L = L
+    def __init__(self, p_edges, alpha_edges, L_edges):
+        self.p_edges = p_edges
+        self.alpha_edges = alpha_edges
+        self.L_edges = L_edges
 
-        self.y = np.sin(self.alpha)
+        self.p_centers = 0.5 * (p_edges[:-1] + p_edges[1:]).reshape((1, 1, -1))
+        self.alpha_centers = 0.5 * (alpha_edges[:-1] + alpha_edges[1:]).reshape((1, -1, 1))
+        self.L_centers = 0.5 * (L_edges[:-1] + L_edges[1:]).reshape((-1, 1, 1))
+
+        self.y = np.sin(self.alpha_centers)
 
         self.a = [0, 0, 0]
 
@@ -308,8 +312,13 @@ class Gridder(object):
 
     @classmethod
     def new_demo(cls, *, n_p=5, n_alpha=5, n_l=5): # XXX
-        p_lo = 1e-3 * cgs.c * cgs.me
-        p_hi = 1e3 * cgs.c * cgs.me
+        def Ekin_kev_to_p(Ekin_kev):
+            E0 = cgs.me * cgs.c**2
+            Ekin = Ekin_kev * 1e3 * cgs.ergperev
+            return np.sqrt(Ekin**2 + 2 * Ekin * E0) / cgs.c
+
+        p_lo = Ekin_kev_to_p(0.01) # 10 eV
+        p_hi = Ekin_kev_to_p(1e4) # 10 MeV
 
         alpha_lo = 0.08 # ~4 deg
         alpha_hi = 0.5 * np.pi
@@ -317,9 +326,9 @@ class Gridder(object):
         l_lo = 1.1
         l_hi = 7.0
 
-        p = np.logspace(np.log10(p_lo), np.log10(p_hi), n_p).reshape((1, 1, -1))
-        alpha = np.linspace(alpha_lo, alpha_hi, n_alpha).reshape((1, -1, 1))
-        l = np.linspace(l_lo, l_hi, n_l).reshape((-1, 1, 1))
+        p = np.logspace(np.log10(p_lo), np.log10(p_hi), n_p)
+        alpha = np.linspace(alpha_lo, alpha_hi, n_alpha)
+        l = np.linspace(l_lo, l_hi, n_l)
 
         return cls(p, alpha, l)
 
@@ -337,7 +346,7 @@ class Gridder(object):
     def dipole(self, *, B0, radius):
         self.B0 = float(B0)
         self.radius = float(radius)
-        self.B = self.B0 * self.L**-3
+        self.B = self.B0 * self.L_centers**-3
         return self
 
 
@@ -348,7 +357,7 @@ class Gridder(object):
         # Helpful related quantities.
 
         mc2 = self.m0 * self.c_squared
-        self.Ekin = np.sqrt(self.p**2 * self.c_squared + mc2**2) - mc2
+        self.Ekin = np.sqrt(self.p_centers**2 * self.c_squared + mc2**2) - mc2
         self.gamma = self.Ekin / mc2 + 1
         self.beta = np.sqrt(1 - self.gamma**-2)
 
@@ -358,11 +367,15 @@ class Gridder(object):
     def electron_cgs(self):
         return self.particle(m0=cgs.me, c_squared=cgs.c**2)
 
+
     def basic_radial_diffusion(self, *, D0, n):
         """Radial diffusion is basic in a certain sense, but it is nasty to express in
         the p/a/L basis.
 
-        The model for the diffusion term is `D_LL = D0 * L**n`.
+        The model for the diffusion term is `D_LL = D0 * L**n`. Note that this
+        is technically not the basis of a legal diffusion matrix in the 3D
+        case, since its determinant is 0, whereas diffusion matrices should be
+        positive definite and so need to have a positive determinant.
 
         TODO: hardcoded assumption of dipolar magnetic field.
 
@@ -373,7 +386,11 @@ class Gridder(object):
         epsilon in the p, a, and L directions.
 
         """
-        def calc_items_of_interest(p, alpha, L):
+        def calc_items_of_interest(eps_p, eps_alpha, eps_L):
+            p = self.p_centers + eps_p
+            alpha = self.alpha_centers + eps_alpha
+            L = self.L_centers + eps_L
+
             Dphiphi = D0 * L**(n - 4)
 
             # First order of business: d{p, alpha, L} / dphi, which we need to
@@ -430,16 +447,16 @@ class Gridder(object):
 
             return diff_terms, jac_factor
 
-        base_diff_terms, base_jac_factor = calc_items_of_interest(self.p, self.alpha, self.L)
+        base_diff_terms, base_jac_factor = calc_items_of_interest(0, 0, 0)
 
         offset_diff_terms = [None] * 3
         offset_jac_factors = [None] * 3
 
-        eps = [self.p * 1e-6, 1e-5, 1e-6]
+        eps = [self.p_centers * 1e-6, 1e-5, 1e-6]
 
-        offset_diff_terms[0], offset_jac_factors[0] = calc_items_of_interest(self.p + eps[0], self.alpha, self.L)
-        offset_diff_terms[1], offset_jac_factors[1] = calc_items_of_interest(self.p, self.alpha + eps[1], self.L)
-        offset_diff_terms[2], offset_jac_factors[2] = calc_items_of_interest(self.p, self.alpha, self.L + eps[2])
+        offset_diff_terms[0], offset_jac_factors[0] = calc_items_of_interest(eps[0], 0, 0)
+        offset_diff_terms[1], offset_jac_factors[1] = calc_items_of_interest(0, eps[1], 0)
+        offset_diff_terms[2], offset_jac_factors[2] = calc_items_of_interest(0, 0, eps[2])
 
         for i in range(3):
             for j in range(i + 1):
@@ -595,12 +612,13 @@ class Gridder(object):
         #
         # We start by enforcing simple hard caps on maximum length scales:
 
-        sp = self.p.copy()
+        sp = self.p_centers.copy()
         sa = 0.25 # ~15 degrees
         sl = 1.
 
         for arr in self.a + self.b[0] + self.b[1] + self.b[2]:
-            ddl, dda, ddp = np.gradient(arr, self.L.flat, self.alpha.flat, self.p.flat)
+            ddl, dda, ddp = np.gradient(arr, self.L_centers.flat,
+                                        self.alpha_centers.flat, self.p_centers.flat)
 
             # small derivatives => large spatial scales => no worries about
             # stepping too far => it's safe to increase derivatives
@@ -696,9 +714,9 @@ def gen_grid_cli(args):
     # That's it!
 
     with open(settings.output_path, 'wb') as f:
-        np.save(f, np.ravel(grid.p))
-        np.save(f, np.ravel(grid.alpha))
-        np.save(f, np.ravel(grid.L))
+        np.save(f, grid.p_edges)
+        np.save(f, grid.alpha_edges)
+        np.save(f, grid.L_edges)
 
         for i in range(3):
             np.save(f, grid.a[i])

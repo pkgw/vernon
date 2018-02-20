@@ -60,9 +60,9 @@ class RadBeltIntegrator(object):
         self.b = [[None], [None, None], [None, None, None]]
 
         with open(path, 'rb') as f:
-            self.p = np.load(f)
-            self.alpha = np.load(f)
-            self.L = np.load(f)
+            self.p_edges = np.load(f)
+            self.alpha_edges = np.load(f)
+            self.L_edges = np.load(f)
 
             for i in range(3):
                 self.a[i] = np.load(f)
@@ -73,11 +73,15 @@ class RadBeltIntegrator(object):
 
             self.dt = np.load(f)
 
+        self.p_centers = 0.5 * (self.p_edges[:-1] + self.p_edges[1:])
+        self.alpha_centers = 0.5 * (self.alpha_edges[:-1] + self.alpha_edges[1:])
+        self.L_centers = 0.5 * (self.L_edges[:-1] + self.L_edges[1:])
+
         # XXX TRANSPOSE IS DUMB
 
         self.i_a = [None, None, None]
         self.i_b = [[None, None, None], [None, None, None], [None, None, None]]
-        points = [self.p, self.alpha, self.L]
+        points = [self.p_centers, self.alpha_centers, self.L_centers]
 
         for i in range(3):
             self.i_a[i] = interpolate.RegularGridInterpolator(points, self.a[i].T)
@@ -89,29 +93,53 @@ class RadBeltIntegrator(object):
         self.i_dt = interpolate.RegularGridInterpolator(points, self.dt.T)
 
 
+    def add_advection_term(self, coeff):
+        sh = (self.p_centers.size, self.alpha_centers.size, self.L_centers.size)
+        lnA = np.empty(sh)
+        lnA[:] = coeff * self.p_centers.reshape((1, 1, -1))
+
+        g_l, g_a, g_p = np.gradient(lnA, self.L_centers, self.alpha_centers, self.p_centers)
+        grad_lnA = np.empty(sh + (3, 1))
+        grad_lnA[...,0,0] = g_p
+        grad_lnA[...,1,0] = g_a
+        grad_lnA[...,2,0] = g_l
+
+        b = np.empty(sh + (3, 3))
+        for i in range(3):
+            for j in range(i+1):
+                b[...,i,j] = self.b[i][j]
+                b[...,j,i] = self.b[i][j]
+
+        c = np.matmul(b, b)
+        delta_a = np.matmul(c, grad_lnA)
+
+        for i in range(3):
+            self.a[i] += delta_a[...,i,0]
+
+
     def trace_one(self, p0, alpha0, L0, n_steps):
         history = np.empty((4, n_steps))
         s = 0.
         pos = np.array([p0, alpha0, L0])
 
         for i_step in range(n_steps):
-            if pos[0] <= self.p[0]:
+            if pos[0] <= self.p_edges[0]:
                 break # too cold to care anymore
 
-            if pos[0] >= self.p[-1]:
+            if pos[0] >= self.p_edges[-1]:
                 print('warning: particle energy got too high')
                 break
 
-            if pos[1] <= self.alpha[0]:
+            if pos[1] <= self.alpha_edges[0]:
                 break # loss cone
 
             if pos[1] > np.pi / 2:
                 pos[1] = np.pi - pos[1] # mirror at pi/2 pitch angle
 
-            if pos[2] <= self.L[0]:
+            if pos[2] <= self.L_edges[0]:
                 break # surface impact
 
-            if pos[2] >= self.L[-1]:
+            if pos[2] >= self.L_edges[-1]:
                 break # hit source boundary condition
 
             history[0,i_step] = s
@@ -146,7 +174,9 @@ class RadBeltIntegrator(object):
         final_poses = np.empty((4, n_particles))
         n_exited = 0
 
-        # See demo2-sde.py for explanation of the algorithm here
+        # See demo2-sde.py for explanation of the algorithm here. Ideally we'd
+        # evict particles when they hit the bin edges rather than bin centers,
+        # but the interpolators don't understand binning that way.
 
         while pos.shape[1]:
             if step_num % 1000 == 0:
@@ -154,7 +184,7 @@ class RadBeltIntegrator(object):
 
             # momentum too low
 
-            too_cold = np.nonzero(pos[0] <= self.p[0])[0]
+            too_cold = np.nonzero(pos[0] <= self.p_centers[0])[0]
 
             for i_to_remove in too_cold[::-1]:
                 i_last = pos.shape[1] - 1
@@ -173,7 +203,7 @@ class RadBeltIntegrator(object):
 
             # momentum too high?
 
-            too_hot = np.nonzero(pos[0] >= self.p[-1])[0]
+            too_hot = np.nonzero(pos[0] >= self.p_centers[-1])[0]
             if too_hot.size:
                 print('warning: some particle energies got too high')
 
@@ -194,7 +224,7 @@ class RadBeltIntegrator(object):
 
             # Loss cone?
 
-            loss_cone = np.nonzero(pos[1] <= self.alpha[0])[0]
+            loss_cone = np.nonzero(pos[1] <= self.alpha_centers[0])[0]
 
             for i_to_remove in loss_cone[::-1]:
                 i_last = pos.shape[1] - 1
@@ -218,7 +248,7 @@ class RadBeltIntegrator(object):
 
             # Surface impact?
 
-            surface_impact = np.nonzero(pos[2] <= self.L[0])[0]
+            surface_impact = np.nonzero(pos[2] <= self.L_centers[0])[0]
 
             for i_to_remove in surface_impact[::-1]:
                 i_last = pos.shape[1] - 1
@@ -237,7 +267,7 @@ class RadBeltIntegrator(object):
 
             # Hit the source boundary?
 
-            outer_edge = np.nonzero(pos[2] >= self.L[-1])[0]
+            outer_edge = np.nonzero(pos[2] >= self.L_centers[-1])[0]
 
             for i_to_remove in outer_edge[::-1]:
                 i_last = pos.shape[1] - 1
