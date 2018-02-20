@@ -692,7 +692,7 @@ def gen_grid_cli(args):
 
     B0 = 3000 # G
     radius = cgs.rjup
-    DLL_at_L1 = 1e48 # fudged to be comparable to P/alpha coefficient magnitudes
+    DLL_at_L1 = 1e45 # fudged to be comparable to P/alpha coefficient magnitudes
     k_LL = 3
 
     # Parameters for Summers (2005) energy/pitch-angle diffusion model
