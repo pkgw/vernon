@@ -16,8 +16,10 @@ from pwkit import cgs
 class IsotropicMaxwellianBoundary(object):
     """A boundary condition for high L in which the particles are isotropic and
     have a (non-relativistic) Maxwell-Boltzman momentum distribution. The
-    integral of the distribution function is 1. (Scaling to actual particle
-    densities should be applied after evaluating the SDE.)
+    integral of the distribution function over all momenta and pitch angles is
+    1. (I.e., if the lowest possible pitch angle in the SDE evaluation is 5°,
+    the integral of this function does not account for that. Scaling to actual
+    particle densities should be applied after evaluating the SDE.)
 
     In the Maxwellian distribution, 99.9% of the particles have momenta in the
     range [0.1236, 4.2107] * sqrt(m k T). This is therefore the range that
