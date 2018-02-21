@@ -117,6 +117,72 @@ class RadBeltIntegrator(object):
             self.a[i] += delta_a[...,i,0]
 
 
+    def recompute_delta_t(self, *, spatial_factor=0.05, advection_factor=0.2, debug=False):
+        """XXX duplication from grid.py; seeing if we need to change things when adding
+        importance sampling term.
+
+        """
+        sp = self.p_centers.copy()
+        sa = 0.25 # ~15 degrees
+        sl = 1.
+
+        for arr in self.a + self.b[0] + self.b[1] + self.b[2]:
+            ddl, dda, ddp = np.gradient(arr, self.L_centers.flat,
+                                        self.alpha_centers.flat, self.p_centers.flat)
+
+            # small derivatives => large spatial scales => no worries about
+            # stepping too far => it's safe to increase derivatives
+            for a in ddl, dda, ddp:
+                aa = np.abs(a)
+                tiny = aa[aa > 0].min()
+                a[aa == 0] = tiny
+
+            sp = np.minimum(sp, np.abs(arr / ddp))
+            sa = np.minimum(sa, np.abs(arr / dda))
+            sl = np.minimum(sl, np.abs(arr / ddl))
+
+        length_scales = [sp, sa, sl]
+
+        # Now we can calculate the delta-t limit based on spatial variation of the above values.
+        # The criterion is that delta-t must be much much less than L_i**2 / sum(b_ij**2) for
+        # where i runs over the three coordinate axes.
+
+        delta_t = np.zeros_like(self.b[0][0])
+        delta_t.fill(np.finfo(delta_t.dtype).max)
+
+        for i in range(3):
+            b_squared = 0
+            if debug:
+                print('***', i)
+
+            for j in range(3):
+                if j <= i:
+                    b_squared += self.b[i][j]**2
+                    if debug:
+                        print('    diff component:', i, j, np.median(self.b[i][j]**2))
+                else:
+                    b_squared += self.b[j][i]**2
+                    if debug:
+                        print('    diff component:', i, j, np.median(self.b[j][i]**2))
+
+            b_squared[b_squared == 0] = 1. # will only yield more conservative values
+            delta_t = np.minimum(delta_t, spatial_factor * length_scales[i]**2 / b_squared)
+            if debug:
+                print('  diff actual:', np.median(spatial_factor * length_scales[i]**2 / b_squared))
+
+            # Augment this with the Krülls & Achterberg (1994) criterion that the
+            # stochastic component dominate the advection component.
+
+            a_squared = self.a[i]**2
+            a_squared[a_squared == 0] = 1.
+            delta_t = np.minimum(delta_t, advection_factor * b_squared / a_squared)
+            if debug:
+                print('  advection actual:', np.median(advection_factor * b_squared / a_squared))
+
+        self.dt = delta_t
+        return self
+
+
     def trace_one(self, p0, alpha0, L0, n_steps):
         history = np.empty((4, n_steps))
         s = 0.
@@ -309,6 +375,27 @@ class RadBeltIntegrator(object):
             step_num += 1
 
         return final_poses[:,:n_exited]
+
+    def plot_cube(self, c):
+        import omega as om
+
+        med_p = np.median(c, axis=(1, 2))
+        med_a = np.median(c, axis=(0, 2))
+        med_l = np.median(c, axis=(0, 1))
+        mn = min(med_p.min(), med_a.min(), med_l.min())
+        mx = max(med_p.max(), med_a.max(), med_l.max())
+        delta = abs(mx - mn) * 0.02
+        mx += delta
+        mn -= delta
+
+        hb = om.layout.HBox(3)
+        hb[0] = om.quickXY(self.p_centers, med_p, u'p', ymin=mn, ymax=mx)
+        hb[1] = om.quickXY(self.alpha_centers, med_a, u'α', ymin=mn, ymax=mx)
+        hb[1].lpainter.paintLabels = False
+        hb[2] = om.quickXY(self.L_centers, med_l, u'L', ymin=mn, ymax=mx)
+        hb[2].lpainter.paintLabels = False
+        hb.setWeight(0, 1.1) # extra room for labels
+        return hb
 
 
 # Command-line interface
