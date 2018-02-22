@@ -60,7 +60,7 @@ class RadBeltIntegrator(object):
         self.b = [[None], [None, None], [None, None, None]]
 
         with open(path, 'rb') as f:
-            self.p_edges = np.load(f)
+            self.g_edges = np.load(f)
             self.alpha_edges = np.load(f)
             self.L_edges = np.load(f)
 
@@ -73,7 +73,7 @@ class RadBeltIntegrator(object):
 
             self.dt = np.load(f)
 
-        self.p_centers = 0.5 * (self.p_edges[:-1] + self.p_edges[1:])
+        self.g_centers = 0.5 * (self.g_edges[:-1] + self.g_edges[1:])
         self.alpha_centers = 0.5 * (self.alpha_edges[:-1] + self.alpha_edges[1:])
         self.L_centers = 0.5 * (self.L_edges[:-1] + self.L_edges[1:])
 
@@ -81,7 +81,7 @@ class RadBeltIntegrator(object):
 
         self.i_a = [None, None, None]
         self.i_b = [[None, None, None], [None, None, None], [None, None, None]]
-        points = [self.p_centers, self.alpha_centers, self.L_centers]
+        points = [self.g_centers, self.alpha_centers, self.L_centers]
 
         for i in range(3):
             self.i_a[i] = interpolate.RegularGridInterpolator(points, self.a[i].T)
@@ -94,13 +94,13 @@ class RadBeltIntegrator(object):
 
 
     def add_advection_term(self, coeff):
-        sh = (self.p_centers.size, self.alpha_centers.size, self.L_centers.size)
+        sh = (self.g_centers.size, self.alpha_centers.size, self.L_centers.size)
         lnA = np.empty(sh)
-        lnA[:] = coeff * self.p_centers.reshape((1, 1, -1))
+        lnA[:] = coeff * self.g_centers.reshape((1, 1, -1))
 
-        g_l, g_a, g_p = np.gradient(lnA, self.L_centers, self.alpha_centers, self.p_centers)
+        g_l, g_a, g_g = np.gradient(lnA, self.L_centers, self.alpha_centers, self.g_centers)
         grad_lnA = np.empty(sh + (3, 1))
-        grad_lnA[...,0,0] = g_p
+        grad_lnA[...,0,0] = g_g
         grad_lnA[...,1,0] = g_a
         grad_lnA[...,2,0] = g_l
 
@@ -122,26 +122,26 @@ class RadBeltIntegrator(object):
         importance sampling term.
 
         """
-        sp = self.p_centers.copy()
+        sg = self.g_centers.copy()
         sa = 0.25 # ~15 degrees
         sl = 1.
 
         for arr in self.a + self.b[0] + self.b[1] + self.b[2]:
-            ddl, dda, ddp = np.gradient(arr, self.L_centers.flat,
-                                        self.alpha_centers.flat, self.p_centers.flat)
+            ddl, dda, ddg = np.gradient(arr, self.L_centers.flat,
+                                        self.alpha_centers.flat, self.g_centers.flat)
 
             # small derivatives => large spatial scales => no worries about
             # stepping too far => it's safe to increase derivatives
-            for a in ddl, dda, ddp:
+            for a in ddl, dda, ddg:
                 aa = np.abs(a)
                 tiny = aa[aa > 0].min()
                 a[aa == 0] = tiny
 
-            sp = np.minimum(sp, np.abs(arr / ddp))
+            sg = np.minimum(sg, np.abs(arr / ddg))
             sa = np.minimum(sa, np.abs(arr / dda))
             sl = np.minimum(sl, np.abs(arr / ddl))
 
-        length_scales = [sp, sa, sl]
+        length_scales = [sg, sa, sl]
 
         # Now we can calculate the delta-t limit based on spatial variation of the above values.
         # The criterion is that delta-t must be much much less than L_i**2 / sum(b_ij**2) for
@@ -183,16 +183,16 @@ class RadBeltIntegrator(object):
         return self
 
 
-    def trace_one(self, p0, alpha0, L0, n_steps):
+    def trace_one(self, g0, alpha0, L0, n_steps):
         history = np.empty((4, n_steps))
         s = 0.
-        pos = np.array([p0, alpha0, L0])
+        pos = np.array([g0, alpha0, L0])
 
         for i_step in range(n_steps):
-            if pos[0] <= self.p_edges[0]:
+            if pos[0] <= self.g_edges[0]:
                 break # too cold to care anymore
 
-            if pos[0] >= self.p_edges[-1]:
+            if pos[0] >= self.g_edges[-1]:
                 print('warning: particle energy got too high')
                 break
 
@@ -230,9 +230,9 @@ class RadBeltIntegrator(object):
         return history[:,:i_step]
 
 
-    def eval_many(self, p0, alpha0, L0, n_particles):
+    def eval_many(self, g0, alpha0, L0, n_particles):
         pos = np.empty((3, n_particles))
-        pos[0] = p0
+        pos[0] = g0
         pos[1] = alpha0
         pos[2] = L0
         s = np.zeros(n_particles)
@@ -250,7 +250,7 @@ class RadBeltIntegrator(object):
 
             # momentum too low
 
-            too_cold = np.nonzero(pos[0] <= self.p_centers[0])[0]
+            too_cold = np.nonzero(pos[0] <= self.g_centers[0])[0]
 
             for i_to_remove in too_cold[::-1]:
                 i_last = pos.shape[1] - 1
@@ -269,7 +269,7 @@ class RadBeltIntegrator(object):
 
             # momentum too high?
 
-            too_hot = np.nonzero(pos[0] >= self.p_centers[-1])[0]
+            too_hot = np.nonzero(pos[0] >= self.g_centers[-1])[0]
             if too_hot.size:
                 print('warning: some particle energies got too high')
 
@@ -379,17 +379,17 @@ class RadBeltIntegrator(object):
     def plot_cube(self, c):
         import omega as om
 
-        med_p = np.median(c, axis=(1, 2))
+        med_g = np.median(c, axis=(1, 2))
         med_a = np.median(c, axis=(0, 2))
         med_l = np.median(c, axis=(0, 1))
-        mn = min(med_p.min(), med_a.min(), med_l.min())
-        mx = max(med_p.max(), med_a.max(), med_l.max())
+        mn = min(med_g.min(), med_a.min(), med_l.min())
+        mx = max(med_g.max(), med_a.max(), med_l.max())
         delta = abs(mx - mn) * 0.02
         mx += delta
         mn -= delta
 
         hb = om.layout.HBox(3)
-        hb[0] = om.quickXY(self.p_centers, med_p, u'p', ymin=mn, ymax=mx)
+        hb[0] = om.quickXY(self.g_centers, med_g, u'g', ymin=mn, ymax=mx)
         hb[1] = om.quickXY(self.alpha_centers, med_a, u'α', ymin=mn, ymax=mx)
         hb[1].lpainter.paintLabels = False
         hb[2] = om.quickXY(self.L_centers, med_l, u'L', ymin=mn, ymax=mx)
