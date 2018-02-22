@@ -449,8 +449,8 @@ class Gridder(object):
 
     @classmethod
     def new_demo(cls, *, n_g=5, n_alpha=5, n_l=5):
-        g_lo = -5.1 # ~10 eV
-        g_hi = 3.1 # ~100 eV
+        g_lo = -5.5 # ~4 eV (needed to sample cold source plasma well)
+        g_hi = 3.1 # ~11 MeV (needed to sample mm-emitting particles well)
 
         alpha_lo = 0.08 # ~4 deg
         alpha_hi = 0.5 * np.pi
