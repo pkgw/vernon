@@ -42,14 +42,17 @@ class IsotropicMaxwellianBoundary(object):
         self.k1 = np.sqrt(2 / (np.pi * mkT**3))
         self.k2 = -0.5 / mkT
         self.k3 = 1. / np.sqrt(2 * mkT)
+        self.k4 = np.sqrt(2 / (np.pi * mkT))
 
-    def at_position(self, p, alpha, L):
-        p2 = p**2
+    def at_position(self, g, alpha, L):
+        p2 = cgs.me * cgs.c * np.exp(2 * g)
         return self.k1 * p2 * np.exp(self.k2 * p2) * np.sin(alpha)
 
-    def in_L_cell(self, p0, p1, alpha0, alpha1):
+    def in_L_cell(self, g0, g1, alpha0, alpha1):
+        p0 = cgs.me * cgs.c * np.exp(g0)
+        p1 = cgs.me * cgs.c * np.exp(g1)
         p_contrib = ((special.erf(self.k3 * p1) - special.erf(self.k3 * p0)) +
-                     (self.k1 * p0 * np.exp(self.k2 * p0**2) - self.k1 * p1 * np.exp(self.k2 * p1**2)))
+                     self.k4 * (p0 * np.exp(self.k2 * p0**2) - p1 * np.exp(self.k2 * p1**2)))
         a_contrib = np.cos(alpha0) - np.cos(alpha1)
         return p_contrib * a_contrib
 
