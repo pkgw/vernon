@@ -79,6 +79,10 @@ class RadBeltIntegrator(object):
         self.g_centers = 0.5 * (self.g_edges[:-1] + self.g_edges[1:])
         self.alpha_centers = 0.5 * (self.alpha_edges[:-1] + self.alpha_edges[1:])
         self.L_centers = 0.5 * (self.L_edges[:-1] + self.L_edges[1:])
+        self.gain = 0
+
+        print('hacking alpha_centers[-1] because awesome')
+        self.alpha_centers[-1] = 0.5 * np.pi
 
         # XXX TRANSPOSE IS DUMB
 
@@ -96,28 +100,19 @@ class RadBeltIntegrator(object):
         self.i_dt = interpolate.RegularGridInterpolator(points, self.dt.T)
 
 
-    def add_advection_term(self, coeff):
-        sh = (self.g_centers.size, self.alpha_centers.size, self.L_centers.size)
-        lnA = np.empty(sh)
-        lnA[:] = coeff * self.g_centers.reshape((1, 1, -1))
-
-        g_l, g_a, g_g = np.gradient(lnA, self.L_centers, self.alpha_centers, self.g_centers)
-        grad_lnA = np.empty(sh + (3, 1))
-        grad_lnA[...,0,0] = g_g
-        grad_lnA[...,1,0] = g_a
-        grad_lnA[...,2,0] = g_l
-
-        b = np.empty(sh + (3, 3))
+    def add_exp_coord_term(self, coord_num, coeff):
+        b = np.empty(self.a[0].shape + (3, 3))
         for i in range(3):
             for j in range(i+1):
                 b[...,i,j] = self.b[i][j]
                 b[...,j,i] = self.b[i][j]
 
         c = np.matmul(b, b)
-        delta_a = np.matmul(c, grad_lnA)
 
         for i in range(3):
-            self.a[i] += delta_a[...,i,0]
+            self.a[i] += coeff * c[...,i,coord_num]
+
+        return self.recompute_delta_t()
 
 
     def recompute_delta_t(self, *, spatial_factor=0.05, advection_factor=0.2, debug=False):
@@ -192,23 +187,23 @@ class RadBeltIntegrator(object):
         pos = np.array([g0, alpha0, L0])
 
         for i_step in range(n_steps):
-            if pos[0] <= self.g_edges[0]:
+            if pos[0] <= self.g_centers[0]:
                 break # too cold to care anymore
 
-            if pos[0] >= self.g_edges[-1]:
+            if pos[0] >= self.g_centers[-1]:
                 print('warning: particle energy got too high')
                 break
 
-            if pos[1] <= self.alpha_edges[0]:
+            if pos[1] <= self.alpha_centers[0]:
                 break # loss cone
 
             if pos[1] > np.pi / 2:
                 pos[1] = np.pi - pos[1] # mirror at pi/2 pitch angle
 
-            if pos[2] <= self.L_edges[0]:
+            if pos[2] <= self.L_centers[0]:
                 break # surface impact
 
-            if pos[2] >= self.L_edges[-1]:
+            if pos[2] >= self.L_centers[-1]:
                 break # hit source boundary condition
 
             history[0,i_step] = s
@@ -378,6 +373,173 @@ class RadBeltIntegrator(object):
             step_num += 1
 
         return final_poses[:,:n_exited]
+
+
+    def jokipii_many(self, bdy, n_particles):
+        """Jokipii & Levy technique."""
+
+        gridded_bdy = np.empty((self.g_centers.size, self.alpha_centers.size))
+
+        for i in range(self.g_centers.size):
+            for j in range(self.alpha_centers.size):
+                gridded_bdy[i,j] = bdy.in_L_cell(self.g_edges[i], self.g_edges[i+1],
+                                                 self.alpha_edges[j], self.alpha_edges[j+1])
+
+        gridded_bdy *= n_particles # boundary is normalized => sums to 1
+        gridded_bdy = gridded_bdy.astype(np.int)
+        n_particles = gridded_bdy.sum() # TODO: this is dumb
+        print('Number of particles to simulate:', n_particles)
+        print('Fraction of non-empty boundary cells:', (gridded_bdy > 0).sum() / gridded_bdy.size)
+
+        # This is also dumb
+
+        pos = np.empty((3, n_particles))
+        idx = 0
+
+        for i in range(self.g_centers.size):
+            for j in range(self.alpha_centers.size):
+                n = gridded_bdy[i,j]
+                pos[0,idx:idx+n] = self.g_centers[i]
+                pos[1,idx:idx+n] = self.alpha_centers[j]
+                pos[2,idx:idx+n] = self.L_centers[-1] * 0.99 # also dumb
+                idx += n
+
+        # The answer
+
+        grid = np.zeros((self.g_centers.size, self.alpha_centers.size, self.L_centers.size))
+
+        # Go
+
+        step_num = 0
+        g0 = self.g_edges[0]
+        gscale = 0.99999 * self.g_centers.size / (self.g_edges[-1] - g0)
+        alpha0 = self.alpha_edges[0]
+        alphascale = 0.99999 * self.alpha_centers.size / (self.alpha_edges[-1] - alpha0)
+        L0 = self.L_edges[0]
+        Lscale = 0.99999 * self.L_centers.size / (self.L_edges[-1] - L0)
+
+        while pos.shape[1]:
+            if step_num % 1000 == 0:
+                print('  Step {}: {} particles left'.format(step_num, pos.shape[1]))
+
+            # momentum too low
+
+            too_cold = np.nonzero(pos[0] <= self.g_centers[0])[0]
+
+            for i_to_remove in too_cold[::-1]:
+                i_last = pos.shape[1] - 1
+
+                if i_to_remove != i_last:
+                    pos[:,i_to_remove] = pos[:,i_last]
+
+                pos = pos[:,:-1]
+
+            if not pos.shape[1]:
+                break
+
+            # momentum too high?
+
+            too_hot = np.nonzero(pos[0] >= self.g_centers[-1])[0]
+            if too_hot.size:
+                print('warning: some particle energies got too high')
+
+            for i_to_remove in too_hot[::-1]:
+                i_last = pos.shape[1] - 1
+
+                if i_to_remove != i_last:
+                    pos[:,i_to_remove] = pos[:,i_last]
+
+                pos = pos[:,:-1]
+
+            if not pos.shape[1]:
+                break
+
+            # Loss cone?
+
+            loss_cone = np.nonzero(pos[1] <= self.alpha_centers[0])[0]
+
+            for i_to_remove in loss_cone[::-1]:
+                i_last = pos.shape[1] - 1
+
+                if i_to_remove != i_last:
+                    pos[:,i_to_remove] = pos[:,i_last]
+
+                pos = pos[:,:-1]
+
+            if not pos.shape[1]:
+                break
+
+            # Mirror at pi/2 pitch angle
+
+            pa_mirror = (pos[1] > 0.5 * np.pi)
+            pos[1,pa_mirror] = np.pi - pos[1,pa_mirror]
+
+            # Surface impact?
+
+            surface_impact = np.nonzero(pos[2] <= self.L_centers[0])[0]
+
+            for i_to_remove in surface_impact[::-1]:
+                i_last = pos.shape[1] - 1
+
+                if i_to_remove != i_last:
+                    pos[:,i_to_remove] = pos[:,i_last]
+
+                pos = pos[:,:-1]
+
+            if not pos.shape[1]:
+                break
+
+            # Hit the source boundary?
+
+            outer_edge = np.nonzero(pos[2] >= self.L_centers[-1])[0]
+
+            for i_to_remove in outer_edge[::-1]:
+                i_last = pos.shape[1] - 1
+
+                if i_to_remove != i_last:
+                    pos[:,i_to_remove] = pos[:,i_last]
+
+                pos = pos[:,:-1]
+
+            if not pos.shape[1]:
+                break
+
+            # delta t for these samples
+
+            posT = pos.T
+            delta_t = self.i_dt(posT)
+
+            # Record each position. ndarray.astype(np.int) truncates toward 0:
+            # 0.9 => 0, 1.1 => 1, -0.9 => 0, -1.1 => -1.
+
+            g_indices = (gscale * (pos[0] - g0)).astype(np.int)
+            alpha_indices = (alphascale * (pos[1] - alpha0)).astype(np.int)
+            L_indices = (Lscale * (pos[2] - L0)).astype(np.int)
+            grid[g_indices, alpha_indices, L_indices] += delta_t
+
+            # Now we can finally advance the remaining particles
+
+            lam = np.random.normal(size=pos.shape)
+            sqrt_delta_t = np.sqrt(delta_t)
+            delta_pos = np.zeros(pos.shape)
+
+            for i in range(3):
+                delta_pos[i] += self.i_a[i](posT) * delta_t
+
+                for j in range(3):
+                    delta_pos[i] += self.i_b[i][j](posT) * sqrt_delta_t * lam[j]
+
+            # TODO: I think to do this right, we need to potentially scale
+            # each delta_t to get particles to *exactly* hit the boundaries.
+            # Right now we get particles that zip out to L = 7.7 or whatever,
+            # and so their "final" p and alpha coordinates are not exactly
+            # what they were at the L=7 plane.
+
+            pos += delta_pos
+            step_num += 1
+
+        return grid
+
 
     def plot_cube(self, c):
         import omega as om

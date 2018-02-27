@@ -16,7 +16,7 @@ The 2D PDE is:
 On the domain [-2, 2] × [-2, 2]. At fixed z, the boundary conditions are
 
   f(x, z=-2) = 0.03 * (1 + cos(pi (x - 1) / 4)**4)
-  f(x, z=0) = 0
+  f(x, z=2) = 0
 
 At x=±2, the simulation box is periodic.
 

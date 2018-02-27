@@ -16,6 +16,13 @@ becomes
 (Slightly funky approach due to the need for Dedalus to have a spectral
 domain. I think.)
 
+Visualize results with something like::
+
+    import h5py
+    from pwkit.ndshow_gtk3 import view
+    f = h5py.File('checkpoints/checkpoints_s1.h5')['/tasks/f'][...]
+    view(f[-1])
+
 """
 import time
 import numpy as np
