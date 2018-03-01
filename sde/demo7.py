@@ -32,7 +32,7 @@ XMAX = 1.
 def forwards_scalar(n_pseudo_particles=65536*8, delta_t=0.00001):
     x_bins = 40
     x_edges = np.linspace(XMIN, XMAX, x_bins + 1)
-    x_centers = 0.5 *(x_edges[1:] + x_edges[:-1])
+    x_centers = 0.5 * (x_edges[1:] + x_edges[:-1])
     x_low = XMIN
     x_high = XMAX
 

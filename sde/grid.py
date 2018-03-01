@@ -10,6 +10,10 @@ Everything is computed on a grid in (p, alpha, L), where p is the particle
 momentum in g*cm/s, alpha is the pitch angle in radians, and L is the McIlwain
 L-shell number.
 
+We currently compute the coefficients as appropriate for *forward* SDE
+integration. These are different than the terms that you need when doing a
+backwards integration!
+
 """
 from __future__ import absolute_import, division, print_function
 
@@ -49,6 +53,26 @@ def bigt(y):
     T1 = 0.740480489693061
     half_diff = 0.5 * (T0 - T1) # 0.31984625422870605
     return T0 - half_diff * (y + np.sqrt(y))
+
+
+def bigtprime(y):
+    """Fake the derivative of T(y) by using the SL74 approximation.
+
+    """
+    T0 = 1.3801729981504731
+    T1 = 0.740480489693061
+    half_diff = 0.5 * (T0 - T1) # 0.31984625422870605
+    return -half_diff * (1 + 0.5 / np.sqrt(y))
+
+
+def bigtprpr(y):
+    """Fake the second derivative of T(y) by using the SL74 approximation.
+
+    """
+    T0 = 1.3801729981504731
+    T1 = 0.740480489693061
+    half_diff = 0.5 * (T0 - T1) # 0.31984625422870605
+    return 0.25 * half_diff * y**(-1.5)
 
 
 def approx_invert_Yony(r):
@@ -445,6 +469,7 @@ class Gridder(object):
         # too hard about the proper ordering of i and j!
 
         self.c = [[0], [0, 0], [0, 0, 0]]
+        self.loss = 0
 
 
     @classmethod
@@ -497,9 +522,9 @@ class Gridder(object):
         the g/a/L basis.
 
         The model for the diffusion term is `D_LL = D0 * L**n`, expressed in
-        the MJΦ basis. We add tiny diagonal diffusion terms because otherwise
-        the diffusion matrix is not properly positive definite as it should
-        be.
+        the MJΦ basis: one can show that D_phiphi = D_LL * L**-4. We add tiny
+        diagonal diffusion terms because otherwise the diffusion matrix is not
+        properly positive definite as it should be.
 
         TODO: hardcoded assumption of dipolar magnetic field.
 
@@ -560,32 +585,51 @@ class Gridder(object):
             if np.any(det2 < 0):
                 raise ValueError('bloo')
 
-            # The other bit we need is the *spatially-varying* part of abs(det(Jacobian)):
-            jac_factor = np.exp(3 * g) * y * np.cos(alpha) * L**2 * bigt(y)
+            return diff_terms
 
-            return diff_terms, jac_factor
-
-        base_diff_terms, base_jac_factor = calc_items_of_interest(0, 0, 0, DEBUG=True)
+        base_diff_terms = calc_items_of_interest(0, 0, 0, DEBUG=True)
         offset_diff_terms = [None] * 3
-        offset_jac_factors = [None] * 3
         eps = [1e-5, 1e-5, 1e-6]
 
-        offset_diff_terms[0], offset_jac_factors[0] = calc_items_of_interest(eps[0], 0, 0)
-        offset_diff_terms[1], offset_jac_factors[1] = calc_items_of_interest(0, eps[1], 0)
-        offset_diff_terms[2], offset_jac_factors[2] = calc_items_of_interest(0, 0, eps[2])
+        offset_diff_terms[0] = calc_items_of_interest(eps[0], 0, 0)
+        offset_diff_terms[1] = calc_items_of_interest(0, eps[1], 0)
+        offset_diff_terms[2] = calc_items_of_interest(0, 0, eps[2])
+
+        # We also need logarithmic derivatives of the Jacobian factor,
+        # and *their* derivatives. Most of these are easy, but pitch angle is a pain.
+
+        T = bigt(self.y)
+        Tprime = bigtprime(self.y)
+        Tprpr = bigtprpr(self.y)
+
+        log_jac_prime = [
+            -3,
+            -2 / np.tan(2 * self.alpha_centers) - np.cos(self.alpha_centers) * Tprime / T,
+            -2 / self.L_centers,
+        ]
+
+        dljdaa = ( # d/da( dH/da / H) = d^2(ln H)/da^2
+            4 / np.sin(2 * self.alpha_centers)**2
+            - self.y * Tprime / T
+            + np.cos(self.alpha_centers)**2 * (Tprime**2 / T - Tprpr) / T
+        )
+
+        log_jac_prpr = [[0, 0, 0], [0, dljdaa, 0], [0, 0, -2 / self.L_centers**2]]
+
+        # Now we can put everything in terms of a, c, L.
 
         for i in range(3):
             for j in range(i + 1):
                 self.c[i][j] += 2 * base_diff_terms[i][j]
 
-            adv_term = 0.
-
             for j in range(3):
-                v0 = base_jac_factor * base_diff_terms[i][j]
-                v1 = offset_jac_factors[j] * offset_diff_terms[j][i][j]
-                adv_term += (v1 - v0) / eps[j]
+                dDdx = (offset_diff_terms[j][i][j] - base_diff_terms[i][j]) / eps[j]
 
-            self.a[i] += adv_term / base_jac_factor
+                self.a[j] += dDdx
+                self.a[j] += log_jac_prime[j] * base_diff_terms[i][j]
+
+                self.loss += log_jac_prpr[i][j] * base_diff_terms[i][j]
+                self.loss += log_jac_prime[j] * dDdx
 
         return self
 
@@ -641,17 +685,25 @@ class Gridder(object):
         ofsg_p, ofsg_daa, ofsg_dap, ofsg_dpp = ofs_compute(epsg, 0)
         ofsa_p, ofsa_daa, ofsa_dap, ofsa_dpp = ofs_compute(0, epsa)
 
-        self.c[0][0] += 2 * base_dpp / base_p**2
-        self.c[1][0] += 2 * base_dap / base_p
-        self.c[1][1] += 2 * base_daa
+        dgg = base_dpp / base_p**2
+        dag = base_dap / base_p
+        daa = base_daa
 
-        dpp_dg = (ofsg_dpp / ofsg_p - base_dpp / base_p) / epsg
-        dap_da = (ofsa_dap - base_dap) / epsa
-        self.a[0] += (dpp_dg + dap_da) / base_p
+        dgg_dg = (ofsg_dpp / ofsg_p**2 - dgg) / epsg
+        dgg_da = (ofsa_dpp / ofsa_p**2 - dgg) / epsa
+        dag_dg = (ofsg_dap / ofsg_p - dag) / epsg
+        dag_da = (ofsa_dap / ofsa_p - dag) / epsa
+        daa_dg = (ofsg_daa - daa) / epsg
+        daa_da = (ofsa_daa - daa) / epsa
 
-        dap_dg = (ofsg_dap - base_dap) / epsg
-        daa_da = (ofsa_daa - base_daa) / epsa
-        self.a[1] += dap_dg / base_p + daa_da
+        self.c[0][0] += 2 * dgg
+        self.c[1][0] += 2 * dag
+        self.c[1][1] += 2 * daa
+
+        self.a[0] += dgg_dg + dag_da - dgg
+        self.a[1] += dag_dg + daa_da - dag
+
+        self.loss -= dgg_dg + dag_da
 
         return self
 
@@ -704,6 +756,10 @@ class Gridder(object):
         # Turns out that finding a matrix square root is pretty tricky! But
         # this diagonalization approach seems to work well. We do need to
         # basically transpose the C meta-matrix, though.
+        #
+        # Kopp et al (2012, doi:10.1016/j.cpc.2011.11.014) presents a nice
+        # thorough run-down of how to compute the square root of a 3x3 matrix
+        # reliably.
 
         c_t = np.empty(self.c[0][0].shape + (3, 3))
         for i in range(3):
@@ -866,6 +922,7 @@ def gen_grid_cli(args):
             for j in range(i + 1):
                 np.save(f, grid.b[i][j])
 
+        np.save(f, grid.loss)
         np.save(f, grid.dt)
 
 
