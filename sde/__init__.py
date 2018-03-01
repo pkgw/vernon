@@ -95,7 +95,7 @@ class RadBeltIntegrator(object):
                     self.b[i][j] = np.load(f)
 
             self.loss = np.load(f)
-            self.dt = np.load(f)
+            self.lndt = np.load(f)
 
         self.g_centers = 0.5 * (self.g_edges[:-1] + self.g_edges[1:])
         self.alpha_centers = 0.5 * (self.alpha_edges[:-1] + self.alpha_edges[1:])
@@ -118,90 +118,7 @@ class RadBeltIntegrator(object):
                 self.i_b[j][i] = self.i_b[i][j]
 
         self.i_loss = interpolate.RegularGridInterpolator(points, self.loss.T)
-        self.i_dt = interpolate.RegularGridInterpolator(points, self.dt.T)
-
-
-    def add_exp_coord_term(self, coord_num, coeff):
-        b = np.empty(self.a[0].shape + (3, 3))
-        for i in range(3):
-            for j in range(i+1):
-                b[...,i,j] = self.b[i][j]
-                b[...,j,i] = self.b[i][j]
-
-        c = np.matmul(b, b)
-
-        for i in range(3):
-            self.a[i] += coeff * c[...,i,coord_num]
-
-        return self.recompute_delta_t()
-
-
-    def recompute_delta_t(self, *, spatial_factor=0.05, advection_factor=0.2, debug=False):
-        """XXX duplication from grid.py; seeing if we need to change things when adding
-        importance sampling term.
-
-        """
-        sg = self.g_centers.copy()
-        sa = 0.25 # ~15 degrees
-        sl = 1.
-
-        for arr in self.a + self.b[0] + self.b[1] + self.b[2]:
-            ddl, dda, ddg = np.gradient(arr, self.L_centers.flat,
-                                        self.alpha_centers.flat, self.g_centers.flat)
-
-            # small derivatives => large spatial scales => no worries about
-            # stepping too far => it's safe to increase derivatives
-            for a in ddl, dda, ddg:
-                aa = np.abs(a)
-                tiny = aa[aa > 0].min()
-                a[aa == 0] = tiny
-
-            sg = np.minimum(sg, np.abs(arr / ddg))
-            sa = np.minimum(sa, np.abs(arr / dda))
-            sl = np.minimum(sl, np.abs(arr / ddl))
-
-        length_scales = [sg, sa, sl]
-
-        # Now we can calculate the delta-t limit based on spatial variation of the above values.
-        # The criterion is that delta-t must be much much less than L_i**2 / sum(b_ij**2) for
-        # where i runs over the three coordinate axes.
-
-        delta_t = np.zeros_like(self.b[0][0])
-        delta_t.fill(np.finfo(delta_t.dtype).max)
-
-        for i in range(3):
-            b_squared = 0
-            if debug:
-                print('***', i)
-
-            for j in range(3):
-                if j <= i:
-                    b_squared += self.b[i][j]**2
-                    if debug:
-                        print('    diff component:', i, j, np.median(self.b[i][j]**2))
-                else:
-                    b_squared += self.b[j][i]**2
-                    if debug:
-                        print('    diff component:', i, j, np.median(self.b[j][i]**2))
-
-            b_squared[b_squared == 0] = 1. # will only yield more conservative values
-            delta_t = np.minimum(delta_t, spatial_factor * length_scales[i]**2 / b_squared)
-            if debug:
-                print('  diff actual:', np.median(spatial_factor * length_scales[i]**2 / b_squared))
-
-            # Augment this with the Krülls & Achterberg (1994) criterion that the
-            # stochastic component dominate the advection component.
-
-            a_squared = self.a[i]**2
-            a_squared[a_squared == 0] = 1.
-            delta_t = np.minimum(delta_t, advection_factor * b_squared / a_squared)
-            if debug:
-                print('  advection actual:', np.median(advection_factor * b_squared / a_squared))
-
-        self.dt = delta_t
-        points = [self.g_centers, self.alpha_centers, self.L_centers]
-        self.i_dt = interpolate.RegularGridInterpolator(points, self.dt.T)
-        return self
+        self.i_lndt = interpolate.RegularGridInterpolator(points, self.lndt.T)
 
 
     def trace_one(self, g0, alpha0, L0, n_steps):
@@ -232,7 +149,7 @@ class RadBeltIntegrator(object):
             history[0,i_step] = s
             history[1:,i_step] = pos
             lam = np.random.normal(size=3)
-            delta_t = self.i_dt(pos[:3])
+            delta_t = np.exp(self.i_lndt(pos[:3]))
             ##print('dt:', delta_t)
             sqrt_delta_t = np.sqrt(delta_t)
             delta_pos = np.zeros(3)
@@ -376,7 +293,7 @@ class RadBeltIntegrator(object):
 
             lam = np.random.normal(size=pos.shape)
             posT = pos.T
-            delta_t = self.i_dt(posT)
+            delta_t = np.exp(self.i_lndt(posT))
             sqrt_delta_t = np.sqrt(delta_t)
             delta_pos = np.zeros(pos.shape)
 
@@ -429,11 +346,10 @@ class RadBeltIntegrator(object):
             if step_num % 1000 == 0:
                 print('  Step {}'.format(step_num))
 
-            # delta t for these samples
-            # TODO be careful near boundaries!!!
+            # delta-t for these samples
 
             posT = state[:3].T
-            delta_t = self.i_dt(posT)
+            delta_t = np.exp(self.i_lndt(posT))
 
             # Record each position. ndarray.astype(np.int) truncates toward 0:
             # 0.9 => 0, 1.1 => 1, -0.9 => 0, -1.1 => -1.

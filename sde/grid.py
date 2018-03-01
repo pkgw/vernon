@@ -790,57 +790,87 @@ class Gridder(object):
         return self
 
 
-    def compute_delta_t(self, *, spatial_factor=0.05, advection_factor=0.2, debug=False):
+    def compute_log_delta_t(self, *, spatial_factor=0.05, advection_factor=0.2, max_dt=100, debug=False):
         """Compute the allowable step sizes at each grid point. The goal is to make
         sure the particle doesn't zoom past areas where the diffusion
         coefficients vary quickly, and that individual steps are dominated by
         diffusion rather than advection terms.
 
+        In order to agree well with the boundary conditions, it is also
+        important to make the step sizes small near the edges of the
+        coordinate cube.
+
+        One factor setting the target step size is rates at which the
+        diffusion coefficients change as a function of the various
+        coordinates; i.e., their spatial derivatives. Specifically, three
+        derivatives each of nine coefficient grids! But we're setting limits
+        here, so we just need to keep track of which is length scale is
+        smallest in each grid cell for the three coordinates.
+
+        We're hardcoding the fact that our arrays are shaped like [L, alpha,
+        g].
+
         """
-        # We set the target step size based on the rates at which the
-        # diffusion coefficients change as a function of the various
-        # coordinates; i.e., their spatial derivatives. Specifically, three
-        # derivatives each of nine coefficient grids! But we're setting limits
-        # here, so we just need to keep track of which is length scale is
-        # smallest in each grid cell for the three coordinates.
-        #
-        # We're hardcoding the fact that our arrays are shaped like [L, alpha,
-        # p].
-        #
         # We start by enforcing simple hard caps on maximum length scales:
 
-        sg = self.g_centers.copy()
+        sg = 0.1
         sa = 0.25 # ~15 degrees
-        sl = 1.
+        sl = 0.1
 
-        for arr in self.a + self.b[0] + self.b[1] + self.b[2]:
+        # Now decrease by the scales of spatial variation in our various
+        # gridded coefficients.
+
+        for arr in self.a + self.b[0] + self.b[1] + self.b[2] + [self.loss]:
             ddl, dda, ddg = np.gradient(arr, self.L_centers.flat,
                                         self.alpha_centers.flat, self.g_centers.flat)
 
-            # small derivatives => large spatial scales => no worries about
-            # stepping too far => it's safe to increase derivatives
-            for a in ddl, dda, ddg:
-                aa = np.abs(a)
-                tiny = aa[aa > 0].min()
-                a[aa == 0] = tiny
+            for a in ddl, dda, ddg: # Avoid division by zero.
+                np.abs(a, out=a)
+                tiny = a[a > 0].min()
+                a[a == 0] = tiny
 
             sg = np.minimum(sg, np.abs(arr / ddg))
             sa = np.minimum(sa, np.abs(arr / dda))
             sl = np.minimum(sl, np.abs(arr / ddl))
 
+        # Finally, at the very edges of the simulation box we damp the length scales
+        # aggressively to match the distance to the boundary. This is important for
+        # correctly matching the boundary conditions.
+
+        delta_g = abs(self.g_centers[:,:,1] - self.g_centers[:,:,0])
+        delta_a = abs(self.alpha_centers[:,1,:] - self.alpha_centers[:,0,:])
+        delta_l = abs(self.L_centers[1,:,:] - self.L_centers[0,:,:])
+
+        sg[:,:,0] = np.minimum(sg[:,:,0], 0.01 * delta_g)
+        sg[:,:,1] = np.minimum(sg[:,:,1], 0.3 * delta_g)
+        sg[:,:,-2] = np.minimum(sg[:,:,-2], 0.3 * delta_g)
+        sg[:,:,-1] = np.minimum(sg[:,:,-1], 0.01 * delta_g)
+
+        sa[:,0,:] = np.minimum(sa[:,0,:], 0.01 * delta_a)
+        sa[:,1,:] = np.minimum(sa[:,1,:], 0.3 * delta_a)
+        sa[:,-2,:] = np.minimum(sa[:,-2,:], 0.3 * delta_a)
+        sa[:,-1,:] = np.minimum(sa[:,-1,:], 0.01 * delta_a)
+
+        sl[0,:,:] = np.minimum(sl[0,:,:], 0.01 * delta_l)
+        sl[1,:,:] = np.minimum(sl[1,:,:], 0.3 * delta_l)
+        sl[-2,:,:] = np.minimum(sl[-2,:,:], 0.3 * delta_l)
+        sl[-1,:,:] = np.minimum(sl[-1,:,:], 0.01 * delta_l)
+
         length_scales = [sg, sa, sl]
 
-        # Now we can calculate the delta-t limit based on spatial variation of the above values.
-        # The criterion is that delta-t must be much much less than L_i**2 / sum(b_ij**2) for
-        # where i runs over the three coordinate axes.
+        # Now we can calculate a delta-t limits.
 
-        delta_t = np.zeros_like(self.b[0][0])
-        delta_t.fill(np.finfo(delta_t.dtype).max)
+        delta_t = np.empty_like(self.b[0][0])
+        delta_t.fill(max_dt)
 
         for i in range(3):
             b_squared = 0
             if debug:
                 print('***', i)
+
+            # First limit is based on spatial variation of the above values.
+            # The criterion is that delta-t must be much much less than L_i**2
+            # / sum(b_ij**2) for where i runs over the three coordinate axes.
 
             for j in range(3):
                 if j <= i:
@@ -857,7 +887,7 @@ class Gridder(object):
             if debug:
                 print('  diff actual:', np.median(spatial_factor * length_scales[i]**2 / b_squared))
 
-            # Augment this with the Krülls & Achterberg (1994) criterion that the
+            # Next limit is the Krülls & Achterberg (1994) criterion that the
             # stochastic component dominate the advection component.
 
             a_squared = self.a[i]**2
@@ -866,7 +896,7 @@ class Gridder(object):
             if debug:
                 print('  advection actual:', np.median(advection_factor * b_squared / a_squared))
 
-        self.dt = delta_t
+        self.lndt = np.log(delta_t)
         return self
 
 
@@ -906,7 +936,7 @@ def gen_grid_cli(args):
             .summers_pa_coefficients(n_pl, delta_B, omega_waves, delta_waves, max_wave_lat)
             .synchrotron_losses_cgs()
             .compute_b()
-            .compute_delta_t())
+            .compute_log_delta_t())
 
     # That's it!
 
@@ -923,7 +953,7 @@ def gen_grid_cli(args):
                 np.save(f, grid.b[i][j])
 
         np.save(f, grid.loss)
-        np.save(f, grid.dt)
+        np.save(f, grid.lndt)
 
 
 def entrypoint(argv):
