@@ -410,7 +410,7 @@ class RadBeltIntegrator(object):
 
         # The answer
 
-        grid = np.zeros((self.g_centers.size, self.alpha_centers.size, self.L_centers.size))
+        grid = np.zeros((self.L_centers.size, self.alpha_centers.size, self.g_centers.size))
         sum_residence_times = 0 # measured in steps
         n_exited = 0
 
@@ -443,7 +443,7 @@ class RadBeltIntegrator(object):
             L_indices = (Lscale * (state[2] - L0)).astype(np.int)
 
             for i in range(n_particles):
-                grid[g_indices[i], alpha_indices[i], L_indices[i]] += delta_t[i] * np.exp(state[3,i])
+                grid[L_indices[i], alpha_indices[i], g_indices[i]] += delta_t[i] * np.exp(state[3,i])
 
             # Advance
 
