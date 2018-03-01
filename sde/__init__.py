@@ -9,8 +9,9 @@ equation approach.
 from __future__ import absolute_import, division, print_function
 
 import numpy as np
-from scipy import interpolate, special
 from pwkit import cgs
+from scipy import interpolate, special
+import time
 
 
 class IsotropicMaxwellianBoundary(object):
@@ -56,6 +57,25 @@ class IsotropicMaxwellianBoundary(object):
         a_contrib = np.cos(alpha0) - np.cos(alpha1)
         return p_contrib * a_contrib
 
+    def sample(self, rbi, n):
+        """Generate a random sampling of particle momenta and pitch angles consistent
+        with this boundary condition.
+
+        Returns `(g, alpha)`, where both tuple items are 1D n-sized vectors of
+        values.
+
+        We take the *rbi* argument to ensure that our generated values lie within
+        the parameter range it allows.
+
+        """
+        sigma = np.sqrt(cgs.me * cgs.k * self.T)
+        momenta = np.random.normal(scale=sigma, size=(n, 3))
+        g = np.log(np.sqrt((momenta**2).sum(axis=1)) / (cgs.me * cgs.c)) # assuming non-relativistic
+        g = np.maximum(g, rbi.g_centers[0])
+        alpha = np.arccos(np.random.uniform(0, 1, size=n))
+        alpha = np.maximum(alpha, rbi.alpha_centers[0])
+        return g, alpha
+
 
 class RadBeltIntegrator(object):
     def __init__(self, path):
@@ -74,12 +94,12 @@ class RadBeltIntegrator(object):
                 for j in range(i + 1):
                     self.b[i][j] = np.load(f)
 
+            self.loss = np.load(f)
             self.dt = np.load(f)
 
         self.g_centers = 0.5 * (self.g_edges[:-1] + self.g_edges[1:])
         self.alpha_centers = 0.5 * (self.alpha_edges[:-1] + self.alpha_edges[1:])
         self.L_centers = 0.5 * (self.L_edges[:-1] + self.L_edges[1:])
-        self.gain = 0
 
         print('hacking alpha_centers[-1] because awesome')
         self.alpha_centers[-1] = 0.5 * np.pi
@@ -97,6 +117,7 @@ class RadBeltIntegrator(object):
                 self.i_b[i][j] = interpolate.RegularGridInterpolator(points, self.b[i][j].T)
                 self.i_b[j][i] = self.i_b[i][j]
 
+        self.i_loss = interpolate.RegularGridInterpolator(points, self.loss.T)
         self.i_dt = interpolate.RegularGridInterpolator(points, self.dt.T)
 
 
@@ -178,13 +199,15 @@ class RadBeltIntegrator(object):
                 print('  advection actual:', np.median(advection_factor * b_squared / a_squared))
 
         self.dt = delta_t
+        points = [self.g_centers, self.alpha_centers, self.L_centers]
+        self.i_dt = interpolate.RegularGridInterpolator(points, self.dt.T)
         return self
 
 
     def trace_one(self, g0, alpha0, L0, n_steps):
-        history = np.empty((4, n_steps))
+        history = np.empty((5, n_steps))
         s = 0.
-        pos = np.array([g0, alpha0, L0])
+        pos = np.array([g0, alpha0, L0, 0.])
 
         for i_step in range(n_steps):
             if pos[0] <= self.g_centers[0]:
@@ -209,20 +232,21 @@ class RadBeltIntegrator(object):
             history[0,i_step] = s
             history[1:,i_step] = pos
             lam = np.random.normal(size=3)
-            delta_t = self.i_dt(pos)
+            delta_t = self.i_dt(pos[:3])
             ##print('dt:', delta_t)
             sqrt_delta_t = np.sqrt(delta_t)
             delta_pos = np.zeros(3)
 
             for i in range(3):
-                delta_pos[i] += self.i_a[i](pos) * delta_t
+                delta_pos[i] += self.i_a[i](pos[:3]) * delta_t
                 ##print('a', i, self.i_a[i](pos), self.i_a[i](pos) * delta_t)
 
                 for j in range(3):
-                    delta_pos[i] += self.i_b[i][j](pos) * sqrt_delta_t * lam[j]
+                    delta_pos[i] += self.i_b[i][j](pos[:3]) * sqrt_delta_t * lam[j]
                     ##print('b', i, j, self.i_b[i][j](pos) * sqrt_delta_t)
 
-            pos += delta_pos
+            pos[3] -= delta_t * self.i_loss(pos[:3])
+            pos[:3] += delta_pos
             s += delta_t # sigh, terminology all over the place
 
         return history[:,:i_step]
@@ -375,169 +399,102 @@ class RadBeltIntegrator(object):
         return final_poses[:,:n_exited]
 
 
-    def jokipii_many(self, bdy, n_particles):
+    def jokipii_many(self, bdy, n_particles, n_steps):
         """Jokipii & Levy technique."""
 
-        gridded_bdy = np.empty((self.g_centers.size, self.alpha_centers.size))
-
-        for i in range(self.g_centers.size):
-            for j in range(self.alpha_centers.size):
-                gridded_bdy[i,j] = bdy.in_L_cell(self.g_edges[i], self.g_edges[i+1],
-                                                 self.alpha_edges[j], self.alpha_edges[j+1])
-
-        gridded_bdy *= n_particles # boundary is normalized => sums to 1
-        gridded_bdy = gridded_bdy.astype(np.int)
-        n_particles = gridded_bdy.sum() # TODO: this is dumb
-        print('Number of particles to simulate:', n_particles)
-        print('Fraction of non-empty boundary cells:', (gridded_bdy > 0).sum() / gridded_bdy.size)
-
-        # This is also dumb
-
-        pos = np.empty((3, n_particles))
-        idx = 0
-
-        for i in range(self.g_centers.size):
-            for j in range(self.alpha_centers.size):
-                n = gridded_bdy[i,j]
-                pos[0,idx:idx+n] = self.g_centers[i]
-                pos[1,idx:idx+n] = self.alpha_centers[j]
-                pos[2,idx:idx+n] = self.L_centers[-1] * 0.99 # also dumb
-                idx += n
+        state = np.empty((5, n_particles)) # (g, alpha, L, log-weight, residence time)
+        state[0], state[1] = bdy.sample(self, n_particles)
+        state[2] = self.L_centers[-1]
+        state[3] = 0.
+        state[4] = 0.
 
         # The answer
 
         grid = np.zeros((self.g_centers.size, self.alpha_centers.size, self.L_centers.size))
+        sum_residence_times = 0 # measured in steps
+        n_exited = 0
 
         # Go
 
+        t0 = time.time()
         step_num = 0
         g0 = self.g_edges[0]
-        gscale = 0.99999 * self.g_centers.size / (self.g_edges[-1] - g0)
+        gscale = 0.999999 * self.g_centers.size / (self.g_edges[-1] - g0)
         alpha0 = self.alpha_edges[0]
-        alphascale = 0.99999 * self.alpha_centers.size / (self.alpha_edges[-1] - alpha0)
+        alphascale = 0.999999 * self.alpha_centers.size / (self.alpha_edges[-1] - alpha0)
         L0 = self.L_edges[0]
-        Lscale = 0.99999 * self.L_centers.size / (self.L_edges[-1] - L0)
+        Lscale = 0.999999 * self.L_centers.size / (self.L_edges[-1] - L0)
 
-        while pos.shape[1]:
+        for step_num in range(n_steps):
             if step_num % 1000 == 0:
-                print('  Step {}: {} particles left'.format(step_num, pos.shape[1]))
-
-            # momentum too low
-
-            too_cold = np.nonzero(pos[0] <= self.g_centers[0])[0]
-
-            for i_to_remove in too_cold[::-1]:
-                i_last = pos.shape[1] - 1
-
-                if i_to_remove != i_last:
-                    pos[:,i_to_remove] = pos[:,i_last]
-
-                pos = pos[:,:-1]
-
-            if not pos.shape[1]:
-                break
-
-            # momentum too high?
-
-            too_hot = np.nonzero(pos[0] >= self.g_centers[-1])[0]
-            if too_hot.size:
-                print('warning: some particle energies got too high')
-
-            for i_to_remove in too_hot[::-1]:
-                i_last = pos.shape[1] - 1
-
-                if i_to_remove != i_last:
-                    pos[:,i_to_remove] = pos[:,i_last]
-
-                pos = pos[:,:-1]
-
-            if not pos.shape[1]:
-                break
-
-            # Loss cone?
-
-            loss_cone = np.nonzero(pos[1] <= self.alpha_centers[0])[0]
-
-            for i_to_remove in loss_cone[::-1]:
-                i_last = pos.shape[1] - 1
-
-                if i_to_remove != i_last:
-                    pos[:,i_to_remove] = pos[:,i_last]
-
-                pos = pos[:,:-1]
-
-            if not pos.shape[1]:
-                break
-
-            # Mirror at pi/2 pitch angle
-
-            pa_mirror = (pos[1] > 0.5 * np.pi)
-            pos[1,pa_mirror] = np.pi - pos[1,pa_mirror]
-
-            # Surface impact?
-
-            surface_impact = np.nonzero(pos[2] <= self.L_centers[0])[0]
-
-            for i_to_remove in surface_impact[::-1]:
-                i_last = pos.shape[1] - 1
-
-                if i_to_remove != i_last:
-                    pos[:,i_to_remove] = pos[:,i_last]
-
-                pos = pos[:,:-1]
-
-            if not pos.shape[1]:
-                break
-
-            # Hit the source boundary?
-
-            outer_edge = np.nonzero(pos[2] >= self.L_centers[-1])[0]
-
-            for i_to_remove in outer_edge[::-1]:
-                i_last = pos.shape[1] - 1
-
-                if i_to_remove != i_last:
-                    pos[:,i_to_remove] = pos[:,i_last]
-
-                pos = pos[:,:-1]
-
-            if not pos.shape[1]:
-                break
+                print('  Step {}'.format(step_num))
 
             # delta t for these samples
+            # TODO be careful near boundaries!!!
 
-            posT = pos.T
+            posT = state[:3].T
             delta_t = self.i_dt(posT)
 
             # Record each position. ndarray.astype(np.int) truncates toward 0:
             # 0.9 => 0, 1.1 => 1, -0.9 => 0, -1.1 => -1.
 
-            g_indices = (gscale * (pos[0] - g0)).astype(np.int)
-            alpha_indices = (alphascale * (pos[1] - alpha0)).astype(np.int)
-            L_indices = (Lscale * (pos[2] - L0)).astype(np.int)
-            grid[g_indices, alpha_indices, L_indices] += delta_t
+            g_indices = (gscale * (state[0] - g0)).astype(np.int)
+            alpha_indices = (alphascale * (state[1] - alpha0)).astype(np.int)
+            L_indices = (Lscale * (state[2] - L0)).astype(np.int)
 
-            # Now we can finally advance the remaining particles
+            for i in range(n_particles):
+                grid[g_indices[i], alpha_indices[i], L_indices[i]] += delta_t[i] * np.exp(state[3,i])
 
-            lam = np.random.normal(size=pos.shape)
+            # Advance
+
+            lam = np.random.normal(size=(3, n_particles))
             sqrt_delta_t = np.sqrt(delta_t)
-            delta_pos = np.zeros(pos.shape)
+            delta_state = np.zeros(state.shape)
 
             for i in range(3):
-                delta_pos[i] += self.i_a[i](posT) * delta_t
+                delta_state[i] += self.i_a[i](posT) * delta_t
 
                 for j in range(3):
-                    delta_pos[i] += self.i_b[i][j](posT) * sqrt_delta_t * lam[j]
+                    delta_state[i] += self.i_b[i][j](posT) * sqrt_delta_t * lam[j]
 
-            # TODO: I think to do this right, we need to potentially scale
-            # each delta_t to get particles to *exactly* hit the boundaries.
-            # Right now we get particles that zip out to L = 7.7 or whatever,
-            # and so their "final" p and alpha coordinates are not exactly
-            # what they were at the L=7 plane.
+            delta_state[3] = -self.i_loss(posT) * delta_t
+            delta_state[4] = 1.
+            #print(
+            #    ' '.join(['%.5f' % x for x in np.median(state[:4], axis=1)]),
+            #    '     ',
+            #    ' '.join(['%.5f' % x for x in np.median(delta_state[:4], axis=1)]),
+            #)
+            state += delta_state
 
-            pos += delta_pos
-            step_num += 1
+            # Deal with particles exiting out of bounds
 
+            oob = (
+                (state[0] < self.g_centers[0]) |
+                (state[0] > self.g_centers[-1]) |
+                (state[1] < self.alpha_centers[0]) |
+                (state[2] < self.L_centers[0]) |
+                (state[2] > self.L_centers[-1])
+            )
+
+            n_exiting = oob.sum()
+            n_exited += n_exiting
+            sum_residence_times += state[4,oob].sum()
+            state[0,oob], state[1,oob] = bdy.sample(self, n_exiting)
+            state[2,oob] = self.L_centers[-1]
+            state[3,oob] = 0.
+            state[4,oob] = 0.
+
+            # Mirror at pi/2 pitch angle
+
+            pa_mirror = (state[1] > 0.5 * np.pi)
+            state[1,pa_mirror] = np.pi - state[1,pa_mirror]
+
+        elapsed = time.time() - t0
+        print('elapsed: %.0f seconds' % elapsed)
+        print('total particle-steps:', n_particles * n_steps)
+        print('particle-steps per ms: %.0f' % (0.001 * n_particles * n_steps / elapsed))
+        mrt = sum_residence_times / n_exited
+        print('mean residence time:', mrt)
         return grid
 
 
