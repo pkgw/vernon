@@ -191,6 +191,10 @@ gridded_ray_parameters = 's B theta psi n_e p k'.split()
 
 def make_gridded_model_parser(prog='preprays', allow_cml=True):
     ap = make_model_parser(prog, allow_cml)
+    ap.add_argument('-S', dest='particles_scale', type=float, metavar='SCALE', default=1.,
+                    help='Scale the densities in the particles file by this factor [%(default).1f].')
+    ap.add_argument('-R', dest='radius', type=float, metavar='RJUP', default=1.1,
+                    help='Set the radius of the body to be simulated [%(default).2f].')
     ap.add_argument('particles_path', metavar='PARTICLES-FILE',
                     help='Path to the file of saved ParticleDistribution information.')
     return ap
@@ -209,13 +213,12 @@ def compute_gridded_cli(args):
     settings = make_compute_gridded_parser().parse_args(args=args)
 
     from . import geometry, particles
-
-    # XXX hardcoding radius!
     from pwkit import cgs
-    radius = 1.1 * cgs.rjup
-    
+
     particles = particles.ParticleDistribution.load(settings.particles_path)
-    distrib = geometry.GriddedDistribution(particles, radius)
+    particles.f *= settings.particles_scale
+
+    distrib = geometry.GriddedDistribution(particles, cgs.rjup * settings.radius)
 
     setup = geometry.basic_setup(
         ghz = settings.ghz,
@@ -282,6 +285,8 @@ def seed_gridded_cli(args):
 
     print('Physical parameters:', file=sys.stderr)
     print('   Particle data:', settings.particles_path, file=sys.stderr)
+    print('   Particle scale factor: %g' % settings.particles_scale, file=sys.stderr)
+    print('   Body radius (Rjup): %.3f' % settings.radius, file=sys.stderr)
     print('   Neural network data:', settings.nn_dir, file=sys.stderr)
     print('   Targeted minimum frequency to image: %.3f' % settings.ghz, file=sys.stderr)
     print('   Latitude of center:', settings.loc, file=sys.stderr)
@@ -305,9 +310,10 @@ def seed_gridded_cli(args):
     nn_dir = os.path.realpath(settings.nn_dir)
     particles_path = os.path.realpath(settings.particles_path)
 
-    common_args = '-r %d -c %d -L %.3f -w %.3f -a %.3f -s %d -f %.3f %s %s' % \
+    common_args = '-r %d -c %d -L %.3f -w %.3f -a %.3f -s %d -f %.3f -S %g -R %g %s %s' % \
         (settings.n_rows, settings.n_cols, settings.loc, settings.xhw, settings.aspect,
-         settings.max_n_samps, settings.ghz, nn_dir, particles_path)
+         settings.max_n_samps, settings.ghz, settings.particles_scale, settings.radius,
+         nn_dir, particles_path)
 
     if settings.n_col_groups == 1:
         first_width = rest_width = settings.n_cols
