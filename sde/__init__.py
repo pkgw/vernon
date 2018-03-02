@@ -467,11 +467,39 @@ def forward_cli(args):
         np.save(f, grid)
 
 
+def average_cli(args):
+    """Average together a bunch of cubes.
+
+    """
+    import sys
+
+    inputs = args[:-1]
+    output = args[-1]
+
+    if not len(inputs):
+        print('error: must specify at least one input cube', file=sys.stderr)
+        sys.exit(1)
+
+    with open(inputs[0], 'rb') as f:
+        arr = np.load(f)
+
+    for inp in inputs[1:]:
+        with open(inp, 'rb') as f:
+            arr += np.load(f)
+
+    arr /= len(inputs)
+
+    with open(output, 'wb') as f:
+        np.save(f, arr)
+
+
 def entrypoint(argv):
     if len(argv) == 1:
-        die('must supply a subcommand: "forward", "gen-grid"')
+        die('must supply a subcommand: "average", "forward", "gen-grid"')
 
-    if argv[1] == 'forward':
+    if argv[1] == 'average':
+        average_cli(argv[2:])
+    elif argv[1] == 'forward':
         forward_cli(argv[2:])
     elif argv[1] == 'gen-grid':
         from .grid import gen_grid_cli
