@@ -435,14 +435,45 @@ class RadBeltIntegrator(object):
 
 # Command-line interface
 
+import argparse
 from pwkit.cli import die
+from pwkit.cli import die
+
+
+def forward_cli(args):
+    """Do a forward-integration run
+
+    """
+    ap = argparse.ArgumentParser(
+        prog = 'sde forward',
+    )
+    ap.add_argument('-T', dest='temperature', type=float, metavar='TEMPERATURE', default=1.2e6,
+                    help='The temperature of the injected particles.')
+    ap.add_argument('-p', dest='particles', type=int, metavar='PARTICLES', default=8192,
+                    help='The number of particles to track at once.')
+    ap.add_argument('-s', dest='steps', type=int, metavar='STEPS', default=100000,
+                    help='The number of steps to make.')
+    ap.add_argument('grid_path', metavar='GRID-PATH',
+                    help='The path to the input file of gridded coefficients.')
+    ap.add_argument('output_path', metavar='OUTPUT-PATH',
+                    help='The destination path for the NPY file of particle positions.')
+    settings = ap.parse_args(args=args)
+
+    bdy = IsotropicMaxwellianBoundary(settings.temperature)
+    rbi = RadBeltIntegrator(settings.grid_path)
+    grid = rbi.jokipii_many(bdy, settings.particles, settings.steps)
+
+    with open(settings.output_path, 'wb') as f:
+        np.save(f, grid)
 
 
 def entrypoint(argv):
     if len(argv) == 1:
-        die('must supply a subcommand: "gen-grid"')
+        die('must supply a subcommand: "forward", "gen-grid"')
 
-    if argv[1] == 'gen-grid':
+    if argv[1] == 'forward':
+        forward_cli(argv[2:])
+    elif argv[1] == 'gen-grid':
         from .grid import gen_grid_cli
         gen_grid_cli(argv[2:])
     else:
