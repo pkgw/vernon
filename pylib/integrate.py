@@ -106,6 +106,8 @@ class LSODARTIntegrator(object):
 
 import argparse, io, os.path, sys
 
+from pwkit.cli import die
+
 
 def integrate_cli(args):
     ap = argparse.ArgumentParser(
