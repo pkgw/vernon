@@ -71,9 +71,9 @@ class IsotropicMaxwellianBoundary(object):
         sigma = np.sqrt(cgs.me * cgs.k * self.T)
         momenta = np.random.normal(scale=sigma, size=(n, 3))
         g = np.log(np.sqrt((momenta**2).sum(axis=1)) / (cgs.me * cgs.c)) # assuming non-relativistic
-        g = np.maximum(g, rbi.g_centers[0])
+        g = np.maximum(g, rbi.g_edges[0])
         alpha = np.arccos(np.random.uniform(0, 1, size=n))
-        alpha = np.maximum(alpha, rbi.alpha_centers[0])
+        alpha = np.maximum(alpha, rbi.alpha_edges[0])
         return g, alpha
 
 
@@ -101,14 +101,11 @@ class RadBeltIntegrator(object):
         self.alpha_centers = 0.5 * (self.alpha_edges[:-1] + self.alpha_edges[1:])
         self.L_centers = 0.5 * (self.L_edges[:-1] + self.L_edges[1:])
 
-        print('hacking alpha_centers[-1] because awesome')
-        self.alpha_centers[-1] = 0.5 * np.pi
-
         # XXX TRANSPOSE IS DUMB
 
         self.i_a = [None, None, None]
         self.i_b = [[None, None, None], [None, None, None], [None, None, None]]
-        points = [self.g_centers, self.alpha_centers, self.L_centers]
+        points = [self.g_edges, self.alpha_edges, self.L_edges]
 
         for i in range(3):
             self.i_a[i] = interpolate.RegularGridInterpolator(points, self.a[i].T)
@@ -127,23 +124,23 @@ class RadBeltIntegrator(object):
         pos = np.array([g0, alpha0, L0, 0.])
 
         for i_step in range(n_steps):
-            if pos[0] <= self.g_centers[0]:
+            if pos[0] <= self.g_edges[0]:
                 break # too cold to care anymore
 
-            if pos[0] >= self.g_centers[-1]:
+            if pos[0] >= self.g_edges[-1]:
                 print('warning: particle energy got too high')
                 break
 
-            if pos[1] <= self.alpha_centers[0]:
+            if pos[1] <= self.alpha_edges[0]:
                 break # loss cone
 
             if pos[1] > np.pi / 2:
                 pos[1] = np.pi - pos[1] # mirror at pi/2 pitch angle
 
-            if pos[2] <= self.L_centers[0]:
+            if pos[2] <= self.L_edges[0]:
                 break # surface impact
 
-            if pos[2] >= self.L_centers[-1]:
+            if pos[2] >= self.L_edges[-1]:
                 break # hit source boundary condition
 
             history[0,i_step] = s
@@ -189,7 +186,7 @@ class RadBeltIntegrator(object):
 
             # momentum too low
 
-            too_cold = np.nonzero(pos[0] <= self.g_centers[0])[0]
+            too_cold = np.nonzero(pos[0] <= self.g_edges[0])[0]
 
             for i_to_remove in too_cold[::-1]:
                 i_last = pos.shape[1] - 1
@@ -208,7 +205,7 @@ class RadBeltIntegrator(object):
 
             # momentum too high?
 
-            too_hot = np.nonzero(pos[0] >= self.g_centers[-1])[0]
+            too_hot = np.nonzero(pos[0] >= self.g_edges[-1])[0]
             if too_hot.size:
                 print('warning: some particle energies got too high')
 
@@ -229,7 +226,7 @@ class RadBeltIntegrator(object):
 
             # Loss cone?
 
-            loss_cone = np.nonzero(pos[1] <= self.alpha_centers[0])[0]
+            loss_cone = np.nonzero(pos[1] <= self.alpha_edges[0])[0]
 
             for i_to_remove in loss_cone[::-1]:
                 i_last = pos.shape[1] - 1
@@ -253,7 +250,7 @@ class RadBeltIntegrator(object):
 
             # Surface impact?
 
-            surface_impact = np.nonzero(pos[2] <= self.L_centers[0])[0]
+            surface_impact = np.nonzero(pos[2] <= self.L_edges[0])[0]
 
             for i_to_remove in surface_impact[::-1]:
                 i_last = pos.shape[1] - 1
@@ -272,7 +269,7 @@ class RadBeltIntegrator(object):
 
             # Hit the source boundary?
 
-            outer_edge = np.nonzero(pos[2] >= self.L_centers[-1])[0]
+            outer_edge = np.nonzero(pos[2] >= self.L_edges[-1])[0]
 
             for i_to_remove in outer_edge[::-1]:
                 i_last = pos.shape[1] - 1
@@ -321,7 +318,7 @@ class RadBeltIntegrator(object):
 
         state = np.empty((5, n_particles)) # (g, alpha, L, log-weight, residence time)
         state[0], state[1] = bdy.sample(self, n_particles)
-        state[2] = self.L_centers[-1]
+        state[2] = self.L_edges[-1]
         state[3] = 0.
         state[4] = 0.
 
@@ -385,18 +382,18 @@ class RadBeltIntegrator(object):
             # Deal with particles exiting out of bounds
 
             oob = (
-                (state[0] < self.g_centers[0]) |
-                (state[0] > self.g_centers[-1]) |
-                (state[1] < self.alpha_centers[0]) |
-                (state[2] < self.L_centers[0]) |
-                (state[2] > self.L_centers[-1])
+                (state[0] < self.g_edges[0]) |
+                (state[0] > self.g_edges[-1]) |
+                (state[1] < self.alpha_edges[0]) |
+                (state[2] < self.L_edges[0]) |
+                (state[2] > self.L_edges[-1])
             )
 
             n_exiting = oob.sum()
             n_exited += n_exiting
             sum_residence_times += state[4,oob].sum()
             state[0,oob], state[1,oob] = bdy.sample(self, n_exiting)
-            state[2,oob] = self.L_centers[-1]
+            state[2,oob] = self.L_edges[-1]
             state[3,oob] = 0.
             state[4,oob] = 0.
 
@@ -427,10 +424,10 @@ class RadBeltIntegrator(object):
         mn -= delta
 
         hb = om.layout.HBox(3)
-        hb[0] = om.quickXY(self.g_centers, med_g, u'g', ymin=mn, ymax=mx)
-        hb[1] = om.quickXY(self.alpha_centers, med_a, u'α', ymin=mn, ymax=mx)
+        hb[0] = om.quickXY(self.g_edges, med_g, u'g', ymin=mn, ymax=mx)
+        hb[1] = om.quickXY(self.alpha_edges, med_a, u'α', ymin=mn, ymax=mx)
         hb[1].lpainter.paintLabels = False
-        hb[2] = om.quickXY(self.L_centers, med_l, u'L', ymin=mn, ymax=mx)
+        hb[2] = om.quickXY(self.L_edges, med_l, u'L', ymin=mn, ymax=mx)
         hb[2].lpainter.paintLabels = False
         hb.setWeight(0, 1.1) # extra room for labels
         return hb

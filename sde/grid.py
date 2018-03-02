@@ -353,10 +353,10 @@ def jac_gal_mjphi_analytic(M, J, phi, c=1., m0=1., B0=1., R0=1., numder=False):
 
 
 def demo_rad_diff_in_gal(grid, D0, n):
-    OH_NO_p = grid.p_centers
+    OH_NO_p = grid.p_edges
     g = np.log(OH_NO_p / (cgs.c * grid.m0))
-    alpha = grid.alpha_centers
-    L = grid.L_centers
+    alpha = grid.alpha_edges
+    L = grid.L_edges
 
     Dphiphi = D0 * L**(n - 4)
     DMM = DJJ = Dphiphi * 1e-8
@@ -444,15 +444,15 @@ def synchrotron_loss_integral(y, parallel=True):
 
 class Gridder(object):
     def __init__(self, g_edges, alpha_edges, L_edges):
-        self.g_edges = g_edges
-        self.alpha_edges = alpha_edges
-        self.L_edges = L_edges
+        self.g_edges_1d = np.asarray(g_edges)
+        self.alpha_edges_1d = np.asarray(alpha_edges)
+        self.L_edges_1d = np.asarray(L_edges)
 
-        self.g_centers = 0.5 * (g_edges[:-1] + g_edges[1:]).reshape((1, 1, -1))
-        self.alpha_centers = 0.5 * (alpha_edges[:-1] + alpha_edges[1:]).reshape((1, -1, 1))
-        self.L_centers = 0.5 * (L_edges[:-1] + L_edges[1:]).reshape((-1, 1, 1))
+        self.g_edges = self.g_edges_1d.reshape((1, 1, -1))
+        self.alpha_edges = self.alpha_edges_1d.reshape((1, -1, 1))
+        self.L_edges = self.L_edges_1d.reshape((-1, 1, 1))
 
-        self.y = np.sin(self.alpha_centers)
+        self.y = np.sin(self.alpha_edges)
 
         self.a = [0, 0, 0]
 
@@ -478,7 +478,7 @@ class Gridder(object):
         g_hi = 3.1 # ~11 MeV (needed to sample mm-emitting particles well)
 
         alpha_lo = 0.08 # ~4 deg
-        alpha_hi = 0.5 * np.pi
+        alpha_hi = 0.499 * np.pi
 
         l_lo = 1.1
         l_hi = 7.0
@@ -493,7 +493,7 @@ class Gridder(object):
     def dipole(self, *, B0, radius):
         self.B0 = float(B0)
         self.radius = float(radius)
-        self.B = self.B0 * self.L_centers**-3
+        self.B = self.B0 * self.L_edges**-3
         return self
 
 
@@ -503,7 +503,7 @@ class Gridder(object):
 
         # Helpful related quantities.
 
-        gamma_beta = np.exp(self.g_centers)
+        gamma_beta = np.exp(self.g_edges)
         self.beta = np.sqrt(gamma_beta**2 / (1 + gamma_beta**2))
         self.gamma = np.sqrt(1 + gamma_beta**2)
         self.p = self.m0 * self.c_light * gamma_beta
@@ -536,9 +536,9 @@ class Gridder(object):
 
         """
         def calc_items_of_interest(eps_g, eps_alpha, eps_L, DEBUG=False):
-            g = self.g_centers + eps_g
-            alpha = self.alpha_centers + eps_alpha
-            L = self.L_centers + eps_L
+            g = self.g_edges + eps_g
+            alpha = self.alpha_edges + eps_alpha
+            L = self.L_edges + eps_L
 
             y = np.sin(alpha)
 
@@ -604,17 +604,17 @@ class Gridder(object):
 
         log_jac_prime = [
             -3,
-            -2 / np.tan(2 * self.alpha_centers) - np.cos(self.alpha_centers) * Tprime / T,
-            -2 / self.L_centers,
+            -2 / np.tan(2 * self.alpha_edges) - np.cos(self.alpha_edges) * Tprime / T,
+            -2 / self.L_edges,
         ]
 
         dljdaa = ( # d/da( dH/da / H) = d^2(ln H)/da^2
-            4 / np.sin(2 * self.alpha_centers)**2
+            4 / np.sin(2 * self.alpha_edges)**2
             - self.y * Tprime / T
-            + np.cos(self.alpha_centers)**2 * (Tprime**2 / T - Tprpr) / T
+            + np.cos(self.alpha_edges)**2 * (Tprime**2 / T - Tprpr) / T
         )
 
-        log_jac_prpr = [[0, 0, 0], [0, dljdaa, 0], [0, 0, -2 / self.L_centers**2]]
+        log_jac_prpr = [[0, 0, 0], [0, dljdaa, 0], [0, 0, -2 / self.L_edges**2]]
 
         # Now we can put everything in terms of a, c, L.
 
@@ -657,12 +657,12 @@ class Gridder(object):
         delta_x = delta_waves / Omega_e # ditto
 
         def ofs_compute(eps_g, eps_alpha):
-            gamma_beta = np.exp(self.g_centers + eps_g)
+            gamma_beta = np.exp(self.g_edges + eps_g)
             p = gamma_beta * self.m0 * self.c_light
             gamma = np.sqrt(1 + gamma_beta**2)
             E = gamma - 1 # kinetic energy normalized to rest energy
 
-            y = np.sin(self.alpha_centers + eps_alpha)
+            y = np.sin(self.alpha_edges + eps_alpha)
 
             daa, dap, dpp = compute(
                 E,
@@ -821,8 +821,7 @@ class Gridder(object):
         # gridded coefficients.
 
         for arr in self.a + self.b[0] + self.b[1] + self.b[2] + [self.loss]:
-            ddl, dda, ddg = np.gradient(arr, self.L_centers.flat,
-                                        self.alpha_centers.flat, self.g_centers.flat)
+            ddl, dda, ddg = np.gradient(arr, self.L_edges_1d, self.alpha_edges_1d, self.g_edges_1d)
 
             for a in ddl, dda, ddg: # Avoid division by zero.
                 np.abs(a, out=a)
@@ -837,9 +836,9 @@ class Gridder(object):
         # aggressively to match the distance to the boundary. This is important for
         # correctly matching the boundary conditions.
 
-        delta_g = abs(self.g_centers[:,:,1] - self.g_centers[:,:,0])
-        delta_a = abs(self.alpha_centers[:,1,:] - self.alpha_centers[:,0,:])
-        delta_l = abs(self.L_centers[1,:,:] - self.L_centers[0,:,:])
+        delta_g = abs(self.g_edges_1d[1] - self.g_edges_1d[0])
+        delta_a = abs(self.alpha_edges_1d[1] - self.alpha_edges_1d[0])
+        delta_l = abs(self.L_edges_1d[1] - self.L_edges_1d[0])
 
         sg[:,:,0] = np.minimum(sg[:,:,0], 0.01 * delta_g)
         sg[:,:,1] = np.minimum(sg[:,:,1], 0.3 * delta_g)
@@ -919,7 +918,7 @@ def gen_grid_cli(args):
 
     B0 = 3000 # G
     radius = cgs.rjup
-    DLL_at_L1 = 1e45 # fudged to be comparable to P/alpha coefficient magnitudes
+    DLL_at_L1 = 1e41 # fudged to be comparable to P/alpha coefficient magnitudes
     k_LL = 3
 
     # Parameters for Summers (2005) energy/pitch-angle diffusion model
@@ -938,12 +937,16 @@ def gen_grid_cli(args):
             .compute_b()
             .compute_log_delta_t())
 
+    print('hacking alpha bounds')
+    grid.alpha_edges_1d[-1] = 0.5 * np.pi
+    grid.alpha_edges[:,-1,:] = 0.5 * np.pi
+
     # That's it!
 
     with open(settings.output_path, 'wb') as f:
-        np.save(f, grid.g_edges)
-        np.save(f, grid.alpha_edges)
-        np.save(f, grid.L_edges)
+        np.save(f, grid.g_edges_1d)
+        np.save(f, grid.alpha_edges_1d)
+        np.save(f, grid.L_edges_1d)
 
         for i in range(3):
             np.save(f, grid.a[i])
