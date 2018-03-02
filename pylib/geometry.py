@@ -630,8 +630,11 @@ class SimpleWasherDistribution(object):
         return n_e, p
 
 
-class GriddedDistribution(object):
-    """A distribution of particles evaluated numerically on some grid.
+class IsotropicGriddedDistribution(object):
+    """A distribution of particles evaluated numerically on some grid, where the
+    pitch angles are isotropically distributed. (This was used when I only had
+    Symphony available and couldn't do synchrotron modeling of anisotropic
+    particle populations.)
 
     distrib
       An instance of `pylib.distribution.ParticleDistribution` containing the
@@ -654,6 +657,99 @@ class GriddedDistribution(object):
         # this module print a reminder message about it.
 
         print('WARNING: discarding pitch-angle distribution information')
+
+        cube = distrib.f.sum(axis=2)
+
+        # Pre-compute the densities, assuming Ls are evenly sampled. We fudge
+        # things a bit here by taking the volume of an L shell to be the
+        # volume of an infinitesimally small surface rooted in L and latitude,
+        # rather than a real dipolar surface. The difference should be small.
+        # I hope.
+
+        N_e = cube.sum(axis=-1)
+        delta_L = np.median(np.diff(distrib.L))
+        delta_lat = np.median(np.diff(distrib.lat))
+        volume = 4 * np.pi * distrib.L**2 / 3 * delta_L * radius**3 * delta_lat / (0.5 * np.pi)
+        self.n_e = N_e / volume.reshape((-1, 1))
+
+        # Pre-compute the power-law indices
+
+        logE = np.log(distrib.Ekin_mev)
+        logn = np.ma.log(np.ma.MaskedArray(cube, mask=(cube <= 0)))
+        nl, nlat = cube.shape[:2]
+        self.p = np.zeros((nl, nlat))
+
+        for i_l in range(nl):
+            for i_lat in range(nlat):
+                this_logn = logn[i_l,i_lat]
+                if this_logn.mask.all():
+                    self.p[i_l,i_lat] = 3
+                    continue
+
+                c, residues, rank, singulars, rcond = np.ma.polyfit(logE, this_logn, 1, full=True)
+                # TODO: goodness-of-fit!!!
+                self.p[i_l,i_lat] = -c[0]
+
+        # Finally, set up to interpolate to arbitrary L and latitude values.
+        # Outside of our bounds, report zeros, which the integrator will deal
+        # with.
+
+        from scipy.interpolate import LinearNDInterpolator
+
+        coords = np.empty((nl * nlat, 2))
+        coords[:,0] = np.broadcast_to(distrib.L.reshape((-1, 1)), (nl, nlat)).flat
+        coords[:,1] = np.broadcast_to(distrib.lat, (nl, nlat)).flat
+
+        data = np.empty((nl * nlat, 2))
+        data[:,0] = self.n_e.flat
+        data[:,1] = self.p.flat
+
+        self.interp = LinearNDInterpolator(coords, data, fill_value=0.)
+
+
+    @broadcastize(3,(0,0))
+    def get_samples(self, mlat, mlon, L, just_ne=False):
+        """Sample properties of the electron distribution at the specified locations
+        in magnetic field coordinates. Arguments are magnetic latitude,
+        longitude, and McIlwain L parameter.
+
+        Returns: (n_e, p), where
+
+        n_e
+           Array of electron densities corresponding to the provided coordinates.
+           Units of electrons per cubic centimeter.
+        p
+           Array of power-law indices of the electrons at the provided coordinates.
+
+        """
+        # This is an axially symmetric model, so mlon is ignored. We're also
+        # symmetric about the magnetic equator.
+
+        coords = np.empty(L.shape + (2,))
+        coords[...,0] = L
+        coords[...,1] = np.abs(mlat)
+
+        r = self.interp(coords)
+        n_e = r[...,0]
+        p = r[...,1]
+        return n_e, p
+
+
+class GriddedDistribution(object):
+    """A distribution of particles evaluated numerically on some grid.
+
+    distrib
+      An instance of `pylib.distribution.ParticleDistribution` containing the
+      gridded data.
+    radius
+      The radius of the body in cm. This is used to compute particle densities
+      in real physical units.
+
+    """
+    parameter_names = ['n_e', 'p', 'k']
+
+    def __init__(self, distrib, radius):
+        self.distrib = distrib
 
         cube = distrib.f.sum(axis=2)
 
@@ -1377,7 +1473,7 @@ class VanAllenSetup(object):
 
 
 def basic_setup(
-        nu = 95,
+        ghz = 95,
         lat_of_cen = 10,
         cml = 20,
         dipole_tilt = 15,
@@ -1392,7 +1488,7 @@ def basic_setup(
     """Create and return a fairly basic VanAllenSetup object. Defaults to using
     TiltedDipoleField, SimpleTorusDistribution, NeuroSynchrotronCalculator.
 
-    nu
+    ghz
       The observing frequency, in GHz.
     lat_of_cen
       The body's latitude-of-center, in degrees.
@@ -1418,7 +1514,7 @@ def basic_setup(
 
     """
     # Unit conversions:
-    nu *= 1e9
+    nu = ghz * 1e9
     lat_of_cen *= astutil.D2R
     cml *= astutil.D2R
     dipole_tilt *= astutil.D2R
