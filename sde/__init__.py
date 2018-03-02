@@ -64,16 +64,38 @@ class IsotropicMaxwellianBoundary(object):
         Returns `(g, alpha)`, where both tuple items are 1D n-sized vectors of
         values.
 
-        We take the *rbi* argument to ensure that our generated values lie within
-        the parameter range it allows.
+        We take the *rbi* argument to ensure that our generated values lie
+        within the parameter range it allows. We do a hack of re-drawing
+        values for out-of-bounds parameters; of course this technically
+        monkeys with the final distributions marginally, but it's still the
+        least-bad approach.
 
         """
         sigma = np.sqrt(cgs.me * cgs.k * self.T)
         momenta = np.random.normal(scale=sigma, size=(n, 3))
         g = np.log(np.sqrt((momenta**2).sum(axis=1)) / (cgs.me * cgs.c)) # assuming non-relativistic
-        g = np.maximum(g, rbi.g_edges[0])
+
+        while True:
+            bad = (g < rbi.g_edges[0])
+            n_bad = bad.sum()
+
+            if not n_bad:
+                break
+
+            momenta = np.random.normal(scale=sigma, size=(n_bad, 3))
+            g[bad] = np.log(np.sqrt((momenta**2).sum(axis=1)) / (cgs.me * cgs.c))
+
         alpha = np.arccos(np.random.uniform(0, 1, size=n))
-        alpha = np.maximum(alpha, rbi.alpha_edges[0])
+
+        while True:
+            bad = (alpha < rbi.alpha_edges[0])
+            n_bad = bad.sum()
+
+            if not n_bad:
+                break
+
+            alpha[bad] = np.arccos(np.random.uniform(0, 1, size=n_bad))
+
         return g, alpha
 
 
