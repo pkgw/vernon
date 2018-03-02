@@ -751,81 +751,91 @@ class GriddedDistribution(object):
     def __init__(self, distrib, radius):
         self.distrib = distrib
 
-        cube = distrib.f.sum(axis=2)
-
         # Pre-compute the densities, assuming Ls are evenly sampled. We fudge
         # things a bit here by taking the volume of an L shell to be the
         # volume of an infinitesimally small surface rooted in L and latitude,
         # rather than a real dipolar surface. The difference should be small.
         # I hope.
 
-        N_e = cube.sum(axis=-1)
+        N_e = distrib.f.sum(axis=(2, 3)) # N_e has shape (nl, nlat)
         delta_L = np.median(np.diff(distrib.L))
         delta_lat = np.median(np.diff(distrib.lat))
         volume = 4 * np.pi * distrib.L**2 / 3 * delta_L * radius**3 * delta_lat / (0.5 * np.pi)
-        self.n_e = N_e / volume.reshape((-1, 1))
+        n_e = N_e / volume.reshape((-1, 1))
 
-        # Pre-compute the power-law indices
-
-        logE = np.log(distrib.Ekin_mev)
-        logn = np.ma.log(np.ma.MaskedArray(cube, mask=(cube <= 0)))
-        nl, nlat = cube.shape[:2]
-        self.p = np.zeros((nl, nlat))
-
-        for i_l in range(nl):
-            for i_lat in range(nlat):
-                this_logn = logn[i_l,i_lat]
-                if this_logn.mask.all():
-                    self.p[i_l,i_lat] = 3
-                    continue
-
-                c, residues, rank, singulars, rcond = np.ma.polyfit(logE, this_logn, 1, full=True)
-                # TODO: goodness-of-fit!!!
-                self.p[i_l,i_lat] = -c[0]
-
-        # Finally, set up to interpolate to arbitrary L and latitude values.
-        # Outside of our bounds, report zeros, which the integrator will deal
-        # with.
-
-        from scipy.interpolate import LinearNDInterpolator
-
-        coords = np.empty((nl * nlat, 2))
-        coords[:,0] = np.broadcast_to(distrib.L.reshape((-1, 1)), (nl, nlat)).flat
-        coords[:,1] = np.broadcast_to(distrib.lat, (nl, nlat)).flat
-
-        data = np.empty((nl * nlat, 2))
-        data[:,0] = self.n_e.flat
-        data[:,1] = self.p.flat
-
-        self.interp = LinearNDInterpolator(coords, data, fill_value=0.)
+        from scipy.interpolate import RegularGridInterpolator
+        self.ne_interp = RegularGridInterpolator(
+            [distrib.L, distrib.lat],
+            n_e,
+            bounds_error = False,
+            fill_value = 0.,
+        )
 
 
-    @broadcastize(3,(0,0))
+    @broadcastize(3,(0,0,0))
     def get_samples(self, mlat, mlon, L, just_ne=False):
-        """Sample properties of the electron distribution at the specified locations
-        in magnetic field coordinates. Arguments are magnetic latitude,
-        longitude, and McIlwain L parameter.
+        base_shape = mlat.shape
+        transposed = np.empty(base_shape + (2,))
+        transposed[...,0] = L
+        transposed[...,1] = mlat
+        n_e = self.ne_interp(transposed)
 
-        Returns: (n_e, p), where
+        if just_ne:
+            return (n_e, n_e, n_e) # easiest way to make broadcastize happy
 
-        n_e
-           Array of electron densities corresponding to the provided coordinates.
-           Units of electrons per cubic centimeter.
-        p
-           Array of power-law indices of the electrons at the provided coordinates.
+        # For each position to sample, manually interpolate a 2D grid of
+        # numbers of particles as a function of E and y, then fit the particle
+        # distribution parameters p and k.
 
-        """
-        # This is an axially symmetric model, so mlon is ignored. We're also
-        # symmetric about the magnetic equator.
+        from pwkit import lsqmdl
 
-        coords = np.empty(L.shape + (2,))
-        coords[...,0] = L
-        coords[...,1] = np.abs(mlat)
+        gamma_2d = (1 + self.distrib.Ekin_mev / 0.510999).reshape((1, -1))
+        y_2d = self.distrib.y.reshape((-1, 1))
+        y_2d = np.maximum(y_2d, 1e-5) # avoid div-by-zero
 
-        r = self.interp(coords)
-        n_e = r[...,0]
-        p = r[...,1]
-        return n_e, p
+        def mfunc(norm, p, k):
+            return norm * gamma_2d**(-p) * y_2d**k
+
+        p = np.empty_like(mlat)
+        k = np.empty_like(mlat)
+
+        L_scaled = self.distrib.nl * (L - self.distrib.L[0]) / (self.distrib.L[-1] - self.distrib.L[0]) # e.g., 1.7
+        L_indices = L_scaled.astype(np.int) # e.g., 1
+        L_weights = L_scaled - L_indices # e.g. 0.7 = weight to app
+        edge = (L_indices >= self.distrib.nl - 1) # ignore L out of bounds
+        L_indices[edge] = self.distrib.nl - 2
+        L_weights[edge] = 1.0
+
+        lat_scaled = self.distrib.nlat * (mlat - self.distrib.lat[0]) / (self.distrib.lat[-1] - self.distrib.lat[0])
+        lat_indices = lat_scaled.astype(np.int)
+        lat_weights = lat_scaled - lat_indices
+        edge = (lat_indices >= self.distrib.nlat - 1) # ignore lat out of bounds
+        lat_indices[edge] = self.distrib.nlat - 2
+        lat_weights[edge] = 1.0
+
+        f = self.distrib.f
+        p = np.zeros(base_shape)
+        k = np.zeros(base_shape)
+
+        for i in range(mlat.size):
+            arg_idx = np.unravel_index(i, base_shape)
+            L_idx = L_indices[arg_idx]
+            L_wt = L_weights[arg_idx]
+            lat_idx = lat_indices[arg_idx]
+            lat_wt = lat_weights[arg_idx]
+
+            this_f = (
+                (1 - L_wt) * (1 - lat_wt) * f[L_idx,lat_idx] +
+                L_wt       * (1 - lat_wt) * f[L_idx+1,lat_idx] +
+                (1 - L_wt) * lat_wt       * f[L_idx,lat_idx+1] +
+                L_wt       * lat_wt       * f[L_idx+1,lat_idx+1]
+            )
+
+            mdl = lsqmdl.Model(mfunc, this_f).solve((this_f.max(), 2., 1.))
+            p[arg_idx] = mdl.params[1]
+            k[arg_idx] = mdl.params[2]
+
+        return n_e, p, k
 
 
 class DG83Distribution(object):
