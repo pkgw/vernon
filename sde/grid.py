@@ -903,6 +903,81 @@ class Gridder(object):
 
 import argparse
 from pwkit.cli import die
+from pylib.config import Configuration
+from pylib.geometry import BodyConfiguration
+
+
+class GenGridTask(Configuration):
+    """Generate the grids to be used by the SDE evaluator.
+
+    """
+    __section__ = 'sde-gen-grid'
+
+    body = BodyConfiguration
+
+    B0 = 3000
+    "Dipolar field strength in Gauss."
+
+    log10_DLL_at_L1 = 41
+    "Logarithm of the radial diffusion coefficient."
+
+    k_LL = 3
+    "Power-law radial scaling of the radial diffusion coefficient."
+
+    n_cold_plasma = 1e4
+    "Number density of equatorial cold plasma particles, in cm^-3."
+
+    delta_B = 1e-4
+    "Amplitude of magnetic waves in Summers 2005 formalism, in Gauss."
+
+    omega_waves = 1e7
+    "Center of the Summers 2005 magnetic wave spectrum, in rad/s."
+
+    delta_waves = 5e6
+    "Width of the Summers 2005 magnetic wave spectrum, in rad/s."
+
+    max_wave_lat = 0.5
+    "Maximum latitude at which waves are found, in radians."
+
+    n_g = 128
+    "Number of g (log-momentum) grid faces."
+
+    n_alpha = 128
+    "Number of alpha (pitch angle) grid faces."
+
+    n_L = 128
+    "Number of L (radial position) grid faces."
+
+
+    def gen_grid(self, output_path):
+        grid = (Gridder.new_demo(n_g = self.n_g, n_alpha = self.n_alpha, n_l = self.n_L)
+                .dipole(B0 = self.B0, radius = cgs.rjup * self.body.radius)
+                .electron_cgs()
+                .basic_radial_diffusion(D0 = 10.**self.log10_DLL_at_L1, n = self.k_LL)
+                .summers_pa_coefficients(self.n_cold_plasma, self.delta_B, self.omega_waves,
+                                         self.delta_waves, self.max_wave_lat)
+                .synchrotron_losses_cgs()
+                .compute_b()
+                .compute_log_delta_t())
+
+        print('hacking alpha bounds')
+        grid.alpha_edges_1d[-1] = 0.5 * np.pi
+        grid.alpha_edges[:,-1,:] = 0.5 * np.pi
+
+        with open(output_path, 'wb') as f:
+            np.save(f, grid.g_edges_1d)
+            np.save(f, grid.alpha_edges_1d)
+            np.save(f, grid.L_edges_1d)
+
+            for i in range(3):
+                np.save(f, grid.a[i])
+
+            for i in range(3):
+                for j in range(i + 1):
+                    np.save(f, grid.b[i][j])
+
+            np.save(f, grid.loss)
+            np.save(f, grid.lndt)
 
 
 def gen_grid_cli(args):
@@ -912,58 +987,13 @@ def gen_grid_cli(args):
     ap = argparse.ArgumentParser(
         prog = 'sde gen-grid',
     )
+    ap.add_argument('config_path', metavar='CONFIG-PATH',
+                    help='The path to the setup configuration file.')
     ap.add_argument('output_path', metavar='OUTPUT-PATH',
                     help='The destination path for the NPY file of computed coefficients.')
     settings = ap.parse_args(args=args)
-
-    B0 = 3000 # G
-    radius = cgs.rjup
-    DLL_at_L1 = 1e41 # fudged to be comparable to P/alpha coefficient magnitudes
-    k_LL = 3
-
-    # Parameters for Summers (2005) energy/pitch-angle diffusion model
-    n_pl = 1e4 # number density of (equatorial?) cold plasma particles, cm^-3
-    delta_B = 1e-4 # amplitude of magnetic waves, in Gauss
-    omega_waves = 1e7 # center of the wave frequency spectrum, in rad/s
-    delta_waves = 5e6 # widtdh of the wave frequency spectrum, in rad/s
-    max_wave_lat = 0.5 # maximum latitude at which waves are found, in radians
-
-    grid = (Gridder.new_demo(n_g = 128, n_alpha = 128, n_l = 128)
-            .dipole(B0 = B0, radius = radius)
-            .electron_cgs()
-            .basic_radial_diffusion(D0=DLL_at_L1, n=k_LL)
-            .summers_pa_coefficients(n_pl, delta_B, omega_waves, delta_waves, max_wave_lat)
-            .synchrotron_losses_cgs()
-            .compute_b()
-            .compute_log_delta_t())
-
-    print('hacking alpha bounds')
-    grid.alpha_edges_1d[-1] = 0.5 * np.pi
-    grid.alpha_edges[:,-1,:] = 0.5 * np.pi
-
-    # That's it!
-
-    with open(settings.output_path, 'wb') as f:
-        np.save(f, grid.g_edges_1d)
-        np.save(f, grid.alpha_edges_1d)
-        np.save(f, grid.L_edges_1d)
-
-        for i in range(3):
-            np.save(f, grid.a[i])
-
-        for i in range(3):
-            for j in range(i + 1):
-                np.save(f, grid.b[i][j])
-
-        np.save(f, grid.loss)
-        np.save(f, grid.lndt)
+    task = GenGridTask.from_toml(settings.config_path)
+    task.gen_grid(settings.output_path)
 
 
-def entrypoint(argv):
-    if len(argv) == 1:
-        die('must supply a subcommand: "gen-grid"')
-
-    if argv[1] == 'gen-grid':
-        gen_grid_cli(argv[2:])
-    else:
-        die('unrecognized subcommand %r', argv[1])
+# note: entrypoint multiplexing done in sde/__init__.py

@@ -16,6 +16,15 @@ from pwkit.astutil import halfpi, twopi
 from pwkit.numutil import broadcastize
 
 
+from .config import Configuration
+
+class BodyConfiguration(Configuration):
+    __section__ = 'body'
+
+    radius = 1.1
+    "Body radius in Jupiter radii."
+
+
 @broadcastize(3,(0,0,0))
 def cart_to_sph(x, y, z):
     """Convert Cartesian coordinates (x, y, z) to spherical (lat, lon, r).

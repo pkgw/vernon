@@ -643,7 +643,7 @@ def forward_cli(args):
 
 def entrypoint(argv):
     if len(argv) == 1:
-        die('must supply a subcommand: "average", "cube-to-particles", "forward", "gen-grid"')
+        die('must supply a subcommand: "average", "cube-to-particles", "forward", "gen-gg-config", "gen-grid"')
 
     if argv[1] == 'average':
         average_cli(argv[2:])
@@ -651,6 +651,9 @@ def entrypoint(argv):
         cube_to_particles_cli(argv[2:])
     elif argv[1] == 'forward':
         forward_cli(argv[2:])
+    elif argv[1] == 'gen-gg-config':
+        from .grid import GenGridTask
+        GenGridTask.generate_config_cli('sde gen-gg-config', argv[2:])
     elif argv[1] == 'gen-grid':
         from .grid import gen_grid_cli
         gen_grid_cli(argv[2:])
