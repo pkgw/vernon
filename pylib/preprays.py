@@ -347,6 +347,8 @@ def make_assemble_parser():
     ap = argparse.ArgumentParser(
         prog = 'preprays assemble'
     )
+    ap.add_argument('paramset',
+                    help='The name of the parametrization used in the input files (dg83, gridded).')
     ap.add_argument('glob',
                     help='A shell glob expression to match the Numpy data files.')
     ap.add_argument('outpath',
@@ -357,6 +359,11 @@ def make_assemble_parser():
 def assemble_cli(args):
     import glob, h5py, os.path
     settings = make_assemble_parser().parse_args(args=args)
+
+    if settings.paramset == 'dg83':
+        params = dg83_ray_parameters
+    elif settings.paramset == 'gridded':
+        params = gridded_ray_parameters
 
     info_by_frame = {}
     n_frames = 0
@@ -380,7 +387,7 @@ def assemble_cli(args):
                 arr = np.load(f)
 
             n_vals, width, _ = arr.shape
-            assert n_vals == len(dg83_ray_parameters) # XXX work with gridded distributions too
+            assert n_vals == len(params)
             n_cols = start_col + width
             max_start_col = start_col
 
@@ -410,7 +417,7 @@ def assemble_cli(args):
 
             ds['/frame%04d/counts' % frame_num] = counts
 
-            for i, pname in enumerate(dg83_ray_parameters):
+            for i, pname in enumerate(params):
                 ds['/frame%04d/%s' % (frame_num, pname)] = data[i]
 
 
