@@ -1,5 +1,5 @@
 # -*- mode: python; coding: utf-8 -*-
-# Copyright 2015-2017 Peter Williams and collaborators.
+# Copyright 2015-2018 Peter Williams and collaborators.
 # Licensed under the MIT License.
 
 """The 3D geometry of a tilted, rotating magnetic dipolar field, and
@@ -18,11 +18,34 @@ from pwkit.numutil import broadcastize
 
 from .config import Configuration
 
+
 class BodyConfiguration(Configuration):
     __section__ = 'body'
 
     radius = 1.1
     "Body radius in Jupiter radii."
+
+
+class MagneticFieldConfiguration(Configuration):
+    """TODO: we could allow configurations besides tilted dipoles!"""
+
+    __section__ = 'magnetic-field'
+
+    moment = 3000.
+    """The dipole moment, measured in units of [Gauss * R_body**3], where R_body
+    is the body's radius. Negative values are OK. Because of the choice of
+    length unit, `moment` is the field strength on the surface at the magnetic
+    pole, by construction.
+
+    """
+    tilt_deg = 15.
+    """The angular offset of the dipole axis away from the body's rotation axis,
+    in degrees. The dipole axis is defined to lie on a body-centric longitude
+    of zero.
+
+    """
+    def to_field(self):
+        return TiltedDipoleField(self.tilt_deg * astutil.D2R, self.moment)
 
 
 @broadcastize(3,(0,0,0))
@@ -1554,6 +1577,42 @@ def basic_setup(
                          rad_trans, radius, nu)
 
 
+def prep_rays_setup(
+        ghz = 95,
+        lat_of_cen = 10,
+        cml = 20,
+        radius = 1.1,
+        bfield = None,
+        distrib = None,
+):
+    """Create and return a VanAllenSetup object that will be used in the
+    "preprays" tool: it precomputes all of the key quantities needed to do
+    raytracing but doesn't actually do the integration. This make it faster to
+    compute images at multiple frequencies for a given set of parameters.
+
+    ghz
+      The observing frequency, in GHz.
+    lat_of_cen
+      The body's latitude-of-center, in degrees.
+    cml
+      The body's central meridian longitude, in degrees.
+    radius
+      The body's radius, in Jupiter radii.
+    bfield
+      A magnetic field object, e.g. TiltedDipoleField.
+    distrib
+      A particle distribution object, e.g. GriddedDistribution.
+
+    """
+    nu = ghz * 1e9
+    lat_of_cen *= astutil.D2R
+    cml *= astutil.D2R
+    radius *= cgs.rjup
+    o2b = ObserverToBodycentric(lat_of_cen, cml)
+    ray_tracer = BasicRayTracer()
+    return VanAllenSetup(o2b, bfield, distrib, ray_tracer, None, None, radius, nu)
+
+
 def dg83_setup(
         ghz = 95,
         lat_of_cen = 10,
@@ -1615,19 +1674,38 @@ def dg83_setup(
                          rad_trans, cgs.rjup, ghz * 1e9)
 
 
+class ImageConfiguration(Configuration):
+    __section__ = 'image'
+
+    nx = 23
+    "The image width / number of columns."
+
+    ny = 23
+    "The image height / number of rows."
+
+    xhalfsize = 7.0
+    "The half-width of the image in body radii."
+
+    aspect = 1.0
+    "The physical aspect ratio of the image."
+
+
 class ImageMaker(object):
     setup = None
-    nx = 23
-    ny = 23
-    xhalfsize = 7
-    yhalfsize = 7
+    config = None
 
     def __init__(self, **kwargs):
         for k, v in six.iteritems(kwargs):
             setattr(self, k, v)
 
-        self._xvals = np.linspace(-self.xhalfsize, self.xhalfsize, self.nx)
-        self._yvals = np.linspace(-self.yhalfsize, self.yhalfsize, self.ny)
+        if self.config is None:
+            self.config = ImageConfiguration()
+
+        xhs = self.config.xhalfsize
+        yhs = xhs / self.config.aspect
+
+        self._xvals = np.linspace(-xhs, xhs, self.config.nx)
+        self._yvals = np.linspace(-yhs, yhs, self.config.ny)
 
 
     def compute(self, whole_ray=False, **kwargs):
@@ -1654,7 +1732,7 @@ class ImageMaker(object):
             raise ValueError('cannot use printiter or printrows when parallelizing')
 
         if n_rows is None:
-            n_rows = self.ny
+            n_rows = self.config.ny
         row_indices = range(first_row, first_row + n_rows)
 
         self._prep_for_multiprocessing()
@@ -1668,9 +1746,9 @@ class ImageMaker(object):
             (func,) = fixed_args
             iyabs = var_arg
 
-            buf = np.empty(v_shape + (self.nx,))
+            buf = np.empty(v_shape + (self.config.nx,))
 
-            for ix in range(self.nx):
+            for ix in range(self.config.nx):
                 ray = self.get_ray(ix, iyabs)
                 buf[...,ix] = func(ray)
 
@@ -1692,7 +1770,7 @@ class ImageMaker(object):
 
         """
         if n_rows is None:
-            n_rows = self.ny
+            n_rows = self.config.ny
         row_indices = range(first_row, first_row + n_rows)
 
         data = None
@@ -1701,7 +1779,7 @@ class ImageMaker(object):
             tprev = time()
 
         for iyrel, iyabs in enumerate(row_indices):
-            for ix in range(self.nx):
+            for ix in range(self.config.nx):
                 if printiter:
                     print(ix, iyabs, self._xvals[ix], self._yvals[iyabs])
 
@@ -1712,7 +1790,7 @@ class ImageMaker(object):
                     v_shape = np.shape(value)
                     if v_shape == ():
                         v_shape = (1,)
-                    data = np.zeros(v_shape + (n_rows, self.nx))
+                    data = np.zeros(v_shape + (n_rows, self.config.nx))
 
                 data[:,iyrel,ix] = value
 
@@ -1789,12 +1867,13 @@ class PrecomputedImageMaker(ImageMaker):
     """
     def __init__(self, setup, h5path):
         self.setup = setup
-        self.xhalfsize = self.yhalfsize = None
+        self.config = ImageConfiguration()
+        self.config.xhalfsize = self.config.aspect = None
 
         import h5py
         self.ds = h5py.File(h5path)
         self.cur_frame_group = self.ds['/frame0000']
-        self.ny, self.nx = self.cur_frame_group['counts'].shape
+        self.config.ny, self.config.nx = self.cur_frame_group['counts'].shape
 
 
     def select_frame(self, new_frame_num):
@@ -1827,10 +1906,10 @@ class PrecomputedImageMaker(ImageMaker):
 
 
     def get_ray(self, ix, iy):
-        if ix < 0 or ix >= self.nx:
-            raise ValueError('bad ix (%r); nx = %d' % (ix, self.nx))
-        if iy < 0 or iy >= self.ny:
-            raise ValueError('bad iy (%r); ny = %d' % (iy, self.ny))
+        if ix < 0 or ix >= self.config.nx:
+            raise ValueError('bad ix (%r); nx = %d' % (ix, self.config.nx))
+        if iy < 0 or iy >= self.config.ny:
+            raise ValueError('bad iy (%r); ny = %d' % (iy, self.config.ny))
 
         n = self.cur_frame_group['counts'][iy,ix]
         ray = Ray(None, None, None, self.setup, no_init=True)

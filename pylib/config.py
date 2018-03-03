@@ -8,6 +8,65 @@ a lot of knobs we can turn.
 """
 
 
+def merge_nested_dicts(base, more):
+    """Given two dictionaries that may contain sub-dictionarie, merge *more* into
+    *base*, overwriting duplicated values.
+
+    """
+    for key, val in more.items():
+        if isinstance(val, dict):
+            base_val = base.setdefault(key, {})
+
+            if not isinstance(base_val, dict):
+                raise Exception('trying to merge a dictionary named "%s" into a non-dictionary %r'
+                                % (key, base_val))
+
+            merge_nested_dicts(base_val, val)
+        else:
+            base[key] = val
+
+    return base
+
+
+def load_tomls_with_inheritance(path):
+    import os.path
+    import pytoml
+
+    to_load = [path]
+    dicts = []
+
+    while len(to_load):
+        this_path = to_load[0]
+
+        with open(this_path, 'rt') as f:
+            this_dict = pytoml.load(f)
+
+        inherit_spec = this_dict.get('inherit')
+
+        if inherit_spec is None:
+            to_inherit = []
+        elif isinstance(inherit_spec, str):
+            to_inherit = [inherit_spec]
+        elif isinstance(inherit_spec, list):
+            to_inherit = inherit_spec
+        else:
+            raise Exception('unhandled \"inherit\" specification in config file \"%s\": %r'
+                            % (this_path, inherit_spec))
+
+        for item in to_inherit:
+            to_load.append(os.path.join(os.path.dirname(this_path), item))
+
+        dicts.append(this_dict)
+        to_load = to_load[1:]
+
+    data = {}
+
+    for item in dicts[::-1]:
+        merge_nested_dicts(data, item)
+
+    return data
+
+
 class Configuration(object):
     """A simple class for saving and loading configuration from TOML files.
 
@@ -31,17 +90,15 @@ class Configuration(object):
     @classmethod
     def __config_items(cls):
         for name, default in cls.__dict__.items():
-            if name[0] != '_' and not callable(default):
+            if name[0] != '_' and (isinstance(default, type) or not callable(default)):
                 yield name, default
 
 
     @classmethod
     def from_collection(cls, obj):
         inst = cls()
-        my_section = obj.get(cls.__section__)
+        my_section = obj.get(cls.__section__, {})
 
-        if my_section is None:
-            raise RuntimeError('missing required configuration section "%s"' % cls.__section__)
         if not isinstance(my_section, dict):
             raise RuntimeError('configuration item "%s" should be a dict, but is instead %r'
                                % (cls.__section__, my_section))
@@ -69,10 +126,7 @@ class Configuration(object):
 
     @classmethod
     def from_toml(cls, path):
-        import pytoml
-
-        with open(path, 'rt') as f:
-            data = pytoml.load(f)
+        data = load_tomls_with_inheritance(path)
 
         try:
             return cls.from_collection(data)
@@ -84,6 +138,10 @@ class Configuration(object):
     def update_toml(cls, path):
         """Update a config file, preserving existing known entries but adding values
         for parameters that weren't given values explicitly before.
+
+        Note that this intentionally does not use the inheritance scheme,
+        since we don't want to add all of the inherited values to the existing
+        file.
 
         """
         import pytoml

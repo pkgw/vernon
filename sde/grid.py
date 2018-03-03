@@ -904,7 +904,7 @@ class Gridder(object):
 import argparse
 from pwkit.cli import die
 from pylib.config import Configuration
-from pylib.geometry import BodyConfiguration
+from pylib.geometry import BodyConfiguration, MagneticFieldConfiguration
 
 
 class GenGridTask(Configuration):
@@ -914,9 +914,7 @@ class GenGridTask(Configuration):
     __section__ = 'sde-gen-grid'
 
     body = BodyConfiguration
-
-    B0 = 3000
-    "Dipolar field strength in Gauss."
+    field = MagneticFieldConfiguration
 
     log10_DLL_at_L1 = 41
     "Logarithm of the radial diffusion coefficient."
@@ -951,7 +949,7 @@ class GenGridTask(Configuration):
 
     def gen_grid(self, output_path):
         grid = (Gridder.new_demo(n_g = self.n_g, n_alpha = self.n_alpha, n_l = self.n_L)
-                .dipole(B0 = self.B0, radius = cgs.rjup * self.body.radius)
+                .dipole(B0 = self.field.moment, radius = cgs.rjup * self.body.radius)
                 .electron_cgs()
                 .basic_radial_diffusion(D0 = 10.**self.log10_DLL_at_L1, n = self.k_LL)
                 .summers_pa_coefficients(self.n_cold_plasma, self.delta_B, self.omega_waves,

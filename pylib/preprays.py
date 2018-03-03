@@ -18,6 +18,9 @@ import argparse, io, os.path, sys
 import numpy as np
 from pwkit.cli import die
 
+from .config import Configuration
+from .geometry import BodyConfiguration, ImageConfiguration, MagneticFieldConfiguration
+
 
 def make_model_parser(prog='preprays', allow_cml=True):
     """These arguments specify the inputs to the physical model and the imaging
@@ -26,32 +29,21 @@ def make_model_parser(prog='preprays', allow_cml=True):
     """
     ap = argparse.ArgumentParser(prog=prog)
 
-    ap.add_argument('-r', dest='n_rows', type=int, metavar='NUMBER', default=35,
-                    help='The number of rows in the output images [%(default)d].')
-    ap.add_argument('-c', dest='n_cols', type=int, metavar='NUMBER', default=35,
-                    help='The number of columns in the output images [%(default)d].')
+    ap.add_argument('-c', dest='config_path', metavar='CONFIG-PATH',
+                    help='The path to the configuration file.')
     ap.add_argument('-L', dest='loc', type=float, metavar='DEGREES', default=10.,
                     help='The latitude of center to use [%(default).0f].')
-    ap.add_argument('-w', dest='xhw', type=float, metavar='RADII', default=5.,
-                    help='The half-width of the image in body radii [%(default).1f].')
-    ap.add_argument('-a', dest='aspect', type=float, metavar='RATIO', default=1.,
-                    help='The physical aspect ratio of the image [%(default).1f].')
-    ap.add_argument('-s', dest='max_n_samps', type=int, metavar='NUMBER', default=1500,
-                    help='The maximum number of model samples allowed along each ray [%(default)d].')
-    ap.add_argument('-f', dest='ghz', type=float, metavar='GHz', default=1.,
-                    help='The minimum radio frequency that will be imaged from the data [%(default).1f].')
 
     if allow_cml:
         ap.add_argument('-C', dest='cml', type=float, metavar='NUMBER', default=0.,
                         help='The central meridian longitude [%(default).1f].')
 
-    ap.add_argument('nn_dir', metavar='NN-PATH',
-                    help='Path to the trained neural network data for the RT coefficients.')
-
     return ap
 
 
 # ljob to crunch the numbers for the DG83 model.
+#
+# XXX this code is now stale w.r.t. the configuration system.
 
 dg83_ray_parameters = 's B theta psi n_e p n_e_cold k'.split()
 
@@ -189,19 +181,28 @@ def seed_dg83_cli(args):
 gridded_ray_parameters = 's B theta psi n_e p k'.split()
 
 
-def make_gridded_model_parser(prog='preprays', allow_cml=True):
-    ap = make_model_parser(prog, allow_cml)
-    ap.add_argument('-S', dest='particles_scale', type=float, metavar='SCALE', default=1.,
-                    help='Scale the densities in the particles file by this factor [%(default).1f].')
-    ap.add_argument('-R', dest='radius', type=float, metavar='RJUP', default=1.1,
-                    help='Set the radius of the body to be simulated [%(default).2f].')
-    ap.add_argument('particles_path', metavar='PARTICLES-FILE',
-                    help='Path to the file of saved ParticleDistribution information.')
-    return ap
+class GriddedPrepraysConfiguration(Configuration):
+    __section__ = 'gridded-prep-rays'
+
+    body = BodyConfiguration
+    image = ImageConfiguration
+    field = MagneticFieldConfiguration
+
+    max_n_samps = 1500
+    "The maximum number of model sample allowed along each ray."
+
+    min_ghz = 1.
+    "The minimum radio frequency that will be imaged from the data."
+
+    log10_particles_scale = 0
+    "The log of a value by which to scale the gridded particle densities."
+
+    particles_path = 'undefined'
+    "The path to the ParticleDistribution data file."
 
 
 def make_compute_gridded_parser():
-    ap = make_gridded_model_parser(prog='preprays _do-gridded')
+    ap = make_model_parser(prog='preprays _do-gridded')
     ap.add_argument('frame_num', type=int)
     ap.add_argument('row_num', type=int)
     ap.add_argument('start_col', type=int)
@@ -211,46 +212,39 @@ def make_compute_gridded_parser():
 
 def compute_gridded_cli(args):
     settings = make_compute_gridded_parser().parse_args(args=args)
+    config = GriddedPrepraysConfiguration.from_toml(settings.config_path)
 
     from . import geometry, particles
     from pwkit import cgs
 
-    particles = particles.ParticleDistribution.load(settings.particles_path)
-    particles.f *= settings.particles_scale
+    particles = particles.ParticleDistribution.load(config.particles_path)
+    particles.f *= 10. ** config.log10_particles_scale
 
-    distrib = geometry.GriddedDistribution(particles, cgs.rjup * settings.radius)
-
-    setup = geometry.basic_setup(
-        ghz = settings.ghz,
+    setup = geometry.prep_rays_setup(
+        ghz = config.min_ghz,
         lat_of_cen = settings.loc,
         cml = settings.cml,
-        nn_dir = settings.nn_dir,
+        radius = config.body.radius,
+        bfield = config.field.to_field(),
+        distrib = geometry.GriddedDistribution(particles, cgs.rjup * config.body.radius),
     )
 
-    setup.distrib = distrib
+    half_radii_per_xpix = config.image.xhalfsize / config.image.nx
+    half_radii_per_ypix = half_radii_per_xpix / config.image.aspect
+    half_height = half_radii_per_ypix * config.image.ny
 
-    half_radii_per_xpix = settings.xhw / settings.n_cols
-    half_radii_per_ypix = half_radii_per_xpix / settings.aspect
-    half_height = half_radii_per_ypix * settings.n_rows
-
-    imaker = geometry.ImageMaker(
-        setup = setup,
-        nx = settings.n_cols,
-        ny = settings.n_rows,
-        xhalfsize = settings.xhw,
-        yhalfsize = half_height,
-    )
+    imaker = geometry.ImageMaker(setup = setup, config = config.image)
 
     n_vals = len(gridded_ray_parameters)
-    data = np.zeros((n_vals, settings.n_cols_to_compute, settings.max_n_samps))
+    data = np.zeros((n_vals, settings.n_cols_to_compute, config.max_n_samps))
     n_samps = np.zeros((settings.n_cols_to_compute,), dtype=np.int)
 
     for i in range(settings.n_cols_to_compute):
         ray = imaker.get_ray(settings.start_col + i, settings.row_num)
 
-        if ray.s.size >= settings.max_n_samps:
+        if ray.s.size >= config.max_n_samps:
             die('too many samples required for ray at ix=%d iy=%d: max=%d, got=%d',
-                settings.start_col + i, settings.row_num, setting.max_n_samps, ray.s.size)
+                settings.start_col + i, settings.row_num, config.max_n_samps, ray.s.size)
 
         n_samps[i] = ray.s.size
         sl = slice(0, ray.s.size)
@@ -270,7 +264,7 @@ def compute_gridded_cli(args):
 
 
 def make_seed_gridded_parser():
-    ap = make_gridded_model_parser(prog='preprays seed-gridded', allow_cml=False)
+    ap = make_model_parser(prog='preprays seed-gridded', allow_cml=False)
 
     ap.add_argument('-N', dest='n_cml', type=int, metavar='NUMBER', default=4,
                     help='The number of CMLs to sample [%(default)d].')
@@ -282,48 +276,30 @@ def make_seed_gridded_parser():
 
 def seed_gridded_cli(args):
     settings = make_seed_gridded_parser().parse_args(args=args)
+    config = GriddedPrepraysConfiguration.from_toml(settings.config_path)
 
-    print('Physical parameters:', file=sys.stderr)
-    print('   Particle data:', settings.particles_path, file=sys.stderr)
-    print('   Particle scale factor: %g' % settings.particles_scale, file=sys.stderr)
-    print('   Body radius (Rjup): %.3f' % settings.radius, file=sys.stderr)
-    print('   Neural network data:', settings.nn_dir, file=sys.stderr)
-    print('   Targeted minimum frequency to image: %.3f' % settings.ghz, file=sys.stderr)
+    print('Runtime-fixed parameters:', file=sys.stderr)
     print('   Latitude of center:', settings.loc, file=sys.stderr)
-    print('   Image half-width in radii:', settings.xhw, file=sys.stderr)
-    half_radii_per_xpix = settings.xhw / settings.n_cols
-    half_radii_per_ypix = half_radii_per_xpix / settings.aspect
-    half_height = half_radii_per_ypix * settings.n_rows
-    print('   Image half-height in radii:', half_height, file=sys.stderr)
-    print('Image parameters:', file=sys.stderr)
     print('   CMLs to image:', settings.n_cml, file=sys.stderr)
-    print('   Rows (height; y):', settings.n_rows, file=sys.stderr)
-    print('   Columns (width; x):', settings.n_cols, file=sys.stderr)
-    print('   Max # samples along each ray:', settings.max_n_samps, file=sys.stderr)
     print('Job parameters:', file=sys.stderr)
     print('   Column groups:', settings.n_col_groups, file=sys.stderr)
-    n_tasks = settings.n_cml * settings.n_rows * settings.n_col_groups
+    n_tasks = settings.n_cml * config.image.ny * settings.n_col_groups
     print('   Total tasks:', n_tasks, file=sys.stderr)
 
     cmls = np.linspace(0., 360., settings.n_cml + 1)[:-1]
 
-    nn_dir = os.path.realpath(settings.nn_dir)
-    particles_path = os.path.realpath(settings.particles_path)
-
-    common_args = '-r %d -c %d -L %.3f -w %.3f -a %.3f -s %d -f %.3f -S %g -R %g %s %s' % \
-        (settings.n_rows, settings.n_cols, settings.loc, settings.xhw, settings.aspect,
-         settings.max_n_samps, settings.ghz, settings.particles_scale, settings.radius,
-         nn_dir, particles_path)
+    config_path = os.path.realpath(settings.config_path)
+    common_args = '-c %s -L %.3f' % (config_path, settings.loc)
 
     if settings.n_col_groups == 1:
-        first_width = rest_width = settings.n_cols
+        first_width = rest_width = config.image.nx
         start_cols = [0]
         col_widths = [first_width]
     else:
         # If we were cleverer we could try to make the groups all about equal
         # sizes, but this is probably going to all be powers of 2 anyway.
-        rest_width = settings.n_cols // settings.n_col_groups
-        first_width = settings.n_cols - (settings.n_col_groups - 1) * rest_width
+        rest_width = config.image.nx // settings.n_col_groups
+        first_width = config.image.nx - (settings.n_col_groups - 1) * rest_width
         start_cols = [0, first_width]
         col_widths = [first_width, rest_width]
 
@@ -334,7 +310,7 @@ def seed_gridded_cli(args):
     for frame_num in range(settings.n_cml):
         cml = cmls[frame_num]
 
-        for i_row in range(settings.n_rows):
+        for i_row in range(config.image.ny):
             for i_col in range(settings.n_col_groups):
                 taskid = '%d_%d_%d' % (frame_num, i_row, i_col)
                 print('%s preprays _do-gridded -C %.3f %s %d %d %d %d' %
@@ -425,9 +401,13 @@ def assemble_cli(args):
 
 def entrypoint(argv):
     if len(argv) == 1:
-        die('must supply a subcommand: "seed-dg83", "seed-gridded", "assemble"')
+        die('must supply a subcommand: "assemble", "gen-grid-config", "seed-dg83", "seed-gridded", ')
 
-    if argv[1] == 'seed-dg83':
+    if argv[1] == 'assemble':
+        assemble_cli(argv[2:])
+    elif argv[1] == 'gen-grid-config':
+        GriddedPrepraysConfiguration.generate_config_cli('preprays gen-grid-config', argv[2:])
+    elif argv[1] == 'seed-dg83':
         seed_dg83_cli(argv[2:])
     elif argv[1] == '_do-dg83':
         compute_dg83_cli(argv[2:])
@@ -435,7 +415,5 @@ def entrypoint(argv):
         seed_gridded_cli(argv[2:])
     elif argv[1] == '_do-gridded':
         compute_gridded_cli(argv[2:])
-    elif argv[1] == 'assemble':
-        assemble_cli(argv[2:])
     else:
         die('unrecognized subcommand %r', argv[1])
