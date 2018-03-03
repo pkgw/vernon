@@ -806,6 +806,8 @@ class GriddedDistribution(object):
 
     @broadcastize(3,(0,0,0))
     def get_samples(self, mlat, mlon, L, just_ne=False):
+        mlat = np.abs(mlat) # top/bottom symmetry!
+
         base_shape = mlat.shape
         transposed = np.empty(base_shape + (2,))
         transposed[...,0] = L
