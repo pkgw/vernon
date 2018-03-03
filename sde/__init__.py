@@ -10,8 +10,19 @@ from __future__ import absolute_import, division, print_function
 
 import numpy as np
 from pwkit import cgs
+from pylib.config import Configuration
 from scipy import interpolate, special
 import time
+
+
+class BoundaryConfiguration(Configuration):
+    __section__ = 'boundary-condition'
+
+    temperature = 1.2e6
+    "The temperature of the Maxwell-Boltzmann momentum distribution, in Kelvin."
+
+    def to_boundary(self):
+        return IsotropicMaxwellianBoundary(self.temperature)
 
 
 class IsotropicMaxwellianBoundary(object):
@@ -394,11 +405,6 @@ class RadBeltIntegrator(object):
 
             delta_state[3] = -self.i_loss(posT) * delta_t
             delta_state[4] = 1.
-            #print(
-            #    ' '.join(['%.5f' % x for x in np.median(state[:4], axis=1)]),
-            #    '     ',
-            #    ' '.join(['%.5f' % x for x in np.median(delta_state[:4], axis=1)]),
-            #)
             state += delta_state
 
             # Deal with particles exiting out of bounds
@@ -428,8 +434,7 @@ class RadBeltIntegrator(object):
         print('elapsed: %.0f seconds' % elapsed)
         print('total particle-steps:', n_particles * n_steps)
         print('particle-steps per ms: %.0f' % (0.001 * n_particles * n_steps / elapsed))
-        mrt = sum_residence_times / n_exited
-        print('mean residence time:', mrt)
+        print('mean residence time:', sum_residence_times / n_exited)
         return grid
 
 
@@ -621,8 +626,8 @@ def forward_cli(args):
     ap = argparse.ArgumentParser(
         prog = 'sde forward',
     )
-    ap.add_argument('-T', dest='temperature', type=float, metavar='TEMPERATURE', default=1.2e6,
-                    help='The temperature of the injected particles.')
+    ap.add_argument('-c', dest='config_path', metavar='CONFIG-PATH',
+                    help='The path to the configuration file.')
     ap.add_argument('-p', dest='particles', type=int, metavar='PARTICLES', default=8192,
                     help='The number of particles to track at once.')
     ap.add_argument('-s', dest='steps', type=int, metavar='STEPS', default=100000,
@@ -632,8 +637,9 @@ def forward_cli(args):
     ap.add_argument('output_path', metavar='OUTPUT-PATH',
                     help='The destination path for the NPY file of particle positions.')
     settings = ap.parse_args(args=args)
+    config = BoundaryConfiguration.from_toml(settings.config_path)
 
-    bdy = IsotropicMaxwellianBoundary(settings.temperature)
+    bdy = config.to_boundary()
     rbi = RadBeltIntegrator(settings.grid_path)
     grid = rbi.jokipii_many(bdy, settings.particles, settings.steps)
 
