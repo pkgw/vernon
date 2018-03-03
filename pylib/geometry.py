@@ -1871,7 +1871,7 @@ class PrecomputedImageMaker(ImageMaker):
         self.config.xhalfsize = self.config.aspect = None
 
         import h5py
-        self.ds = h5py.File(h5path)
+        self.ds = h5py.File(h5path, 'r')
         self.cur_frame_group = self.ds['/frame0000']
         self.config.ny, self.config.nx = self.cur_frame_group['counts'].shape
 

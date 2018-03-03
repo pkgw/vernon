@@ -138,7 +138,7 @@ def view_hdf5_cli(args):
 
     arrays = []
 
-    with h5py.File(settings.FILE) as ds:
+    with h5py.File(settings.FILE, 'r') as ds:
         for item in settings.ITEMS:
             a = ds[item][...]
             if settings.outer_plane_number is not None:
