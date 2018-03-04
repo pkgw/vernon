@@ -995,13 +995,15 @@ class DG83Distribution(object):
         return (n_e, n_e_cold, p, k)
 
 
-class BasicRayTracer(object):
+class BasicRayTracer(Configuration):
     """Class the implements the definition of a ray through the magnetosphere. By
     definition, rays end at a specified X/Y location in observer coordinates,
     with Z = infinity and traveling along the observer Z axis. They might not
     start there if we ever implement refraction.
 
     """
+    __section__ = 'ray-tracing'
+
     way_back_z = -15.
     "A Z coordinate well behind the object, in units of the body's radius."
 
@@ -1586,6 +1588,7 @@ def prep_rays_setup(
         radius = 1.1,
         bfield = None,
         distrib = None,
+        ray_tracer = None,
 ):
     """Create and return a VanAllenSetup object that will be used in the
     "preprays" tool: it precomputes all of the key quantities needed to do
@@ -1604,6 +1607,8 @@ def prep_rays_setup(
       A magnetic field object, e.g. TiltedDipoleField.
     distrib
       A particle distribution object, e.g. GriddedDistribution.
+    ray_tracer
+      A ray tracer object, e.g. BasicRayTracer.
 
     """
     nu = ghz * 1e9
@@ -1611,7 +1616,6 @@ def prep_rays_setup(
     cml *= astutil.D2R
     radius *= cgs.rjup
     o2b = ObserverToBodycentric(lat_of_cen, cml)
-    ray_tracer = BasicRayTracer()
     return VanAllenSetup(o2b, bfield, distrib, ray_tracer, None, None, radius, nu)
 
 

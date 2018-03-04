@@ -19,7 +19,7 @@ import numpy as np
 from pwkit.cli import die
 
 from .config import Configuration
-from .geometry import BodyConfiguration, ImageConfiguration, MagneticFieldConfiguration
+from .geometry import BasicRayTracer, BodyConfiguration, ImageConfiguration, MagneticFieldConfiguration
 
 
 def make_model_parser(prog='preprays', allow_cml=True):
@@ -187,6 +187,7 @@ class GriddedPrepraysConfiguration(Configuration):
     body = BodyConfiguration
     image = ImageConfiguration
     field = MagneticFieldConfiguration
+    ray_tracer = BasicRayTracer
 
     max_n_samps = 1500
     "The maximum number of model sample allowed along each ray."
@@ -227,6 +228,7 @@ def compute_gridded_cli(args):
         radius = config.body.radius,
         bfield = config.field.to_field(),
         distrib = geometry.GriddedDistribution(particles, cgs.rjup * config.body.radius),
+        ray_tracer = config.ray_tracer,
     )
 
     half_radii_per_xpix = config.image.xhalfsize / config.image.nx
