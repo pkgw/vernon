@@ -539,7 +539,7 @@ class Gridder(object):
         particles are lost.
 
         """
-        from scipy.optimize import fminbound, newton
+        from scipy.optimize import brentq, fminbound
 
         def equatorial_body_distance(mlon, L):
             """Given the magnetic longitude and McIlwain L-shell number for an equatorial
@@ -571,7 +571,7 @@ class Gridder(object):
         # Find the biggest L value at which every single particle gets within
         # `loss_radius` of the body. Every particle is lost at this shell.
 
-        self.loss_L_min = newton(calc_one_equatorial_min_body_distance, 2)
+        self.loss_L_min = brentq(calc_one_equatorial_min_body_distance, 0.001, 20)
 
         if self.loss_L_min < self.L_edges.min():
             print('maybe warning: atmospheric loss minimal L lies outside of L grid; patching')
@@ -619,7 +619,7 @@ class Gridder(object):
             if min_delta_dist > 0.:
                 return 0.
 
-            xform_alpha = newton(min_body_distance_delta_loss_radius, -1.5, args=(mlon, L))
+            xform_alpha = brentq(min_body_distance_delta_loss_radius, -20, 20, args=(mlon, L))
             alpha = 0.25 * np.pi * (1 + np.tanh(xform_alpha))
             return -alpha
 
