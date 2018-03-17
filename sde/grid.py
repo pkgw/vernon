@@ -539,7 +539,7 @@ class Gridder(object):
         particles are lost.
 
         """
-        from scipy.optimize import brent, newton
+        from scipy.optimize import fminbound, newton
 
         def equatorial_body_distance(mlon, L):
             """Given the magnetic longitude and McIlwain L-shell number for an equatorial
@@ -565,8 +565,8 @@ class Gridder(object):
             at which this is achieved
 
             """
-            return brent(equatorial_body_distance, args=(L,), brack=[-1.5 * np.pi, 1.5 * np.pi],
-                         full_output=True)[1] - loss_radius
+            return fminbound(equatorial_body_distance, 0, 2 * np.pi, args=(L,),
+                             full_output=True)[1] - loss_radius
 
         # Find the biggest L value at which every single particle gets within
         # `loss_radius` of the body. Every particle is lost at this shell.
@@ -577,8 +577,8 @@ class Gridder(object):
             print('maybe warning: atmospheric loss minimal L lies outside of L grid; patching')
             self.loss_L_min = self.L_edges.min()
 
-        def min_body_distance_delta_loss_radius(alpha, mlon, L):
-            """For a particle with the given equatorial pitch angle, McIlwaid L shell
+        def min_body_distance_delta_loss_radius(norm_alpha, mlon, L):
+            """For a particle with the given equatorial pitch angle, McIlwain L shell
             number, and magnetic longitude, figure out how close it will get
             to the body in its bounce path, in units of the body radius. The
             point of closest approach is always at one of the particle's
@@ -586,7 +586,11 @@ class Gridder(object):
             approach value and `loss_radius` since we're interested in finding
             the `alpha` for which the mirroring radius is that value.
 
+            We use a transformed parameter for alpha since the numerical
+            optimizer likes to make big jumps when the going gets tough
+
             """
+            alpha = 0.25 * np.pi * (1 + np.tanh(norm_alpha))
             y = np.sin(alpha)
             tm = theta_m(y) # magnetic colatitude at which it mirrors
             mlat = 0.5 * np.pi - tm # mirroring magnetic latitude
@@ -604,10 +608,19 @@ class Gridder(object):
             minimizer to identify the largest loss-cone pitch angle at fixed
             L.
 
+            For some field configurations, you can find field lines where
+            particles never hit the body. For those we just return 0. If the
+            configuration isn't pathological, there will be some other
+            longitude where the particles do hit the body.
+
             """
-            alpha = newton(min_body_distance_delta_loss_radius, 0.05, args=(mlon, L))
-            if alpha < 0: # calculation is symmetric in alpha, so the optimizer can land here
-                alpha = -alpha
+
+            min_delta_dist = min_body_distance_delta_loss_radius(-np.inf, mlon, L)
+            if min_delta_dist > 0.:
+                return 0.
+
+            xform_alpha = newton(min_body_distance_delta_loss_radius, -1.5, args=(mlon, L))
+            alpha = 0.25 * np.pi * (1 + np.tanh(xform_alpha))
             return -alpha
 
         self.alpha_min = np.empty_like(self.L_edges_1d)
@@ -618,8 +631,8 @@ class Gridder(object):
             if L <= self.loss_L_min:
                 self.alpha_min[i] = 0.5 * np.pi
             else:
-                self.alpha_min[i] = -brent(calc_one_neg_alpha_min, args=(L,),
-                                           brack=[-1.5 * np.pi, 1.5 * np.pi], full_output=True)[1]
+                self.alpha_min[i] = -fminbound(calc_one_neg_alpha_min, 0, 2 * np.pi, args=(L,),
+                                               full_output=True)[1]
 
         if np.any(self.alpha_min < self.alpha_edges.min()):
             print('maybe warning: at least one atmospheric loss minimal alpha '
