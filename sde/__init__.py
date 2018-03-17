@@ -128,6 +128,8 @@ class RadBeltIntegrator(object):
                     self.b[i][j] = np.load(f)
 
             self.loss = np.load(f)
+            self.loss_L_min = np.load(f) # scalar
+            self.alpha_min = np.load(f) # same shape as L_edges
             self.lndt = np.load(f)
 
         self.g_centers = 0.5 * (self.g_edges[:-1] + self.g_edges[1:])
@@ -148,6 +150,14 @@ class RadBeltIntegrator(object):
                 self.i_b[j][i] = self.i_b[i][j]
 
         self.i_loss = interpolate.RegularGridInterpolator(points, self.loss.T)
+
+        # In the Jokipii method function, we use this interpolator with
+        # particles that might be out of bounds, which would lead to an
+        # exception if we used the default `bounds_error = True`. Fortunately,
+        # precisely because such particles are out of bounds, we can ignore
+        # the error and return a nonsense value.
+        self.i_alpha_min = interpolate.RegularGridInterpolator([self.L_edges], self.alpha_min,
+                                                               bounds_error=False, fill_value=100.)
         self.i_lndt = interpolate.RegularGridInterpolator(points, self.lndt.T)
 
 
@@ -164,14 +174,14 @@ class RadBeltIntegrator(object):
                 print('warning: particle energy got too high')
                 break
 
-            if pos[1] <= self.alpha_edges[0]:
+            if pos[1] <= self.i_alpha_min(pos[2]):
                 break # loss cone
 
             if pos[1] > np.pi / 2:
                 pos[1] = np.pi - pos[1] # mirror at pi/2 pitch angle
 
-            if pos[2] <= self.L_edges[0]:
-                break # surface impact
+            if pos[2] <= self.loss_L_min:
+                break # (drift-averaged) surface impact
 
             if pos[2] >= self.L_edges[-1]:
                 break # hit source boundary condition
@@ -266,8 +276,8 @@ class RadBeltIntegrator(object):
             oob = (
                 (state[0] < self.g_edges[0]) |
                 (state[0] > self.g_edges[-1]) |
-                (state[1] < self.alpha_edges[0]) |
-                (state[2] < self.L_edges[0]) |
+                (state[1] < self.i_alpha_min(state[2])) |
+                (state[2] < self.loss_L_min) |
                 (state[2] > self.L_edges[-1])
             )
 

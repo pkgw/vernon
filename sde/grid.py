@@ -391,7 +391,7 @@ def det3(c):
 @broadcastize(1, 1)
 def theta_m(y):
     """Calculate the mirrororing colatitude given y. Also implemented in the
-    summers2005 C code (although that computes colatitude). Uses approach
+    summers2005 C code (although that computes latitude). Uses approach
     outlined in Shprits 2006, equation 10.
 
     """
@@ -515,6 +515,118 @@ class Gridder(object):
 
     def electron_cgs(self):
         return self.particle(m0=cgs.me, c_light=cgs.c)
+
+
+    def compute_L_and_alpha_min(self, *, field=None, loss_radius=1.01):
+        """Compute the loss-cone pitch angle as a function of L. Particles with pitch
+        angles smaller than the loss-cone value are lost to atmospheric impact
+        before they magnetically mirror.
+
+        This is a bit trickier to compute than you might think since we
+        support magnetic fields that are offset dipoles. In this application,
+        that means that longitudinal symmetry of the computation is broken. We
+        assume that particles drift longitudinally much faster than they
+        migrate radially, so that at a given L there is one loss-cone pitch
+        angle which is the *largest* such angle at any longitude.
+
+        It's almost surely possible to do this computation more cleverly, at
+        least in the case of a dipolar field, but whatever.
+
+        We also compute L_min, the smallest L value at which any particles can
+        survive. Under the same approximations as above, with an offset dipole
+        you can reach a value of L such that particles of *any* pitch angle
+        will impact that atmosphere at some latitude, which implies that all
+        particles are lost.
+
+        """
+        from scipy.optimize import brent, newton
+
+        def equatorial_body_distance(mlon, L):
+            """Given the magnetic longitude and McIlwain L-shell number for an equatorial
+            particle, return how close to the body it is, in units of the body
+            radius.
+
+            """
+            mr = L # true for equatorial particles
+            _, _, bc_r = field._from_dc(0, mlon, mr) # magnetic-field-centric to body-centric
+            return bc_r
+
+        def calc_one_equatorial_min_body_distance(L):
+            """In a given McIlwain L shell, find the minimum distance from the body
+            achieved by equatorial particles (i.e., ones with equatorial pitch
+            angles of 90°) over a longitudinal drift orbit. Since
+            non-equatorial particles always get closer to the body, it is
+            guaranteed that every single particle in this shell at some point
+            gets at least this close to the body over the course of their
+            longitudinal drift patterns.
+
+            We return the difference between this minimum distance approach
+            value and `loss_radius` since we're interested in finding the `L`
+            at which this is achieved
+
+            """
+            return brent(equatorial_body_distance, args=(L,), brack=[-1.5 * np.pi, 1.5 * np.pi],
+                         full_output=True)[1] - loss_radius
+
+        # Find the biggest L value at which every single particle gets within
+        # `loss_radius` of the body. Every particle is lost at this shell.
+
+        self.loss_L_min = newton(calc_one_equatorial_min_body_distance, 2)
+
+        if self.loss_L_min < self.L_edges.min():
+            print('maybe warning: atmospheric loss minimal L lies outside of L grid; patching')
+            self.loss_L_min = self.L_edges.min()
+
+        def min_body_distance_delta_loss_radius(alpha, mlon, L):
+            """For a particle with the given equatorial pitch angle, McIlwaid L shell
+            number, and magnetic longitude, figure out how close it will get
+            to the body in its bounce path, in units of the body radius. The
+            point of closest approach is always at one of the particle's
+            mirror points. We return the difference between this closest
+            approach value and `loss_radius` since we're interested in finding
+            the `alpha` for which the mirroring radius is that value.
+
+            """
+            y = np.sin(alpha)
+            tm = theta_m(y) # magnetic colatitude at which it mirrors
+            mlat = 0.5 * np.pi - tm # mirroring magnetic latitude
+            mr = L * np.cos(mlat)**2 # dipole-centric radius
+            _, _, bc_r1 = field._from_dc(mlat, mlon, mr) # magnetic-field-centric to body-centric
+            _, _, bc_r2 = field._from_dc(-mlat, mlon, mr)
+            bc_r = min(bc_r1, bc_r2)
+            return bc_r - loss_radius
+
+        def calc_one_neg_alpha_min(mlon, L):
+            """At a particular magnetic longitude and McIlwain L shell value, calculate
+            the *negation of* equatorial pitch angle of the loss cone. This is
+            just the pitch angle at which `body_mirror_delta_loss_radius` is
+            zero. We negate the result since we're going to use a function
+            minimizer to identify the largest loss-cone pitch angle at fixed
+            L.
+
+            """
+            alpha = newton(min_body_distance_delta_loss_radius, 0.05, args=(mlon, L))
+            if alpha < 0: # calculation is symmetric in alpha, so the optimizer can land here
+                alpha = -alpha
+            return -alpha
+
+        self.alpha_min = np.empty_like(self.L_edges_1d)
+
+        for i in range(self.alpha_min.size):
+            L = self.L_edges_1d[i]
+
+            if L <= self.loss_L_min:
+                self.alpha_min[i] = 0.5 * np.pi
+            else:
+                self.alpha_min[i] = -brent(calc_one_neg_alpha_min, args=(L,),
+                                           brack=[-1.5 * np.pi, 1.5 * np.pi], full_output=True)[1]
+
+        if np.any(self.alpha_min < self.alpha_edges.min()):
+            print('maybe warning: at least one atmospheric loss minimal alpha '
+                  'lies outside of alpha grid; patching')
+            self.alpha_min = np.maximum(self.alpha_min, self.alpha_edges.min())
+
+        return self
 
 
     def basic_radial_diffusion(self, *, D0, n):
@@ -948,9 +1060,15 @@ class GenGridTask(Configuration):
 
 
     def gen_grid(self, output_path):
+        # Note that for almost all of these computations we only use the field
+        # moment; under our current set of assumptions, these simulations
+        # don't need to know if the field is offset from the body center or
+        # anything. The exception is the loss-cone pitch angle calculation.
+
         grid = (Gridder.new_demo(n_g = self.n_g, n_alpha = self.n_alpha, n_l = self.n_L)
                 .dipole(B0 = self.field.moment, radius = cgs.rjup * self.body.radius)
                 .electron_cgs()
+                .compute_L_and_alpha_min(field=self.field.to_field())
                 .basic_radial_diffusion(D0 = 10.**self.log10_DLL_at_L1, n = self.k_LL)
                 .summers_pa_coefficients(self.n_cold_plasma, self.delta_B, self.omega_waves,
                                          self.delta_waves, self.max_wave_lat)
@@ -975,6 +1093,14 @@ class GenGridTask(Configuration):
                     np.save(f, grid.b[i][j])
 
             np.save(f, grid.loss)
+
+            # These can be calculated pretty quickly and are nearly derivable
+            # given only the above values, but at the moment I'd rather
+            # compute them here rather than have the SDE forward-integration
+            # code calculate them every time it loads up a file.
+
+            np.save(f, grid.loss_L_min)
+            np.save(f, grid.alpha_min)
             np.save(f, grid.lndt)
 
 
