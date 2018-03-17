@@ -44,8 +44,34 @@ class MagneticFieldConfiguration(Configuration):
     of zero.
 
     """
+    delta_x = 0.
+    """The displacement of the dipole center perpendicular to the dipole axis, in
+    the plane containing both the dipole axis and the rotational axis (i.e.,
+    the longitude = 0 plane). Measured in units of the body's radius. Positive
+    values move the dipole center towards the magnetic latitude of 90°.
+
+    """
+    delta_y = 0.
+    """The displacement of the dipole center perpendicular to both the dipole axis
+    and the rotational axis (i.e., towards magnetic longitude = 90°). Measured
+    in units of the body's radius. Positive values move the dipole center
+    towards the magnetic latitude of 90°.
+
+    """
+    delta_z = 0.
+    """The displacement of the dipole center along the dipole axis. Measured in
+    units of the body's radius. Positive values move the dipole center towards
+    the magnetic latitude of 90°.
+
+    """
     def to_field(self):
-        return TiltedDipoleField(self.tilt_deg * astutil.D2R, self.moment)
+        return TiltedDipoleField(
+            self.tilt_deg * astutil.D2R,
+            self.moment,
+            delta_x = self.delta_x,
+            delta_y = self.delta_y,
+            delta_z = self.delta_z,
+        )
 
 
 @broadcastize(3,(0,0,0))
@@ -362,24 +388,42 @@ class TiltedDipoleField(object):
        The dipole moment, measured in units of [Gauss * R_body**3], where R_body
        is the body's radius. Negative values are OK. Because of the choice of
        length unit, `moment` is the surface field strength by construction.
+    delta_x
+       The displacement of the dipole center perpendicular to the dipole axis,
+       in the plane containing both the dipole axis and the rotational axis
+       (i.e., the longitude = 0 plane). Measured in units of the body's
+       radius. Positive values move the dipole center towards the magnetic
+       latitude of 90°.
+    delta_y
+       The displacement of the dipole center perpendicular to both the dipole
+       axis and the rotational axis (i.e., towards magnetic longitude = 90°).
+       Measured in units of the body's radius. Positive values move the dipole
+       center towards the magnetic latitude of 90°.
+    delta_z
+       The displacement of the dipole center along the dipole axis. Measured
+       in units of the body's radius. Positive values move the dipole center
+       towards the magnetic latitude of 90°.
 
-    This particular magnetic field model is a simple tilted dipole. The dipole
-    axis is defined to lie on body-centric longitude 0. We allow the dipole
-    moment to be either positive or negative to avoid complications of sometimes
-    aligning the axis with lon=pi.
+    This particular magnetic field model is a simple offset, tilted dipole.
+    The dipole axis is defined to lie on body-centric longitude 0. We allow
+    the dipole moment to be either positive or negative to avoid complications
+    of sometimes aligning the axis with lon=pi.
 
-    Given that we're just a titled dipole, we implement an internal
+    Given that we're just a offset titled dipole, we implement an internal
     "dipole-centric" spherical coordinate system that is useful under the
     hood. By construction, this is just a version of the body-centric
     coordinate system that's rotated in the prime-meridian/north-pole plane.
 
     """
-    def __init__(self, tilt, moment):
+    def __init__(self, tilt, moment, delta_x=0., delta_y=0., delta_z=0.):
         self.tilt = float(tilt)
         if self.tilt < 0 or self.tilt >= np.pi:
             raise ValueError('illegal tilt value %r' % tilt)
 
         self.moment = float(moment)
+        self.delta_x = float(delta_x)
+        self.delta_y = float(delta_y)
+        self.delta_z = float(delta_z)
 
 
     @broadcastize(3,(0,0,0))
@@ -389,7 +433,8 @@ class TiltedDipoleField(object):
 
         I should do these rotations in a less dumb way but meh. The magnetic
         axis is defined to be on blon=0, so we just need to spin on the y
-        axis. We need to map blat=(pi/2 - tilt) to lat=pi/2, so:
+        axis, then maybe offset. We need to map blat=(pi/2 - tilt) to
+        lat=pi/2, so:
 
         """
         x, y, z = sph_to_cart(bc_lat, bc_lon, bc_r)
@@ -398,6 +443,9 @@ class TiltedDipoleField(object):
         zprime = ctilt * z + stilt * x
         xprime = -stilt * z + ctilt * x
         x, z = xprime, zprime
+        x -= self.delta_x
+        y -= self.delta_y
+        z -= self.delta_z
         return cart_to_sph(x, y, z)
 
 
@@ -409,6 +457,9 @@ class TiltedDipoleField(object):
 
         """
         x, y, z = sph_to_cart(dc_lat, dc_lon, dc_r)
+        x += self.delta_x
+        y += self.delta_y
+        z += self.delta_z
         ctilt = np.cos(-self.tilt)
         stilt = np.sin(-self.tilt)
         zprime = ctilt * z + stilt * x
