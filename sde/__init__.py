@@ -199,154 +199,7 @@ class RadBeltIntegrator(object):
         return history[:,:i_step]
 
 
-    def eval_many(self, g0, alpha0, L0, n_particles):
-        pos = np.empty((3, n_particles))
-        pos[0] = g0
-        pos[1] = alpha0
-        pos[2] = L0
-        s = np.zeros(n_particles)
-        step_num = 0
-        final_poses = np.empty((4, n_particles))
-        n_exited = 0
-
-        # See demo2-sde.py for explanation of the algorithm here. Ideally we'd
-        # evict particles when they hit the bin edges rather than bin centers,
-        # but the interpolators don't understand binning that way.
-
-        while pos.shape[1]:
-            if step_num % 1000 == 0:
-                print('  Step {}: {} particles left'.format(step_num, pos.shape[1]))
-
-            # momentum too low
-
-            too_cold = np.nonzero(pos[0] <= self.g_edges[0])[0]
-
-            for i_to_remove in too_cold[::-1]:
-                i_last = pos.shape[1] - 1
-                final_poses[0,n_exited] = s[i_to_remove]
-                final_poses[1:,n_exited] = pos[:,i_to_remove]
-
-                if i_to_remove != i_last:
-                    pos[:,i_to_remove] = pos[:,i_last]
-
-                pos = pos[:,:-1]
-                s = s[:-1]
-                n_exited += 1
-
-            if not pos.shape[1]:
-                break
-
-            # momentum too high?
-
-            too_hot = np.nonzero(pos[0] >= self.g_edges[-1])[0]
-            if too_hot.size:
-                print('warning: some particle energies got too high')
-
-            for i_to_remove in too_hot[::-1]:
-                i_last = pos.shape[1] - 1
-                final_poses[0,n_exited] = s[i_to_remove]
-                final_poses[1:,n_exited] = pos[:,i_to_remove]
-
-                if i_to_remove != i_last:
-                    pos[:,i_to_remove] = pos[:,i_last]
-
-                pos = pos[:,:-1]
-                s = s[:-1]
-                n_exited += 1
-
-            if not pos.shape[1]:
-                break
-
-            # Loss cone?
-
-            loss_cone = np.nonzero(pos[1] <= self.alpha_edges[0])[0]
-
-            for i_to_remove in loss_cone[::-1]:
-                i_last = pos.shape[1] - 1
-                final_poses[0,n_exited] = s[i_to_remove]
-                final_poses[1:,n_exited] = pos[:,i_to_remove]
-
-                if i_to_remove != i_last:
-                    pos[:,i_to_remove] = pos[:,i_last]
-
-                pos = pos[:,:-1]
-                s = s[:-1]
-                n_exited += 1
-
-            if not pos.shape[1]:
-                break
-
-            # Mirror at pi/2 pitch angle
-
-            pa_mirror = (pos[1] > 0.5 * np.pi)
-            pos[1,pa_mirror] = np.pi - pos[1,pa_mirror]
-
-            # Surface impact?
-
-            surface_impact = np.nonzero(pos[2] <= self.L_edges[0])[0]
-
-            for i_to_remove in surface_impact[::-1]:
-                i_last = pos.shape[1] - 1
-                final_poses[0,n_exited] = s[i_to_remove]
-                final_poses[1:,n_exited] = pos[:,i_to_remove]
-
-                if i_to_remove != i_last:
-                    pos[:,i_to_remove] = pos[:,i_last]
-
-                pos = pos[:,:-1]
-                s = s[:-1]
-                n_exited += 1
-
-            if not pos.shape[1]:
-                break
-
-            # Hit the source boundary?
-
-            outer_edge = np.nonzero(pos[2] >= self.L_edges[-1])[0]
-
-            for i_to_remove in outer_edge[::-1]:
-                i_last = pos.shape[1] - 1
-                final_poses[0,n_exited] = s[i_to_remove]
-                final_poses[1:,n_exited] = pos[:,i_to_remove]
-
-                if i_to_remove != i_last:
-                    pos[:,i_to_remove] = pos[:,i_last]
-
-                pos = pos[:,:-1]
-                s = s[:-1]
-                n_exited += 1
-
-            if not pos.shape[1]:
-                break
-
-            # Now we can finally advance the remaining particles
-
-            lam = np.random.normal(size=pos.shape)
-            posT = pos.T
-            delta_t = np.exp(self.i_lndt(posT))
-            sqrt_delta_t = np.sqrt(delta_t)
-            delta_pos = np.zeros(pos.shape)
-
-            for i in range(3):
-                delta_pos[i] += self.i_a[i](posT) * delta_t
-
-                for j in range(3):
-                    delta_pos[i] += self.i_b[i][j](posT) * sqrt_delta_t * lam[j]
-
-            # TODO: I think to do this right, we need to potentially scale
-            # each delta_t to get particles to *exactly* hit the boundaries.
-            # Right now we get particles that zip out to L = 7.7 or whatever,
-            # and so their "final" p and alpha coordinates are not exactly
-            # what they were at the L=7 plane.
-
-            pos += delta_pos
-            s += delta_t # sigh, terminology all over the place
-            step_num += 1
-
-        return final_poses[:,:n_exited]
-
-
-    def jokipii_many(self, bdy, n_particles, n_steps):
+    def jokipii_many(self, bdy, n_particles, n_steps, print_nth=1000):
         """Jokipii & Levy technique."""
 
         state = np.empty((5, n_particles)) # (g, alpha, L, log-weight, residence time)
@@ -359,6 +212,7 @@ class RadBeltIntegrator(object):
 
         grid = np.zeros((self.L_centers.size, self.alpha_centers.size, self.g_centers.size))
         sum_residence_times = 0 # measured in steps
+        max_residence_time = 0
         n_exited = 0
 
         # Go
@@ -373,7 +227,7 @@ class RadBeltIntegrator(object):
         Lscale = 0.999999 * self.L_centers.size / (self.L_edges[-1] - L0)
 
         for step_num in range(n_steps):
-            if step_num % 1000 == 0:
+            if step_num % print_nth == 0:
                 print('  Step {}'.format(step_num))
 
             # delta-t for these samples
@@ -419,6 +273,7 @@ class RadBeltIntegrator(object):
 
             n_exiting = oob.sum()
             n_exited += n_exiting
+            max_residence_time = max(max_residence_time, state[4,oob].max())
             sum_residence_times += state[4,oob].sum()
             state[0,oob], state[1,oob] = bdy.sample(self, n_exiting)
             state[2,oob] = self.L_edges[-1]
@@ -435,6 +290,7 @@ class RadBeltIntegrator(object):
         print('total particle-steps:', n_particles * n_steps)
         print('particle-steps per ms: %.0f' % (0.001 * n_particles * n_steps / elapsed))
         print('mean residence time:', sum_residence_times / n_exited)
+        print('max residence time:', max_residence_time)
         return grid
 
 
@@ -632,6 +488,8 @@ def forward_cli(args):
                     help='The number of particles to track at once.')
     ap.add_argument('-s', dest='steps', type=int, metavar='STEPS', default=100000,
                     help='The number of steps to make.')
+    ap.add_argument('-N', dest='print_nth', type=int, metavar='STEPS', default=1000,
+                    help='Print a brief notice for every STEPS steps that are computed.')
     ap.add_argument('grid_path', metavar='GRID-PATH',
                     help='The path to the input file of gridded coefficients.')
     ap.add_argument('output_path', metavar='OUTPUT-PATH',
@@ -641,7 +499,7 @@ def forward_cli(args):
 
     bdy = config.to_boundary()
     rbi = RadBeltIntegrator(settings.grid_path)
-    grid = rbi.jokipii_many(bdy, settings.particles, settings.steps)
+    grid = rbi.jokipii_many(bdy, settings.particles, settings.steps, print_nth=settings.print_nth)
 
     with open(settings.output_path, 'wb') as f:
         np.save(f, grid)
