@@ -881,9 +881,6 @@ class GriddedDistribution(object):
         def mfunc(norm, p, k):
             return norm * gamma_2d**(-p) * y_2d**k
 
-        p = np.empty_like(mlat)
-        k = np.empty_like(mlat)
-
         L_scaled = self.distrib.nl * (L - self.distrib.L[0]) / (self.distrib.L[-1] - self.distrib.L[0]) # e.g., 1.7
         L_indices = L_scaled.astype(np.int) # e.g., 1
         L_weights = L_scaled - L_indices # e.g. 0.7 = weight to app
@@ -916,11 +913,57 @@ class GriddedDistribution(object):
                 L_wt       * lat_wt       * f[L_idx+1,lat_idx+1]
             )
 
-            mdl = lsqmdl.Model(mfunc, this_f).solve((this_f.max(), 2., 1.))
-            p[arg_idx] = mdl.params[1]
-            k[arg_idx] = mdl.params[2]
+            soln = lsqmdl.Model(mfunc, this_f).solve((this_f.max(), 2., 1.))
+            p[arg_idx] = soln.params[1]
+            k[arg_idx] = soln.params[2]
 
         return n_e, p, k
+
+
+    def test_approx(self, mlat, mlon, L):
+        """Test our parametrized approximation of the particle distribution at some
+        location.
+
+        XXX: code duplication less than ideal. We have some mix-and-match to
+        deal with scalar arguments while keeping (e.g.) the variable names the
+        same as in `get_samples()`.
+
+        """
+        mlat = np.abs(mlat) # top/bottom symmetry!
+        n_e = self.ne_interp([L, mlat])
+
+        from pwkit import lsqmdl
+
+        gamma_2d = (1 + self.distrib.Ekin_mev / 0.510999).reshape((1, -1))
+        y_2d = self.distrib.y.reshape((-1, 1))
+        y_2d = np.maximum(y_2d, 1e-5) # avoid div-by-zero
+
+        def mfunc(norm, p, k):
+            return norm * gamma_2d**(-p) * y_2d**k
+
+        L_scaled = self.distrib.nl * (L - self.distrib.L[0]) / (self.distrib.L[-1] - self.distrib.L[0])
+        L_idx = int(L_scaled)
+        L_wt = L_scaled - L_idx
+        if L_idx >= self.distrib.nl - 1:
+            L_idx = self.distrib.nl - 2
+            L_wt = 1.0
+
+        lat_scaled = self.distrib.nlat * (mlat - self.distrib.lat[0]) / (self.distrib.lat[-1] - self.distrib.lat[0])
+        lat_idx = int(lat_scaled)
+        lat_wt = lat_scaled - lat_idx
+        if lat_idx >= self.distrib.nlat - 1:
+            lat_idx = self.distrib.nlat - 2
+            lat_wt = 1.0
+
+        f = self.distrib.f
+        this_f = (
+            (1 - L_wt) * (1 - lat_wt) * f[L_idx,lat_idx] +
+            L_wt       * (1 - lat_wt) * f[L_idx+1,lat_idx] +
+            (1 - L_wt) * lat_wt       * f[L_idx,lat_idx+1] +
+            L_wt       * lat_wt       * f[L_idx+1,lat_idx+1]
+        )
+
+        return lsqmdl.Model(mfunc, this_f).solve((this_f.max(), 2., 1.))
 
 
 class DG83Distribution(object):

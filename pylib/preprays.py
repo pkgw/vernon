@@ -399,11 +399,58 @@ def assemble_cli(args):
                 ds['/frame%04d/%s' % (frame_num, pname)] = data[i]
 
 
+# Test the parametrized approximation of the point-sampled particle
+# distribution function.
+
+def make_test_approx_parser():
+    ap = argparse.ArgumentParser(prog='preprays test-approx')
+    ap.add_argument('particles_path', metavar='PATH',
+                    help='The path to the particles file.')
+    ap.add_argument('mlat', metavar='DEGREES', type=float,
+                    help='The magnetic latitude to sample.')
+    ap.add_argument('mlon', metavar='DEGREES', type=float,
+                    help='The magnetic longitude to sample.')
+    ap.add_argument('L', metavar='MCILWAIN', type=float,
+                    help='The McIlwain L-shell value to sample.')
+    return ap
+
+
+def test_approx_cli(args):
+    settings = make_test_approx_parser().parse_args(args=args)
+
+    from . import geometry, particles
+    from pwkit import cgs
+    from pwkit.astutil import D2R
+    from pwkit.ndshow_gtk3 import cycle, view
+
+    particles = particles.ParticleDistribution.load(settings.particles_path)
+    distrib = geometry.GriddedDistribution(particles, cgs.rjup)
+    soln = distrib.test_approx(
+        settings.mlat * D2R,
+        settings.mlon * D2R,
+        settings.L,
+    )
+
+    def patchlog(a):
+        pos = (a > 0)
+        mn = a[pos].min()
+        a[~pos] = 0.01 * mn
+        return np.log10(a)
+
+    cycle(
+        [patchlog(soln.data), patchlog(soln.mdata)],
+        descs = ['Data', 'Model'],
+    )
+
+    view(soln.resids, title='Residuals')
+
+
 # CLI driver
 
 def entrypoint(argv):
     if len(argv) == 1:
-        die('must supply a subcommand: "assemble", "gen-grid-config", "seed-dg83", "seed-gridded", ')
+        die('must supply a subcommand: "assemble", "gen-grid-config", "seed-dg83", '
+            '"seed-gridded", "test-approx"')
 
     if argv[1] == 'assemble':
         assemble_cli(argv[2:])
@@ -417,5 +464,7 @@ def entrypoint(argv):
         seed_gridded_cli(argv[2:])
     elif argv[1] == '_do-gridded':
         compute_gridded_cli(argv[2:])
+    elif argv[1] == 'test-approx':
+        test_approx_cli(argv[2:])
     else:
         die('unrecognized subcommand %r', argv[1])
