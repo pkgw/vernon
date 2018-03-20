@@ -6,9 +6,9 @@
 stochastic differential equation (SDE) approach. This module computes grids of
 all of the relevant coefficients that are used by the SDE integrator.
 
-Everything is computed on a grid in (p, alpha, L), where p is the particle
-momentum in g*cm/s, alpha is the pitch angle in radians, and L is the McIlwain
-L-shell number.
+Everything is computed on a grid in (g, alpha, L), where g is the logarithm of
+the particle's normalized relativistic momentum (gamma*beta), alpha is the
+pitch angle in radians, and L is the McIlwain L-shell number.
 
 We currently compute the coefficients as appropriate for *forward* SDE
 integration. These are different than the terms that you need when doing a
@@ -477,7 +477,7 @@ class Gridder(object):
         g_lo = -5.5 # ~4 eV (needed to sample cold source plasma well)
         g_hi = 3.1 # ~11 MeV (needed to sample mm-emitting particles well)
 
-        alpha_lo = 0.08 # ~4 deg
+        alpha_lo = 0.02 # ~0.6 deg
         alpha_hi = 0.499 * np.pi
 
         l_lo = 1.1
