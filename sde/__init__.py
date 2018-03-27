@@ -174,7 +174,7 @@ class RadBeltIntegrator(object):
                 print('warning: particle energy got too high')
                 break
 
-            if pos[1] <= self.i_alpha_min(pos[2]):
+            if pos[1] <= self.i_alpha_min([pos[2]]).item():
                 break # loss cone
 
             if pos[1] > np.pi / 2:
