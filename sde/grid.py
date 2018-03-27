@@ -759,7 +759,8 @@ class Gridder(object):
         return self
 
 
-    def summers_pa_coefficients(self, n_pl, delta_B, omega_waves, delta_waves, max_wave_lat):
+    def summers_pa_coefficients(self, n_pl, delta_B, omega_waves, delta_waves, max_wave_lat,
+                                parallel=True):
         """Incorporate bounce-averaged pitch-angle/momentum diffusion coefficients as
         analyzed by Summers (2005JGRA..110.8213S, 10.1029/2005JA011159) and
         Shprits et al (2006JGRA..11110225S, 10.1029/2006JA011725).
@@ -769,6 +770,7 @@ class Gridder(object):
         omega_waves  - center of wave frequency spectrum in rad/s
         delta_waves  - width of the wave frequency spectrum in rad/s
         max_wave_lat - maximum latitude at which waves are found, in radians
+        parallel     - `pwkit.parallel` setup parameter for parallelizing the computation
 
         """
         from pylib.plasma import omega_plasma
@@ -800,6 +802,7 @@ class Gridder(object):
                 max_wave_lat,
                 'R',
                 wave_filtering = 'f',
+                parallel = parallel,
             )
 
             return p, daa, dap, dpp
@@ -1072,7 +1075,7 @@ class GenGridTask(Configuration):
     "Number of L (radial position) grid faces."
 
 
-    def gen_grid(self, output_path):
+    def gen_grid(self, output_path, parallel=True):
         # Note that for almost all of these computations we only use the field
         # moment; under our current set of assumptions, these simulations
         # don't need to know if the field is offset from the body center or
@@ -1084,7 +1087,7 @@ class GenGridTask(Configuration):
                 .compute_L_and_alpha_min(field=self.field.to_field())
                 .basic_radial_diffusion(D0 = 10.**self.log10_DLL_at_L1, n = self.k_LL)
                 .summers_pa_coefficients(self.n_cold_plasma, self.delta_B, self.omega_waves,
-                                         self.delta_waves, self.max_wave_lat)
+                                         self.delta_waves, self.max_wave_lat, parallel=parallel)
                 .synchrotron_losses_cgs()
                 .compute_b()
                 .compute_log_delta_t())
@@ -1124,13 +1127,21 @@ def gen_grid_cli(args):
     ap = argparse.ArgumentParser(
         prog = 'sde gen-grid',
     )
+    ap.add_argument('-n', dest='n_cpu', metavar='NCPU', type=int,
+                    help='How many CPUs to use for pitch-angle computation (default: all)')
     ap.add_argument('config_path', metavar='CONFIG-PATH',
                     help='The path to the setup configuration file.')
     ap.add_argument('output_path', metavar='OUTPUT-PATH',
                     help='The destination path for the NPY file of computed coefficients.')
     settings = ap.parse_args(args=args)
+
+    if settings.n_cpu is None:
+        parallel = True
+    else:
+        parallel = settings.n_cpu
+
     task = GenGridTask.from_toml(settings.config_path)
-    task.gen_grid(settings.output_path)
+    task.gen_grid(settings.output_path, parallel=parallel)
 
 
 # note: entrypoint multiplexing done in sde/__init__.py
