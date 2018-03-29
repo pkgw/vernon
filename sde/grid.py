@@ -860,7 +860,7 @@ class Gridder(object):
 
     def compute_b(self):
         """Get b_ij, the matrix square root of the C_ij matrix. We also use this
-        opportunity to validate diffusion matrix.
+        opportunity to validate the diffusion matrix.
 
         """
         # Sylvester's criterion is a pretty easy way to check that C is
