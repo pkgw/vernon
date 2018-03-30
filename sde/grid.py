@@ -1074,27 +1074,54 @@ class GenGridTask(Configuration):
     n_L = 128
     "Number of L (radial position) grid faces."
 
+    do_radial_diffusion = True
+    "Whether to incorporate the radial diffusion term."
 
-    def gen_grid(self, output_path, parallel=True):
+    do_summers_pa = True
+    "Whether to use the Summers2005 pitch-angle/energy diffusion terms."
+
+    do_synchrotron_losses = True
+    "Whether to include the synchrotron energy loss terms."
+
+    def set_cube_size(self, n):
+        "Intended for interactive use."
+        self.n_g = n
+        self.n_alpha = n
+        self.n_L = n
+        return self
+
+    # The following functions are split up for convenience in interactive use.
+
+    def initialize_grid(self):
+        return (Gridder.new_demo(n_g = self.n_g, n_alpha = self.n_alpha, n_l = self.n_L)
+                .dipole(B0 = self.field.moment, radius = cgs.rjup * self.body.radius)
+                .electron_cgs()
+                .compute_L_and_alpha_min(field=self.field.to_field()))
+
+
+    def compute_grid(self, parallel=True):
         # Note that for almost all of these computations we only use the field
         # moment; under our current set of assumptions, these simulations
         # don't need to know if the field is offset from the body center or
         # anything. The exception is the loss-cone pitch angle calculation.
 
-        grid = (Gridder.new_demo(n_g = self.n_g, n_alpha = self.n_alpha, n_l = self.n_L)
-                .dipole(B0 = self.field.moment, radius = cgs.rjup * self.body.radius)
-                .electron_cgs()
-                .compute_L_and_alpha_min(field=self.field.to_field())
-                .basic_radial_diffusion(D0 = 10.**self.log10_DLL_at_L1, n = self.k_LL)
-                .summers_pa_coefficients(self.n_cold_plasma, self.delta_B, self.omega_waves,
-                                         self.delta_waves, self.max_wave_lat, parallel=parallel)
-                .synchrotron_losses_cgs()
-                .compute_b()
-                .compute_log_delta_t())
+        grid = self.initialize_grid()
 
-        print('hacking alpha bounds')
-        grid.alpha_edges_1d[-1] = 0.5 * np.pi
-        grid.alpha_edges[:,-1,:] = 0.5 * np.pi
+        if self.do_radial_diffusion:
+            grid.basic_radial_diffusion(D0 = 10.**self.log10_DLL_at_L1, n = self.k_LL)
+
+        if self.do_summers_pa:
+            grid.summers_pa_coefficients(self.n_cold_plasma, self.delta_B, self.omega_waves,
+                                         self.delta_waves, self.max_wave_lat, parallel=parallel)
+
+        if self.do_synchrotron_losses:
+            grid.synchrotron_losses_cgs()
+
+        return grid.compute_b().compute_log_delta_t()
+
+
+    def save_grid(self, output_path, parallel=True):
+        grid = self.compute_grid(parallel=parallel)
 
         with open(output_path, 'wb') as f:
             np.save(f, grid.g_edges_1d)
@@ -1141,7 +1168,7 @@ def gen_grid_cli(args):
         parallel = settings.n_cpu
 
     task = GenGridTask.from_toml(settings.config_path)
-    task.gen_grid(settings.output_path, parallel=parallel)
+    task.save_grid(settings.output_path, parallel=parallel)
 
 
 # note: entrypoint multiplexing done in sde/__init__.py
