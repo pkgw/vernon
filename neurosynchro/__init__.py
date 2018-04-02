@@ -40,7 +40,7 @@ from keras import models, layers, optimizers
 STOKES_I, STOKES_Q, STOKES_U, STOKES_V = 'IQUV'
 EMISSION, ABSORPTION, FARADAY = 'EAF'
 
-hardcoded_nu_ref = 1e9
+hardcoded_nu_ref = 1.0
 hardcoded_ne_ref = 1.0
 
 
