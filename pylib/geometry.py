@@ -593,11 +593,17 @@ class SimpleTorusDistribution(object):
     """
     parameter_names = ['n_e', 'p']
 
-    def __init__(self, r1, r2, n_e, p):
+    def __init__(self, r1, r2, n_e, p, fake_k=None):
         self.r1 = float(r1)
         self.r2 = float(r2)
         self.n_e = float(n_e)
         self.p = float(p)
+
+        if fake_k is None:
+            self.fake_k = None
+        else:
+            self.parameter_names = ['n_e', 'p', 'k']
+            self.fake_k = float(fake_k)
 
 
     @broadcastize(3,(0,0))
@@ -613,6 +619,8 @@ class SimpleTorusDistribution(object):
            Units of electrons per cubic centimeter.
         p
            Array of power-law indices of the electrons at the provided coordinates.
+
+        Unless the `fake_k` option has been provided.
 
         """
         r = L * np.cos(mlat)**2
@@ -631,7 +639,12 @@ class SimpleTorusDistribution(object):
         p = np.zeros(mlat.shape)
         p[inside] = self.p
 
-        return n_e, p
+        if self.fake_k is None:
+            return n_e, p
+        else:
+            k = np.empty(mlat.shape)
+            k.fill(self.fake_k)
+            return n_e, p, k
 
 
 class SimpleWasherDistribution(object):
