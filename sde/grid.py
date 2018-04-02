@@ -918,7 +918,7 @@ class Gridder(object):
         return self
 
 
-    def compute_log_delta_t(self, *, spatial_factor=0.05, advection_factor=0.2, max_dt=100, debug=False):
+    def compute_log_delta_t(self, *, spatial_factor=0.05, advection_factor=0.2, max_dt=1e100, debug=False):
         """Compute the allowable step sizes at each grid point. The goal is to make
         sure the particle doesn't zoom past areas where the diffusion
         coefficients vary quickly, and that individual steps are dominated by
