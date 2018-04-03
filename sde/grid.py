@@ -858,6 +858,14 @@ class Gridder(object):
         return self
 
 
+    def apply_alpha_symmetry(self):
+        print('hacking alpha bounds (new)')
+        self.alpha_edges_1d[-1] = 0.5 * np.pi
+        self.alpha_edges[:,-1,:] = 0.5 * np.pi
+        self.a[1][:,-1,:] = 0.
+        return self
+
+
     def compute_b(self):
         """Get b_ij, the matrix square root of the C_ij matrix. We also use this
         opportunity to validate the diffusion matrix.
@@ -1117,7 +1125,7 @@ class GenGridTask(Configuration):
         if self.do_synchrotron_losses:
             grid.synchrotron_losses_cgs()
 
-        return grid.compute_b().compute_log_delta_t()
+        return grid.compute_b().compute_log_delta_t().apply_alpha_symmetry()
 
 
     def save_grid(self, output_path, parallel=True):
