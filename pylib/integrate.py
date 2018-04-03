@@ -447,9 +447,46 @@ def make_view_parser():
 
 def view_cli(args):
     import h5py, omega as om
+    from pwkit.ndshow_gtk3 import cycle, view
+    from pylib import top
 
     settings = make_view_parser().parse_args(args=args)
     ii = IntegratedImages(settings.path)
+
+    # Reference data that go into Figure 9 of Williams+ (2015ApJ...799..192W,
+    # 10.1088/0004-637X/799/2/192). Measured in mjy, not ujy.
+
+    refdata = h5py.File(str(top / 'historical' / 'vlanofl-extracts.h5'), 'r')
+
+    best_freq = np.argmin((ii.freqs - 6.05)**2)
+    print('closest frequency to archival 6.05 GHz value: %.2f GHz' % (ii.freqs[best_freq]))
+
+    # Always nice to spin it
+
+    cycle(ii.rotmovie(1, 'i'))
+    cycle(ii.rotmovie(1, 'fc'))
+
+    # Stokes I spectrum - backing data slurped from my dulk85 interactive
+    # javascript slide, which patched it together from who knows where.
+
+    n3b_freq = np.array([1.4, 6.05, 21.85, 33.5, 43.7, 97.5])
+    n3b_ujy = np.array([890, 1360, 1460, 1300, 1180, 680])
+
+    p = om.quickXY(n3b_freq, n3b_ujy, 'N33370B', xlog=True, ylog=True)
+    p.addXY(ii.freqs, ii.spectrum(0, 'i'), '0/*/I')
+    n = ii.n_cmls // 2
+    p.addXY(ii.freqs, ii.spectrum(n, 'i'), '%d/*/I' % n)
+    p.show()
+
+    # Light curve. TODO: phasing?
+
+    n3b_cml = refdata['justph_ph'][...] * 360
+
+    p = om.quickXY(n3b_cml, 1e3 * refdata['justph_ci'][...], 'N33370B phavg I')
+    p.addXY(n3b_cml, 1e3 * refdata['justph_cv'][...], 'N33370B phavg V')
+    p.addXY(ii.cmls, ii.lightcurve(best_freq, 'i'), '%d/*/I' % best_freq)
+    p.addXY(ii.cmls, ii.lightcurve(best_freq, 'v'), '%d/*/V' % best_freq)
+    p.show()
 
 
 # Entrypoint
