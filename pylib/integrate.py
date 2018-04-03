@@ -103,6 +103,148 @@ class LSODARTIntegrator(object):
         return iquv.T
 
 
+class IntegratedImages(object):
+    "Class for structured access and interpretation of image data."
+
+    def __init__(self, path):
+        import h5py
+        self.ds = h5py.File(path, 'r')
+
+        # XXX assuming this is what the toplevel directory represents
+        self.cml_names = list(self.ds)
+        self.n_cmls = len(self.cml_names)
+        self.cmls = np.linspace(0, 360, self.n_cmls + 1)[:-1]
+
+        # The frequency names are sorted alphabetically by h5py, so we need to
+        # re-sort to get the actual numerical order.
+        self.freq_names = list(self.ds[self.cml_names[0]])
+        self.freqs = np.array([float(s.replace('nu', '').replace('p', '.')) for s in self.freq_names])
+        s = np.argsort(self.freqs)
+        self.freqs = self.freqs[s]
+        self.freq_names = [self.freq_names[s[i]] for i in range(self.freqs.size)]
+        self.n_freqs = self.freqs.size
+
+        self.stokes_names = list('IQUV')
+        self.n_stokes = 4 # partial files someday? / consistency
+
+        pix_area = self.ds.attrs.get('pixel_area_cgs')
+        dist = self.ds.attrs.get('distance_cgs')
+
+        if pix_area is None or dist is None:
+            print('IntegratedImages: unable to scale to physical units')
+            self.scale = 1.
+        else:
+            self.scale = pix_area / (4 * np.pi * dist**2) * cgs.jypercgs * 1e6
+
+
+    def stokesset(self, i_cml, i_freq):
+        return self.ds['/%s/%s' % (self.cml_names[i_cml], self.freq_names[i_freq])][...] * self.scale
+
+
+    def frame(self, i_cml, i_freq, i_stokes):
+        """Note that using i_stokes = 'l' here will make each individual positive, so
+        that there will be no cancellation of different polarization signs
+        across the image. So when comparing to actual data, you almost surely
+        want to get your values from ``flux()``.
+
+        """
+        if not isinstance(i_stokes, str):
+            arr = self.stokesset(i_cml, i_freq)[i_stokes]
+            n_bad = (~np.isfinite(arr)).sum()
+            if n_bad:
+                print('IntegratedImages: %s/%s/%s has %d/%d (%.1f%%) bad pixels'
+                      % (self.cml_names[i_cml], self.freq_names[i_freq], self.stokes_names[i_stokes],
+                         n_bad, arr.size, 100 * n_bad / arr.size))
+            return arr
+
+        i_stokes = i_stokes.lower()
+
+        if i_stokes == 'i':
+            return self.frame(i_cml, i_freq, 0)
+        if i_stokes == 'q':
+            return self.frame(i_cml, i_freq, 1)
+        if i_stokes == 'u':
+            return self.frame(i_cml, i_freq, 2)
+        if i_stokes == 'v':
+            return self.frame(i_cml, i_freq, 3)
+        if i_stokes == 'l':
+            q = self.frame(i_cml, i_freq, 1)
+            u = self.frame(i_cml, i_freq, 2)
+            return np.sqrt(q**2 + u**2)
+        if i_stokes == 'fl':
+            i = self.frame(i_cml, i_freq, 0)
+            no_i = (i == 0)
+            i[no_i] = 1
+            q = self.frame(i_cml, i_freq, 1)
+            u = self.frame(i_cml, i_freq, 2)
+            fl = np.sqrt(q**2 + u**2) / i
+            fl[no_i] = 0
+            return fl
+        if i_stokes == 'fc':
+            i = self.frame(i_cml, i_freq, 0)
+            no_i = (i == 0)
+            i[no_i] = 1
+            v = self.frame(i_cml, i_freq, 3)
+            fc = v / i # can be negative
+            fc[no_i] = 0
+            return fc
+        raise ValueError('unrecognized textual i_stokes value %r' % i_stokes)
+
+
+    def flux(self, i_cml, i_freq, i_stokes):
+        if not isinstance(i_stokes, str):
+            return np.nansum(self.frame(i_cml, i_freq, i_stokes))
+
+        i_stokes = i_stokes.lower()
+
+        if i_stokes == 'i':
+            return self.flux(i_cml, i_freq, 0)
+        if i_stokes == 'q':
+            return self.flux(i_cml, i_freq, 1)
+        if i_stokes == 'u':
+            return self.flux(i_cml, i_freq, 2)
+        if i_stokes == 'v':
+            return self.flux(i_cml, i_freq, 3)
+        if i_stokes == 'l':
+            q = self.flux(i_cml, i_freq, 1)
+            u = self.flux(i_cml, i_freq, 2)
+            return np.sqrt(q**2 + u**2)
+        if i_stokes == 'fl':
+            i = self.flux(i_cml, i_freq, 0)
+            no_i = (i == 0)
+            i[no_i] = 1
+            q = self.flux(i_cml, i_freq, 1)
+            u = self.flux(i_cml, i_freq, 2)
+            fl = np.sqrt(q**2 + u**2) / i
+            fl[no_i] = 0
+            return fl
+        if i_stokes == 'fc':
+            i = self.flux(i_cml, i_freq, 0)
+            no_i = (i == 0)
+            i[no_i] = 1
+            v = self.flux(i_cml, i_freq, 3)
+            fc = v / i # can be negative
+            fc[no_i] = 0
+            return fc
+        raise ValueError('unrecognized textual i_stokes value %r' % i_stokes)
+
+
+    def lightcurve(self, i_freq, i_stokes):
+        return np.array([self.flux(i, i_freq, i_stokes) for i in range(self.n_cmls)])
+
+
+    def rotmovie(self, i_freq, i_stokes):
+        return [self.frame(i, i_freq, i_stokes) for i in range(self.n_cmls)]
+
+
+    def spectrum(self, i_cml, i_stokes):
+        return np.array([self.flux(i_cml, i, i_stokes) for i in range(self.n_freqs)])
+
+
+    def specmovie(self, i_cml, i_stokes):
+        return [self.frame(i_cml, i, i_stokes) for i in range(self.n_freqs)]
+
+
 # Command-line interface to jobs that do the RT integration for a series of
 # frames at a series of frequencies
 
@@ -290,11 +432,31 @@ def assemble_cli(args):
             ds.attrs['distance_cgs'] = config.body.distance * cgs.cmperpc
 
 
+
+
+# Viewing an assembled file.
+
+def make_view_parser():
+    ap = argparse.ArgumentParser(
+        prog = 'integrate view'
+    )
+    ap.add_argument('path',
+                    help='The name of the HDF file to view.')
+    return ap
+
+
+def view_cli(args):
+    import h5py, omega as om
+
+    settings = make_view_parser().parse_args(args=args)
+    ii = IntegratedImages(settings.path)
+
+
 # Entrypoint
 
 def entrypoint(argv):
     if len(argv) == 1:
-        die('must supply a subcommand: "assemble", "seed"')
+        die('must supply a subcommand: "assemble", "seed", "view"')
 
     if argv[1] == 'seed':
         seed_cli(argv[2:])
@@ -302,5 +464,7 @@ def entrypoint(argv):
         integrate_cli(argv[2:])
     elif argv[1] == 'assemble':
         assemble_cli(argv[2:])
+    elif argv[1] == 'view':
+        view_cli(argv[2:])
     else:
         die('unrecognized subcommand %r', argv[1])
