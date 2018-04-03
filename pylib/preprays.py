@@ -477,6 +477,180 @@ def seed_torus_cli(args):
                       (taskid, cml, common_args, frame_num, i_row, start_cols[i_col], col_widths[i_col]))
 
 
+# ljob to crunch the numbers for the simple washer particle distribution.
+# TODO EVEN MORE of code redundancy.
+
+washer_ray_parameters = 's B theta psi n_e p k'.split()
+
+
+class WasherPrepraysConfiguration(Configuration):
+    __section__ = 'washer-prep-rays'
+
+    body = BodyConfiguration
+    image = ImageConfiguration
+    field = MagneticFieldConfiguration
+    ray_tracer = BasicRayTracer
+
+    max_n_samps = 1500
+    "The maximum number of model sample allowed along each ray."
+
+    min_ghz = 1.
+    "The minimum radio frequency that will be imaged from the data."
+
+    r_inner = 1.1
+    "The inner radius of the washer, in units of the body's radius."
+
+    r_outer = 3.0
+    "The outer radius of the washer, in units of the body's radius."
+
+    thickness = 0.2
+    "The thickness of the washer, in units of the body's radius."
+
+    n_e = 1e4
+    "The density of energetic electrons in the washer, in cm^-3."
+
+    power_law_p = 2.0
+    "The power-law index of the energetic electrons, such that N(>E) ~ E^(-p)."
+
+    pitch_angle_k = 0.0
+    "The power-law index of pitch-angle distribution."
+
+    radial_concentration = 0.0
+    """A power-law index giving the degree to which n_e increases toward the
+    inner edge of the washer:
+
+        n_e(r) \propto [(r_out - r) / (r_out - r_in)]^radial_concentration
+
+    Zero implies a flat distribution; 1 implies a linear increase from outer
+    to inner. The total number of electrons in the washer is conserved.
+
+    """
+
+
+def make_compute_washer_parser():
+    ap = make_model_parser(prog='preprays _do-washer')
+    ap.add_argument('frame_num', type=int)
+    ap.add_argument('row_num', type=int)
+    ap.add_argument('start_col', type=int)
+    ap.add_argument('n_cols_to_compute', type=int)
+    return ap
+
+
+def compute_washer_cli(args):
+    settings = make_compute_washer_parser().parse_args(args=args)
+    config = WasherPrepraysConfiguration.from_toml(settings.config_path)
+
+    from . import geometry
+    from pwkit import cgs
+
+    distrib = geometry.SimpleWasherDistribution(
+        r_inner = config.r_inner,
+        r_outer = config.r_outer,
+        thickness = config.thickness,
+        n_e = config.n_e,
+        p = config.power_law_p,
+        fake_k = config.pitch_angle_k,
+        radial_concentration = config.radial_concentration,
+    )
+
+    setup = geometry.prep_rays_setup(
+        ghz = config.min_ghz,
+        lat_of_cen = settings.loc,
+        cml = settings.cml,
+        radius = config.body.radius,
+        bfield = config.field.to_field(),
+        distrib = distrib,
+        ray_tracer = config.ray_tracer,
+    )
+
+    half_radii_per_xpix = config.image.xhalfsize / config.image.nx
+    half_radii_per_ypix = half_radii_per_xpix / config.image.aspect
+    half_height = half_radii_per_ypix * config.image.ny
+
+    imaker = geometry.ImageMaker(setup = setup, config = config.image)
+
+    n_vals = len(washer_ray_parameters)
+    data = np.zeros((n_vals, settings.n_cols_to_compute, config.max_n_samps))
+    n_samps = np.zeros((settings.n_cols_to_compute,), dtype=np.int)
+
+    for i in range(settings.n_cols_to_compute):
+        ray = imaker.get_ray(settings.start_col + i, settings.row_num)
+
+        if ray.s.size >= config.max_n_samps:
+            die('too many samples required for ray at ix=%d iy=%d: max=%d, got=%d',
+                settings.start_col + i, settings.row_num, config.max_n_samps, ray.s.size)
+
+        n_samps[i] = ray.s.size
+        sl = slice(0, ray.s.size)
+
+        for j, pname in enumerate(washer_ray_parameters):
+            data[j,i,sl] = getattr(ray, pname)
+
+    obs_max_n_samps = n_samps.max()
+    data = data[:,:,:obs_max_n_samps]
+
+    fn = 'archive/frame%04d_%04d_%04d.npy' % (settings.frame_num,
+                                              settings.row_num, settings.start_col)
+
+    with io.open(fn, 'wb') as f:
+        np.save(f, n_samps)
+        np.save(f, data)
+
+
+def make_seed_washer_parser():
+    ap = make_model_parser(prog='preprays seed-washer', allow_cml=False)
+
+    ap.add_argument('-N', dest='n_cml', type=int, metavar='NUMBER', default=4,
+                    help='The number of CMLs to sample [%(default)d].')
+    ap.add_argument('-g', dest='n_col_groups', type=int, metavar='NUMBER', default=2,
+                    help='The number of groups into which the columns are '
+                    'broken for processing [%(default)d].')
+    return ap
+
+
+def seed_washer_cli(args):
+    settings = make_seed_washer_parser().parse_args(args=args)
+    config = WasherPrepraysConfiguration.from_toml(settings.config_path)
+
+    print('Runtime-fixed parameters:', file=sys.stderr)
+    print('   Latitude of center:', settings.loc, file=sys.stderr)
+    print('   CMLs to image:', settings.n_cml, file=sys.stderr)
+    print('Job parameters:', file=sys.stderr)
+    print('   Column groups:', settings.n_col_groups, file=sys.stderr)
+    n_tasks = settings.n_cml * config.image.ny * settings.n_col_groups
+    print('   Total tasks:', n_tasks, file=sys.stderr)
+
+    cmls = np.linspace(0., 360., settings.n_cml + 1)[:-1]
+
+    config_path = os.path.realpath(settings.config_path)
+    common_args = '-c %s -L %.3f' % (config_path, settings.loc)
+
+    if settings.n_col_groups == 1:
+        first_width = rest_width = config.image.nx
+        start_cols = [0]
+        col_widths = [first_width]
+    else:
+        # If we were cleverer we could try to make the groups all about equal
+        # sizes, but this is probably going to all be powers of 2 anyway.
+        rest_width = config.image.nx // settings.n_col_groups
+        first_width = config.image.nx - (settings.n_col_groups - 1) * rest_width
+        start_cols = [0, first_width]
+        col_widths = [first_width, rest_width]
+
+        for i in range(settings.n_col_groups - 2):
+            start_cols.append(start_cols[-1] + rest_width)
+            col_widths.append(rest_width)
+
+    for frame_num in range(settings.n_cml):
+        cml = cmls[frame_num]
+
+        for i_row in range(config.image.ny):
+            for i_col in range(settings.n_col_groups):
+                taskid = '%d_%d_%d' % (frame_num, i_row, i_col)
+                print('%s preprays _do-washer -C %.3f %s %d %d %d %d' %
+                      (taskid, cml, common_args, frame_num, i_row, start_cols[i_col], col_widths[i_col]))
+
+
 # Assembling the numpy files into one big HDF
 
 def make_assemble_parser():
@@ -484,7 +658,8 @@ def make_assemble_parser():
         prog = 'preprays assemble'
     )
     ap.add_argument('paramset',
-                    help='The name of the parametrization used in the input files (dg83, gridded, torus).')
+                    help='The name of the parametrization used in the input files '
+                    '(dg83, gridded, torus, washer).')
     ap.add_argument('glob',
                     help='A shell glob expression to match the Numpy data files.')
     ap.add_argument('outpath',
@@ -502,6 +677,8 @@ def assemble_cli(args):
         params = gridded_ray_parameters
     elif settings.paramset == 'torus':
         params = torus_ray_parameters
+    elif settings.paramset == 'washer':
+        params = washer_ray_parameters
 
     info_by_frame = {}
     n_frames = 0
@@ -610,7 +787,7 @@ def test_approx_cli(args):
 def entrypoint(argv):
     if len(argv) == 1:
         die('must supply a subcommand: "assemble", "gen-grid-config", "seed-dg83", '
-            '"seed-gridded", "seed-torus", "test-approx"')
+            '"seed-gridded", "seed-torus", "seed-washer", "test-approx"')
 
     if argv[1] == 'assemble':
         assemble_cli(argv[2:])
@@ -628,6 +805,10 @@ def entrypoint(argv):
         seed_torus_cli(argv[2:])
     elif argv[1] == '_do-torus':
         compute_torus_cli(argv[2:])
+    elif argv[1] == 'seed-washer':
+        seed_washer_cli(argv[2:])
+    elif argv[1] == '_do-washer':
+        compute_washer_cli(argv[2:])
     elif argv[1] == 'test-approx':
         test_approx_cli(argv[2:])
     else:

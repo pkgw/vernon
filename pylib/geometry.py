@@ -680,12 +680,19 @@ class SimpleWasherDistribution(object):
     """
     parameter_names = ['n_e', 'p']
 
-    def __init__(self, r_inner=2, r_outer=7, thickness=0.7, n_e=1e5, p=3, radial_concentration=0.):
+    def __init__(self, r_inner=2, r_outer=7, thickness=0.7, n_e=1e5, p=3,
+                 fake_k=None, radial_concentration=0.):
         self.r_inner = float(r_inner)
         self.r_outer = float(r_outer)
         self.thickness = float(thickness)
         self.p = float(p)
         self.radial_concentration = float(radial_concentration)
+
+        if fake_k is None:
+            self.fake_k = None
+        else:
+            self.parameter_names = ['n_e', 'p', 'k']
+            self.fake_k = float(fake_k)
 
         # We want the total number of electrons to stay constant if
         # radial_concentration changes. In the simplest case,
@@ -717,6 +724,8 @@ class SimpleWasherDistribution(object):
         p
            Array of power-law indices of the electrons at the provided coordinates.
 
+        Unless the ``fake_k`` keyword has been provided.
+
         """
         r = L * np.cos(mlat)**2
         x, y, z = sph_to_cart(mlat, mlon, r)
@@ -730,7 +739,12 @@ class SimpleWasherDistribution(object):
         p = np.zeros(mlat.shape)
         p[inside] = self.p
 
-        return n_e, p
+        if self.fake_k is None:
+            return n_e, p
+        else:
+            k = np.empty(mlat.shape)
+            k.fill(self.fake_k)
+            return n_e, p, k
 
 
 class IsotropicGriddedDistribution(object):
