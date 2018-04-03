@@ -25,6 +25,13 @@ class BodyConfiguration(Configuration):
     radius = 1.1
     "Body radius in Jupiter radii."
 
+    distance = 10
+    """Distance to the body in parsecs. This quantity is almost never needed, but
+    we can use it to convert our final images to physical flux density units
+    conveniently, and this seems like as sensible a place to put it as any.
+
+    """
+
 
 class MagneticFieldConfiguration(Configuration):
     """TODO: we could allow configurations besides tilted dipoles!"""

@@ -13,6 +13,8 @@ from six.moves import range
 from pwkit import astutil, cgs
 from pwkit.astutil import halfpi, twopi
 from pwkit.numutil import broadcastize
+from pylib.config import Configuration
+from pylib.geometry import BodyConfiguration, ImageConfiguration
 
 
 class FormalRTIntegrator(object):
@@ -206,10 +208,32 @@ def seed_cli(args):
 
 # Assembling the numpy files into one big HDF
 
+class AssembleTask(Configuration):
+    """Image assembly configuration.
+
+    If specified, we can use the config file to determine the information
+    needed to convert the image to physical units, and embed that in the
+    output file.
+
+    """
+    __section__ = 'integrate-assembly'
+
+    body = BodyConfiguration # radius, distance
+    image = ImageConfiguration # nx, ny, xhalfsize, aspect
+
+    def get_pixel_area_cgs(self):
+        r = self.body.radius * cgs.rjup
+        x_phys = 2 * self.image.xhalfsize * r / self.image.nx
+        y_phys = 2 * self.image.xhalfsize / self.image.aspect * r / self.image.ny
+        return x_phys * y_phys
+
+
 def make_assemble_parser():
     ap = argparse.ArgumentParser(
         prog = 'integrate assemble'
     )
+    ap.add_argument('-c', dest='config_path', metavar='CONFIG-PATH',
+                    help='The path to the configuration file. Optional; adds metadata for physical units.')
     ap.add_argument('glob',
                     help='A shell glob expression to match the Numpy data files.')
     ap.add_argument('outpath',
@@ -220,6 +244,11 @@ def make_assemble_parser():
 def assemble_cli(args):
     import glob, h5py, os.path
     settings = make_assemble_parser().parse_args(args=args)
+
+    if settings.config_path is None:
+        config = None
+    else:
+        config = AssembleTask.from_toml(settings.config_path)
 
     info_by_image = {}
     n_rows = 0
@@ -255,6 +284,10 @@ def assemble_cli(args):
                 data[:,start_row:start_row+height] = i_data
 
             ds['/' + image_id] = data
+
+        if config is not None:
+            ds.attrs['pixel_area_cgs'] = config.get_pixel_area_cgs()
+            ds.attrs['distance_cgs'] = config.body.distance * cgs.cmperpc
 
 
 # Entrypoint
