@@ -432,8 +432,6 @@ def assemble_cli(args):
             ds.attrs['distance_cgs'] = config.body.distance * cgs.cmperpc
 
 
-
-
 # Viewing an assembled file.
 
 def make_view_parser():
@@ -489,11 +487,101 @@ def view_cli(args):
     p.show()
 
 
+# Movie-making
+
+def make_movie_parser():
+    ap = argparse.ArgumentParser(
+        prog = 'integrate movie'
+    )
+    ap.add_argument('-s', dest='scaling', metavar='FACTOR', type=int, default=1,
+                    help='By what (integer) factor to scale the output frame size.')
+    ap.add_argument('--colormap', metavar='MAPNAME', default='white_to_blue',
+                    help='The pwkit colormap name to use to convert values to colors.')
+    ap.add_argument('--delay', metavar='MS', type=int, default=10,
+                    help='Set the delay between frames in the output GIF movie.')
+    ap.add_argument('kind', metavar='KIND',
+                    help='Which kind of movie to make: "rot", "spec"')
+    ap.add_argument('inpath', metavar='HDF5-PATH',
+                    help='The name of the HDF file to movify.')
+    ap.add_argument('index', metavar='INDEX', type=np.int,
+                    help='The index into the non-movie axis to choose.')
+    ap.add_argument('stokes', metavar='STOKES',
+                    help='Which parameter to image: i q u v l fl fc')
+    ap.add_argument('outpath', metavar='GIF-PATH',
+                    help='The name of the output GIF file.')
+    return ap
+
+
+def movie_cli(args):
+    import cairo, subprocess, tempfile
+    from pwkit.cli import die
+    from pwkit.data_gui_helpers import Clipper, ColorMapper
+    from pwkit.io import Path
+
+    settings = make_movie_parser().parse_args(args=args)
+    ii = IntegratedImages(settings.inpath)
+
+    if settings.kind == 'rot':
+        print('Rotation movie; non-movie freq choice is:', ii.freq_names[settings.index])
+        cube = np.array(ii.rotmovie(settings.index, settings.stokes))
+    elif settings.kind == 'spec':
+        print('Spectrum movie; non-movie CML choice is:', ii.cmls[settings.index])
+        cube = np.array(ii.specmovie(settings.index, settings.stokes))
+    else:
+        die('unrecognized movie type %r', settings.kind)
+
+    n, h, w = cube.shape
+
+    s = settings.scaling
+    h *= s
+    w *= s
+    scaled = np.empty((h, w), dtype=cube.dtype)
+    tiled = scaled.reshape((h // s, s, w // s, s))
+
+    stride = cairo.ImageSurface.format_stride_for_width(cairo.FORMAT_ARGB32, w)
+    assert stride % 4 == 0 # stride is in bytes
+    assert stride == 4 * w
+
+    clipper = Clipper()
+    clipper.alloc_buffer(scaled)
+    clipper.set_tile_size()
+    clipper.default_bounds(cube)
+
+    mapper = ColorMapper(settings.colormap)
+    mapper.alloc_buffer(scaled)
+    mapper.set_tile_size()
+
+    surface = cairo.ImageSurface.create_for_data(mapper.buffer,
+                                                 cairo.FORMAT_ARGB32,
+                                                 w, h, stride)
+
+    tempdir = Path(tempfile.mkdtemp())
+    argv = [
+        'convert',
+        '-delay', str(settings.delay),
+        '-loop', '0',
+    ]
+
+    for i, plane in enumerate(cube):
+        tiled[...] = plane.reshape((plane.shape[0], 1, plane.shape[1], 1))
+        clipper.invalidate()
+        clipper.ensure_all_updated(scaled)
+        mapper.invalidate()
+        mapper.ensure_all_updated(clipper.buffer)
+        png = str(tempdir / ('%d.png' % i))
+        surface.write_to_png(png)
+        argv.append(png)
+
+    argv += [settings.outpath]
+    subprocess.check_call(argv, shell=False)
+    tempdir.rmtree()
+
+
 # Entrypoint
 
 def entrypoint(argv):
     if len(argv) == 1:
-        die('must supply a subcommand: "assemble", "seed", "view"')
+        die('must supply a subcommand: "assemble", "movie", "seed", "view"')
 
     if argv[1] == 'seed':
         seed_cli(argv[2:])
@@ -503,5 +591,7 @@ def entrypoint(argv):
         assemble_cli(argv[2:])
     elif argv[1] == 'view':
         view_cli(argv[2:])
+    elif argv[1] == 'movie':
+        movie_cli(argv[2:])
     else:
         die('unrecognized subcommand %r', argv[1])
