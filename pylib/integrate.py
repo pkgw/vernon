@@ -293,6 +293,9 @@ def integrate_cli(args):
 
 
 def seed_cli(args):
+    from pwkit.cli import die
+    from pwkit.io import Path
+
     ap = argparse.ArgumentParser(
         prog = 'integrate seed',
     )
@@ -313,6 +316,9 @@ def seed_cli(args):
 
     assembled = os.path.realpath(settings.assembled_path)
     nn_dir = os.path.realpath(settings.nn_dir)
+
+    if not (Path(nn_dir) / 'nn_config.toml').exists():
+        die('bad setting for neural-net path: no such file %s', Path(nn_dir) / 'nn_config.toml')
 
     import h5py
     with h5py.File(assembled, 'r') as ds:
