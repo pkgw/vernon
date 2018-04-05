@@ -141,13 +141,17 @@ class IntegratedImages(object):
         return self.ds['/%s/%s' % (self.cml_names[i_cml], self.freq_names[i_freq])][...] * self.scale
 
 
-    def frame(self, i_cml, i_freq, i_stokes):
+    def frame(self, i_cml, i_freq, i_stokes, yflip=False):
         """Note that using i_stokes = 'l' here will make each individual positive, so
         that there will be no cancellation of different polarization signs
         across the image. So when comparing to actual data, you almost surely
         want to get your values from ``flux()``.
 
         """
+        if yflip:
+            arr = self.frame(i_cml, i_freq, i_stokes, yflip=False)
+            return arr[::-1]
+
         if not isinstance(i_stokes, str):
             arr = self.stokesset(i_cml, i_freq)[i_stokes]
             n_bad = (~np.isfinite(arr)).sum()
@@ -211,21 +215,17 @@ class IntegratedImages(object):
             return np.sqrt(q**2 + u**2)
         if i_stokes == 'fl':
             i = self.flux(i_cml, i_freq, 0)
-            no_i = (i == 0)
-            i[no_i] = 1
+            if i == 0:
+                return 0.
             q = self.flux(i_cml, i_freq, 1)
             u = self.flux(i_cml, i_freq, 2)
-            fl = np.sqrt(q**2 + u**2) / i
-            fl[no_i] = 0
-            return fl
+            return np.sqrt(q**2 + u**2) / i
         if i_stokes == 'fc':
             i = self.flux(i_cml, i_freq, 0)
-            no_i = (i == 0)
-            i[no_i] = 1
+            if i == 0:
+                return 0.
             v = self.flux(i_cml, i_freq, 3)
-            fc = v / i # can be negative
-            fc[no_i] = 0
-            return fc
+            return v / i # can be negative
         raise ValueError('unrecognized textual i_stokes value %r' % i_stokes)
 
 
@@ -233,16 +233,16 @@ class IntegratedImages(object):
         return np.array([self.flux(i, i_freq, i_stokes) for i in range(self.n_cmls)])
 
 
-    def rotmovie(self, i_freq, i_stokes):
-        return [self.frame(i, i_freq, i_stokes) for i in range(self.n_cmls)]
+    def rotmovie(self, i_freq, i_stokes, yflip=False):
+        return [self.frame(i, i_freq, i_stokes, yflip=yflip) for i in range(self.n_cmls)]
 
 
     def spectrum(self, i_cml, i_stokes):
         return np.array([self.flux(i_cml, i, i_stokes) for i in range(self.n_freqs)])
 
 
-    def specmovie(self, i_cml, i_stokes):
-        return [self.frame(i_cml, i, i_stokes) for i in range(self.n_freqs)]
+    def specmovie(self, i_cml, i_stokes, yflip=False):
+        return [self.frame(i_cml, i, i_stokes, yflip=yflip) for i in range(self.n_freqs)]
 
 
 # Command-line interface to jobs that do the RT integration for a series of
@@ -467,8 +467,8 @@ def view_cli(args):
 
     # Always nice to spin it
 
-    cycle(ii.rotmovie(1, 'i'))
-    cycle(ii.rotmovie(1, 'fc'))
+    cycle(ii.rotmovie(1, 'i', yflip=True))
+    cycle(ii.rotmovie(1, 'fc', yflip=True))
 
     # Stokes I spectrum - backing data slurped from my dulk85 interactive
     # javascript slide, which patched it together from who knows where.
@@ -490,6 +490,14 @@ def view_cli(args):
     p.addXY(n3b_cml, 1e3 * refdata['justph_cv'][...], 'N33370B phavg V')
     p.addXY(ii.cmls, ii.lightcurve(best_freq, 'i'), '%d/*/I' % best_freq)
     p.addXY(ii.cmls, ii.lightcurve(best_freq, 'v'), '%d/*/V' % best_freq)
+    p.show()
+
+    # Fractional circular polarization curve
+
+    n3b_fc = refdata['justph_cv'][...] / refdata['justph_ci'][...]
+
+    p = om.quickXY(n3b_cml, n3b_fc, 'N33370B phavg f_C')
+    p.addXY(ii.cmls, ii.lightcurve(best_freq, 'fc'), '%d/*/f_c' % best_freq)
     p.show()
 
 
@@ -529,10 +537,10 @@ def movie_cli(args):
 
     if settings.kind == 'rot':
         print('Rotation movie; non-movie freq choice is:', ii.freq_names[settings.index])
-        cube = np.array(ii.rotmovie(settings.index, settings.stokes))
+        cube = np.array(ii.rotmovie(settings.index, settings.stokes, yflip=True))
     elif settings.kind == 'spec':
         print('Spectrum movie; non-movie CML choice is:', ii.cmls[settings.index])
-        cube = np.array(ii.specmovie(settings.index, settings.stokes))
+        cube = np.array(ii.specmovie(settings.index, settings.stokes, yflip=True))
     else:
         die('unrecognized movie type %r', settings.kind)
 
