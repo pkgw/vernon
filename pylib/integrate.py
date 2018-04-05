@@ -509,6 +509,8 @@ def make_movie_parser():
     )
     ap.add_argument('-s', dest='scaling', metavar='FACTOR', type=int, default=1,
                     help='By what (integer) factor to scale the output frame size.')
+    ap.add_argument('-c', dest='crop', metavar='PIXELS', type=int, default=0,
+                    help='How many pixels to crop off every edge of the saved frames.')
     ap.add_argument('--colormap', metavar='MAPNAME', default='white_to_blue',
                     help='The pwkit colormap name to use to convert values to colors.')
     ap.add_argument('--delay', metavar='MS', type=int, default=10,
@@ -543,6 +545,10 @@ def movie_cli(args):
         cube = np.array(ii.specmovie(settings.index, settings.stokes, yflip=True))
     else:
         die('unrecognized movie type %r', settings.kind)
+
+    if settings.crop != 0:
+        c = settings.crop
+        cube = cube[:,c:-c,c:-c]
 
     n, h, w = cube.shape
 
