@@ -515,6 +515,8 @@ def make_movie_parser():
                     help='The pwkit colormap name to use to convert values to colors.')
     ap.add_argument('--delay', metavar='MS', type=int, default=10,
                     help='Set the delay between frames in the output GIF movie.')
+    ap.add_argument('--symmetrize', action='store_true',
+                    help='Symmetrize the color map around zero.')
     ap.add_argument('kind', metavar='KIND',
                     help='Which kind of movie to make: "rot", "spec"')
     ap.add_argument('inpath', metavar='HDF5-PATH',
@@ -565,7 +567,13 @@ def movie_cli(args):
     clipper = Clipper()
     clipper.alloc_buffer(scaled)
     clipper.set_tile_size()
-    clipper.default_bounds(cube)
+
+    if settings.symmetrize:
+        m = np.nanmax(np.abs(cube))
+        clipper.dmin = -m
+        clipper.dmax = m
+    else:
+        clipper.default_bounds(cube)
 
     mapper = ColorMapper(settings.colormap)
     mapper.alloc_buffer(scaled)
