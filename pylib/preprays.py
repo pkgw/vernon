@@ -280,6 +280,11 @@ def seed_gridded_cli(args):
     settings = make_seed_gridded_parser().parse_args(args=args)
     config = GriddedPrepraysConfiguration.from_toml(settings.config_path)
 
+    if not os.path.exists(config.particles_path):
+        die('config file specifies nonexistant particles file %r', config.particles_path)
+    elif config.particles_path != os.path.abspath(config.particles_path):
+        die('config file specifies non-absolute particles file %r', config.particles_path)
+
     print('Runtime-fixed parameters:', file=sys.stderr)
     print('   Latitude of center:', settings.loc, file=sys.stderr)
     print('   CMLs to image:', settings.n_cml, file=sys.stderr)
