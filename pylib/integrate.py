@@ -12,6 +12,7 @@ import six
 from six.moves import range
 from pwkit import astutil, cgs
 from pwkit.astutil import halfpi, twopi
+from pwkit.io import Path
 from pwkit.numutil import broadcastize
 from pylib.config import Configuration
 from pylib.geometry import BodyConfiguration, ImageConfiguration
@@ -245,6 +246,40 @@ class IntegratedImages(object):
         return [self.frame(i_cml, i, i_stokes, yflip=yflip) for i in range(self.n_freqs)]
 
 
+# This doesn't super belong here but meh
+
+class RTConfiguration(Configuration):
+    """Settings controlling how the radiative-transfer integration is done.
+
+    An important piece of context is the "preprays" step is responsible for
+    pre-computing particle distribution parameters sampled over a series of
+    "frames", such that at this point we don't really have a lot of decisions
+    left to make.
+
+    """
+    __section__ = 'rt'
+
+    nn_path = 'undefined'
+    "The path to the \"neurosynchro\" data files for calculationg RT coefficients."
+
+    def validate(self):
+        p = Path(self.nn_path)
+        if p != p.absolute():
+            die('neural-net path must be absolute; got "%s"' % p)
+
+        nn_cfg = p / 'nn_config.toml'
+        if not nn_cfg.exists():
+            die('bad setting for neural-net path: no such file %s', nn_cfg)
+
+
+    def get_synch_calc(self):
+        from .synchrotron import NeuroSynchrotronCalculator
+        return NeuroSynchrotronCalculator(self.nn_path)
+
+    def get_rad_trans(self):
+        return FormalRTIntegrator()
+
+
 # Command-line interface to jobs that do the RT integration for a series of
 # frames at a series of frequencies
 
@@ -257,10 +292,10 @@ def integrate_cli(args):
     ap = argparse.ArgumentParser(
         prog = 'integrate _integrate',
     )
+    ap.add_argument('config_path', metavar='CONFIG-PATH',
+                    help='Path to the TOML configuration file.')
     ap.add_argument('assembled_path', metavar='ASSEMBLED-PATH',
                     help='Path to the HDF5 file with "assembled" output from "prepray".')
-    ap.add_argument('nn_dir', metavar='NN-PATH',
-                    help='Path to the trained neural network data for the RT coefficients.')
     ap.add_argument('frame_name', metavar='FRAME-NAME',
                     help='The name of the frame to render in the HDF5 file.')
     ap.add_argument('frequency', metavar='FREQ', type=float,
@@ -270,14 +305,14 @@ def integrate_cli(args):
     ap.add_argument('n_rows', metavar='NUMBER', type=int,
                     help='The number of rows in the sub-image to be made.')
     settings = ap.parse_args(args=args)
-
-    from .geometry import RTOnlySetup, PrecomputedImageMaker
-    from .synchrotron import NeuroSynchrotronCalculator
+    config = RTConfiguration.from_toml(settings.config_path)
 
     freq_code = ('nu%.3f' % settings.frequency).replace('.', 'p')
 
-    synch_calc = NeuroSynchrotronCalculator(settings.nn_dir)
-    rad_trans = FormalRTIntegrator()
+    synch_calc = config.get_synch_calc()
+    rad_trans = config.get_rad_trans()
+
+    from .geometry import RTOnlySetup, PrecomputedImageMaker
     setup = RTOnlySetup(synch_calc, rad_trans, settings.frequency * 1e9)
     imaker = PrecomputedImageMaker(setup, settings.assembled_path)
     imaker.select_frame_by_name(settings.frame_name)
@@ -294,11 +329,12 @@ def integrate_cli(args):
 
 def seed_cli(args):
     from pwkit.cli import die
-    from pwkit.io import Path
 
     ap = argparse.ArgumentParser(
         prog = 'integrate seed',
     )
+    ap.add_argument('-c', dest='config_path', metavar='CONFIG-PATH',
+                    help='The path to the configuration file.')
     ap.add_argument('--nulow', dest='nu_low', type=float, default=1.0,
                     help='The low end of the frequency range to process, in GHz.')
     ap.add_argument('--nuhigh', dest='nu_high', type=float, default=100.,
@@ -309,16 +345,13 @@ def seed_cli(args):
                     help='The number of groups into which the rows are broken '
                     'for processing [%(default)d].')
     ap.add_argument('assembled_path', metavar='ASSEMBLED-PATH',
-                    help='Path to the HDF5 file with "assembled" output from "prepray".')
-    ap.add_argument('nn_dir', metavar='NN-PATH',
-                    help='Path to the trained neural network data for the RT coefficients.')
+                    help='Path to the HDF5 file with "assembled" output from "preprays".')
     settings = ap.parse_args(args=args)
+    config = RTConfiguration.from_toml(settings.config_path)
+
+    config.validate()
 
     assembled = os.path.realpath(settings.assembled_path)
-    nn_dir = os.path.realpath(settings.nn_dir)
-
-    if not (Path(nn_dir) / 'nn_config.toml').exists():
-        die('bad setting for neural-net path: no such file %s', Path(nn_dir) / 'nn_config.toml')
 
     import h5py
     with h5py.File(assembled, 'r') as ds:
@@ -350,8 +383,9 @@ def seed_cli(args):
             for icg in range(settings.n_row_groups):
                 start_row = start_rows[icg]
                 n_rows = row_heights[icg]
-                print('%s_%d_%d integrate _integrate %s %s %s %.3f %d %d' %
-                      (frame_name, ifreq, icg, assembled, nn_dir, frame_name, freq, start_row, n_rows))
+                jobid = '%s_%d_%d' % (frame_name, ifreq, icg)
+                print('%s integrate _integrate %s %s %s %.3f %d %d' %
+                      (jobid, settings.config_path, assembled, frame_name, freq, start_row, n_rows))
 
 
 # Assembling the numpy files into one big HDF
