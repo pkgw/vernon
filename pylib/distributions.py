@@ -13,6 +13,7 @@ __all__ = '''
 Distribution
 TorusDistribution
 WasherDistribution
+PancakeTorusDistribution
 GriddedDistribution
 DG83Distribution
 '''.split()
@@ -185,6 +186,94 @@ class WasherDistribution(Distribution):
 
         k = np.zeros(mlat.shape)
         k[inside] = self.pitch_angle_k
+
+        return n_e, p, k
+
+
+class PancakeTorusDistribution(Distribution):
+    """A distribution where the overall particle distribution is a uniform torus,
+    but the parameters smoothly interpolate to different values in a "pancake" along
+    the magnetic equator.
+
+    This is meant to provide a relatively simple analytic approximation to a
+    Jupiter-like particle distribution, which more or less has a two-component
+    particle distribution consisting of a more isotropic population (the
+    torus-y part) and an equatorial population (the pancake-y part).
+
+    """
+    __section__ = 'pancake-torus-distribution'
+
+    major_radius = 3.0
+    """"Major radius" of the torus shape, I guess, in units of the body's
+    radius.
+
+    """
+    minor_radius = 1.0
+    """"Minor radius" of the torus shape, I guess, in units of the body's
+    radius.
+
+    """
+    n_e_torus = 1e4
+    """The density of energetic electrons in the torus component, in units of
+    total electrons per cubic centimeter.
+
+    """
+    n_e_pancake = 1e6
+    """The density of energetic electrons in the pancake component, in units of
+    total electrons per cubic centimeter. The modeled density will interpolate
+    smoothly to this value in the "pancake" zone.
+
+    """
+    power_law_p = 3
+    "The power-law index of the energetic electrons, such that N(>E) ~ E^(-p)."
+
+    pitch_angle_k_torus = 1
+    """The power-law index of the pitch angle distribution in sin(theta) in the
+    torus component.
+
+    """
+    pitch_angle_k_pancake = 9
+    """The power-law index of the pitch angle distribution in sin(theta) in the
+    pancake component. The modeled power law index will interpolate smoothly
+    to this value in the "pancake" zone.
+
+    """
+    pancake_fwhm = 0.4
+    """The FWHM of the pancake layer, in units of the body's radius. The pancake
+    zone is defined as having a profile of ``clipped_cos(z_norm)^5``, where z
+    is the magnetic z coordinate (i.e., vertical displacement out of the
+    magnetic equator) normalized such that the full-width at half-maximum
+    (FWHM) of the resulting profile is the value specified here. The ``cos``
+    function is clipped in the sense that values of z far beyond the equator
+    are 0.
+
+    """
+    _parameter_names = ['n_e', 'p', 'k']
+
+
+    @broadcastize(3,(0,0))
+    def get_samples(self, mlat, mlon, L, just_ne=False):
+        r = L * np.cos(mlat)**2
+        x, y, z = sph_to_cart(mlat, mlon, r)
+
+        a = self.major_radius
+        b = self.minor_radius
+        q = (x**2 + y**2 + z**2 - (a**2 + b**2))**2 - 4 * a * b * (b**2 - z**2)
+        inside_torus = (q < 0)
+
+        z_norm = z[inside_torus] * 1.0289525193081477 / self.pancake_fwhm
+        pancake_factor = np.cos(z_norm)**5
+        pancake_factor[np.abs(z_norm) > 0.5 * np.pi] = 0.
+
+        n_e = np.zeros(mlat.shape)
+        n_e[inside_torus] = self.n_e_torus + (self.n_e_pancake - self.n_e_torus) * pancake_factor
+
+        p = np.zeros(mlat.shape)
+        p[inside_torus] = self.power_law_p
+
+        k = np.zeros(mlat.shape)
+        k[inside_torus] = self.pitch_angle_k_torus + \
+                          (self.pitch_angle_k_pancake - self.pitch_angle_k_torus) * pancake_factor
 
         return n_e, p, k
 
@@ -487,6 +576,7 @@ class DistributionConfiguration(Configuration):
 
     torus = TorusDistribution
     washer = WasherDistribution
+    pancake_torus = PancakeTorusDistribution
     gridded = GriddedDistribution
     dg83 = DG83Distribution
 
@@ -495,6 +585,8 @@ class DistributionConfiguration(Configuration):
             return self.torus
         elif self.name == 'washer':
             return self.washer
+        elif self.name == 'pancake-torus':
+            return self.pancake_torus
         elif self.name == 'gridded':
             return self.gridded
         elif self.name == 'dg83':
