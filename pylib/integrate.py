@@ -1,5 +1,5 @@
 # -*- mode: python; coding: utf-8 -*-
-# Copyright 2015-2017 Peter Williams and collaborators.
+# Copyright 2015-2018 Peter Williams and collaborators.
 # Licensed under the MIT License.
 
 """Radiative transfer integration.
@@ -262,6 +262,20 @@ class RTConfiguration(Configuration):
     nn_path = 'undefined'
     "The path to the \"neurosynchro\" data files for calculationg RT coefficients."
 
+    # FIXME? As in preprays, these items feel like they don't belong here, but
+    # at the moment this is where they make sense:
+
+    nu_low = 1.
+    "The minimum frequency to image, in GHz."
+
+    nu_high = 100.
+    "The maximum frequency to image, in GHz."
+
+    n_freq = 3
+    """The number of frequencies to image. Imaging is performed with logarithmic
+    spacing between nu_low and nu_high.
+
+    """
     def validate(self):
         p = Path(self.nn_path)
         if p != p.absolute():
@@ -335,12 +349,6 @@ def seed_cli(args):
     )
     ap.add_argument('-c', dest='config_path', metavar='CONFIG-PATH',
                     help='The path to the configuration file.')
-    ap.add_argument('--nulow', dest='nu_low', type=float, default=1.0,
-                    help='The low end of the frequency range to process, in GHz.')
-    ap.add_argument('--nuhigh', dest='nu_high', type=float, default=100.,
-                    help='The high end of the frequency range to process, in GHz.')
-    ap.add_argument('-n', dest='n_freqs', type=int, default=3,
-                    help='The number of frequencies to process.')
     ap.add_argument('-g', dest='n_row_groups', type=int, metavar='NUMBER', default=1,
                     help='The number of groups into which the rows are broken '
                     'for processing [%(default)d].')
@@ -358,7 +366,7 @@ def seed_cli(args):
         frame_names = sorted(x for x in ds if x.startswith('frame'))
         n_rows = ds[frame_names[0]]['n_e'].shape[0]
 
-    freqs = np.logspace(np.log10(settings.nu_low), np.log10(settings.nu_high), settings.n_freqs)
+    freqs = np.logspace(np.log10(config.nu_low), np.log10(config.nu_high), config.n_freq)
 
     if settings.n_row_groups == 1:
         start_rows = [0]
@@ -375,7 +383,7 @@ def seed_cli(args):
             start_rows.append(start_rows[-1] + rest_height)
             row_heights.append(rest_height)
 
-    print('Number of tasks:', len(frame_names) * settings.n_freqs * settings.n_row_groups,
+    print('Number of tasks:', len(frame_names) * config.n_freq * settings.n_row_groups,
           file=sys.stderr)
 
     for frame_name in frame_names:
