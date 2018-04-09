@@ -6,7 +6,7 @@
 ray-tracing thereof.
 
 """
-from __future__ import absolute_import, division, print_function, unicode_literals
+from __future__ import absolute_import, division, print_function
 
 import numpy as np
 import six
@@ -583,546 +583,6 @@ class TiltedDipoleField(object):
         view(coord[::-1], yflip=True, **kwargs)
 
 
-class SimpleTorusDistribution(object):
-    """A uniformly filled torus where the parameters of the electron energy
-    distribution are fixed.
-
-    r1
-      "Major radius", I guess, in units of the body's radius.
-    r2
-      "Minor radius", I guess, in units of the body's radius.
-    n_e
-      The density of energetic electrons in the torus, in units of total
-      electrons per cubic centimeter.
-    p
-      The power-law index of the energetic electrons, such that N(>E) ~ E^(-p).
-
-    """
-    parameter_names = ['n_e', 'p']
-
-    def __init__(self, r1, r2, n_e, p, fake_k=None):
-        self.r1 = float(r1)
-        self.r2 = float(r2)
-        self.n_e = float(n_e)
-        self.p = float(p)
-
-        if fake_k is None:
-            self.fake_k = None
-        else:
-            self.parameter_names = ['n_e', 'p', 'k']
-            self.fake_k = float(fake_k)
-
-
-    @broadcastize(3,(0,0))
-    def get_samples(self, mlat, mlon, L, just_ne=False):
-        """Sample properties of the electron distribution at the specified locations
-        in magnetic field coordinates. Arguments are magnetic latitude,
-        longitude, and McIlwain L parameter.
-
-        Returns: (n_e, p), where
-
-        n_e
-           Array of electron densities corresponding to the provided coordinates.
-           Units of electrons per cubic centimeter.
-        p
-           Array of power-law indices of the electrons at the provided coordinates.
-
-        Unless the `fake_k` option has been provided.
-
-        """
-        r = L * np.cos(mlat)**2
-        x, y, z = sph_to_cart(mlat, mlon, r)
-
-        # Thanks, Internet:
-
-        a = self.r1
-        b = self.r2
-        q = (x**2 + y**2 + z**2 - (a**2 + b**2))**2 - 4 * a * b * (b**2 - z**2)
-        inside = (q < 0)
-
-        n_e = np.zeros(mlat.shape)
-        n_e[inside] = self.n_e
-
-        p = np.zeros(mlat.shape)
-        p[inside] = self.p
-
-        if self.fake_k is None:
-            return n_e, p
-        else:
-            k = np.empty(mlat.shape)
-            k.fill(self.fake_k)
-            return n_e, p, k
-
-
-class SimpleWasherDistribution(object):
-    """A hard-edged "washer" shape.
-
-    r_inner
-      Inner radius, in units of the body's radius.
-    r_outer
-      Outer radius, in units of the body's radius.
-    thickness
-      Washer thickness, in units of the body's radius.
-    n_e
-      The density of energetic electrons in the washer, in units of total
-      electrons per cubic centimeter.
-    p
-      The power-law index of the energetic electrons, such that N(>E) ~ E^(-p).
-    radial_concentration
-      A power-law index giving the degree to which n_e increases toward the
-      inner edge of the washer:
-
-        n_e(r) \propto [(r_out - r) / (r_out - r_in)]^radial_concentration
-
-      Zero implies a flat distribution; 1 implies a linear increase from outer
-      to inner. The total number of electrons in the washer is conserved.
-
-    """
-    parameter_names = ['n_e', 'p']
-
-    def __init__(self, r_inner=2, r_outer=7, thickness=0.7, n_e=1e5, p=3,
-                 fake_k=None, radial_concentration=0.):
-        self.r_inner = float(r_inner)
-        self.r_outer = float(r_outer)
-        self.thickness = float(thickness)
-        self.p = float(p)
-        self.radial_concentration = float(radial_concentration)
-
-        if fake_k is None:
-            self.fake_k = None
-        else:
-            self.parameter_names = ['n_e', 'p', 'k']
-            self.fake_k = float(fake_k)
-
-        # We want the total number of electrons to stay constant if
-        # radial_concentration changes. In the simplest case,
-        # radial_concentration is zero, n_e is spatially uniform, and
-        #   N = n_e * thickness * pi * (r_outer**2 - r_inner**2).
-        # In the less trivial case, n_e(r) ~ ((r_out - r)/(r_out - r_in))**c.
-        # Denote the constant of proportionality `density_factor`. If you work
-        # out the integral for N in the generic case and simplify, you get the
-        # following. Note that if c = 0, you get density_factor = n_e as you
-        # would hope.
-
-        c = self.radial_concentration
-        numer = float(n_e) * (self.r_outer**2 - self.r_inner**2)
-        denom = (2 * (self.r_outer - self.r_inner) * \
-                 ((c + 1) * self.r_inner + self.r_outer) / ((c + 1) * (c + 2)))
-        self._density_factor = numer / denom
-
-    @broadcastize(3,(0,0))
-    def get_samples(self, mlat, mlon, L, just_ne=False):
-        """Sample properties of the electron distribution at the specified locations
-        in magnetic field coordinates. Arguments are magnetic latitude,
-        longitude, and McIlwain L parameter.
-
-        Returns: (n_e, p), where
-
-        n_e
-           Array of electron densities corresponding to the provided coordinates.
-           Units of electrons per cubic centimeter.
-        p
-           Array of power-law indices of the electrons at the provided coordinates.
-
-        Unless the ``fake_k`` keyword has been provided.
-
-        """
-        r = L * np.cos(mlat)**2
-        x, y, z = sph_to_cart(mlat, mlon, r)
-        r2 = x**2 + y**2
-        inside = (r2 > self.r_inner**2) & (r2 < self.r_outer**2) & (np.abs(z) < 0.5 * self.thickness)
-
-        n_e = np.zeros(mlat.shape)
-        n_e[inside] = self._density_factor * ((self.r_outer - r[inside]) /
-                                              (self.r_outer - self.r_inner))**self.radial_concentration
-
-        p = np.zeros(mlat.shape)
-        p[inside] = self.p
-
-        if self.fake_k is None:
-            return n_e, p
-        else:
-            k = np.empty(mlat.shape)
-            k.fill(self.fake_k)
-            return n_e, p, k
-
-
-class IsotropicGriddedDistribution(object):
-    """A distribution of particles evaluated numerically on some grid, where the
-    pitch angles are isotropically distributed. (This was used when I only had
-    Symphony available and couldn't do synchrotron modeling of anisotropic
-    particle populations.)
-
-    distrib
-      An instance of `pylib.distribution.ParticleDistribution` containing the
-      gridded data.
-    radius
-      The radius of the body in cm. This is used to compute particle densities
-      in real physical units.
-
-    """
-    parameter_names = ['n_e', 'p'] # to be revisited?
-
-    def __init__(self, distrib, radius):
-        self.distrib = distrib
-
-        # At the moment, the only knob we can turn with Symphony is to give it
-        # different power-law indices for the particle distribution -- we
-        # can't input information about the pitch-angle distribution, and we
-        # haven't wired up any of the other particular distributions that
-        # Symphony supports. This is so lame that I'm actually going to have
-        # this module print a reminder message about it.
-
-        print('WARNING: discarding pitch-angle distribution information')
-
-        cube = distrib.f.sum(axis=2)
-
-        # Pre-compute the densities, assuming Ls are evenly sampled. We fudge
-        # things a bit here by taking the volume of an L shell to be the
-        # volume of an infinitesimally small surface rooted in L and latitude,
-        # rather than a real dipolar surface. The difference should be small.
-        # I hope.
-
-        N_e = cube.sum(axis=-1)
-        delta_L = np.median(np.diff(distrib.L))
-        delta_lat = np.median(np.diff(distrib.lat))
-        volume = 4 * np.pi * distrib.L**2 / 3 * delta_L * radius**3 * delta_lat / (0.5 * np.pi)
-        self.n_e = N_e / volume.reshape((-1, 1))
-
-        # Pre-compute the power-law indices
-
-        logE = np.log(distrib.Ekin_mev)
-        logn = np.ma.log(np.ma.MaskedArray(cube, mask=(cube <= 0)))
-        nl, nlat = cube.shape[:2]
-        self.p = np.zeros((nl, nlat))
-
-        for i_l in range(nl):
-            for i_lat in range(nlat):
-                this_logn = logn[i_l,i_lat]
-                if this_logn.mask.all():
-                    self.p[i_l,i_lat] = 3
-                    continue
-
-                c, residues, rank, singulars, rcond = np.ma.polyfit(logE, this_logn, 1, full=True)
-                # TODO: goodness-of-fit!!!
-                self.p[i_l,i_lat] = -c[0]
-
-        # Finally, set up to interpolate to arbitrary L and latitude values.
-        # Outside of our bounds, report zeros, which the integrator will deal
-        # with.
-
-        from scipy.interpolate import LinearNDInterpolator
-
-        coords = np.empty((nl * nlat, 2))
-        coords[:,0] = np.broadcast_to(distrib.L.reshape((-1, 1)), (nl, nlat)).flat
-        coords[:,1] = np.broadcast_to(distrib.lat, (nl, nlat)).flat
-
-        data = np.empty((nl * nlat, 2))
-        data[:,0] = self.n_e.flat
-        data[:,1] = self.p.flat
-
-        self.interp = LinearNDInterpolator(coords, data, fill_value=0.)
-
-
-    @broadcastize(3,(0,0))
-    def get_samples(self, mlat, mlon, L, just_ne=False):
-        """Sample properties of the electron distribution at the specified locations
-        in magnetic field coordinates. Arguments are magnetic latitude,
-        longitude, and McIlwain L parameter.
-
-        Returns: (n_e, p), where
-
-        n_e
-           Array of electron densities corresponding to the provided coordinates.
-           Units of electrons per cubic centimeter.
-        p
-           Array of power-law indices of the electrons at the provided coordinates.
-
-        """
-        # This is an axially symmetric model, so mlon is ignored. We're also
-        # symmetric about the magnetic equator.
-
-        coords = np.empty(L.shape + (2,))
-        coords[...,0] = L
-        coords[...,1] = np.abs(mlat)
-
-        r = self.interp(coords)
-        n_e = r[...,0]
-        p = r[...,1]
-        return n_e, p
-
-
-class GriddedDistribution(object):
-    """A distribution of particles evaluated numerically on some grid.
-
-    distrib
-      An instance of `pylib.distribution.ParticleDistribution` containing the
-      gridded data.
-    radius
-      The radius of the body in cm. This is used to compute particle densities
-      in real physical units.
-
-    """
-    parameter_names = ['n_e', 'p', 'k']
-
-    def __init__(self, distrib, radius):
-        self.distrib = distrib
-
-        # Pre-compute the densities, assuming Ls are evenly sampled. We fudge
-        # things a bit here by taking the volume of an L shell to be the
-        # volume of an infinitesimally small surface rooted in L and latitude,
-        # rather than a real dipolar surface. The difference should be small.
-        # I hope.
-
-        N_e = distrib.f.sum(axis=(2, 3)) # N_e has shape (nl, nlat)
-        delta_L = np.median(np.diff(distrib.L))
-        delta_lat = np.median(np.diff(distrib.lat))
-        volume = 4 * np.pi * distrib.L**2 / 3 * delta_L * radius**3 * delta_lat / (0.5 * np.pi)
-        n_e = N_e / volume.reshape((-1, 1))
-
-        from scipy.interpolate import RegularGridInterpolator
-        self.ne_interp = RegularGridInterpolator(
-            [distrib.L, distrib.lat],
-            n_e,
-            bounds_error = False,
-            fill_value = 0.,
-        )
-
-
-    @broadcastize(3,(0,0,0))
-    def get_samples(self, mlat, mlon, L, just_ne=False):
-        mlat = np.abs(mlat) # top/bottom symmetry!
-
-        base_shape = mlat.shape
-        transposed = np.empty(base_shape + (2,))
-        transposed[...,0] = L
-        transposed[...,1] = mlat
-        n_e = self.ne_interp(transposed)
-
-        if just_ne:
-            return (n_e, n_e, n_e) # easiest way to make broadcastize happy
-
-        # For each position to sample, manually interpolate a 2D grid of
-        # numbers of particles as a function of E and y, then fit the particle
-        # distribution parameters p and k.
-
-        from pwkit import lsqmdl
-
-        gamma_2d = (1 + self.distrib.Ekin_mev / 0.510999).reshape((1, -1))
-        y_2d = self.distrib.y.reshape((-1, 1))
-        y_2d = np.maximum(y_2d, 1e-5) # avoid div-by-zero
-
-        def mfunc(norm, p, k):
-            return norm * gamma_2d**(-p) * y_2d**k
-
-        L_scaled = self.distrib.nl * (L - self.distrib.L[0]) / (self.distrib.L[-1] - self.distrib.L[0]) # e.g., 1.7
-        L_indices = L_scaled.astype(np.int) # e.g., 1
-        L_weights = L_scaled - L_indices # e.g. 0.7 = weight to app
-        edge = (L_indices >= self.distrib.nl - 1) # ignore L out of bounds
-        L_indices[edge] = self.distrib.nl - 2
-        L_weights[edge] = 1.0
-
-        lat_scaled = self.distrib.nlat * (mlat - self.distrib.lat[0]) / (self.distrib.lat[-1] - self.distrib.lat[0])
-        lat_indices = lat_scaled.astype(np.int)
-        lat_weights = lat_scaled - lat_indices
-        edge = (lat_indices >= self.distrib.nlat - 1) # ignore lat out of bounds
-        lat_indices[edge] = self.distrib.nlat - 2
-        lat_weights[edge] = 1.0
-
-        f = self.distrib.f
-        p = np.zeros(base_shape)
-        k = np.zeros(base_shape)
-
-        for i in range(mlat.size):
-            arg_idx = np.unravel_index(i, base_shape)
-            L_idx = L_indices[arg_idx]
-            L_wt = L_weights[arg_idx]
-            lat_idx = lat_indices[arg_idx]
-            lat_wt = lat_weights[arg_idx]
-
-            this_f = (
-                (1 - L_wt) * (1 - lat_wt) * f[L_idx,lat_idx] +
-                L_wt       * (1 - lat_wt) * f[L_idx+1,lat_idx] +
-                (1 - L_wt) * lat_wt       * f[L_idx,lat_idx+1] +
-                L_wt       * lat_wt       * f[L_idx+1,lat_idx+1]
-            )
-
-            soln = lsqmdl.Model(mfunc, this_f).solve((this_f.max(), 2., 1.))
-            p[arg_idx] = soln.params[1]
-            k[arg_idx] = soln.params[2]
-
-        return n_e, p, k
-
-
-    def test_approx(self, mlat, mlon, L):
-        """Test our parametrized approximation of the particle distribution at some
-        location.
-
-        XXX: code duplication less than ideal. We have some mix-and-match to
-        deal with scalar arguments while keeping (e.g.) the variable names the
-        same as in `get_samples()`.
-
-        """
-        mlat = np.abs(mlat) # top/bottom symmetry!
-        n_e = self.ne_interp([L, mlat])
-
-        from pwkit import lsqmdl
-
-        gamma_2d = (1 + self.distrib.Ekin_mev / 0.510999).reshape((1, -1))
-        y_2d = self.distrib.y.reshape((-1, 1))
-        y_2d = np.maximum(y_2d, 1e-5) # avoid div-by-zero
-
-        def mfunc(norm, p, k):
-            return norm * gamma_2d**(-p) * y_2d**k
-
-        L_scaled = self.distrib.nl * (L - self.distrib.L[0]) / (self.distrib.L[-1] - self.distrib.L[0])
-        L_idx = int(L_scaled)
-        L_wt = L_scaled - L_idx
-        if L_idx >= self.distrib.nl - 1:
-            L_idx = self.distrib.nl - 2
-            L_wt = 1.0
-
-        lat_scaled = self.distrib.nlat * (mlat - self.distrib.lat[0]) / (self.distrib.lat[-1] - self.distrib.lat[0])
-        lat_idx = int(lat_scaled)
-        lat_wt = lat_scaled - lat_idx
-        if lat_idx >= self.distrib.nlat - 1:
-            lat_idx = self.distrib.nlat - 2
-            lat_wt = 1.0
-
-        f = self.distrib.f
-        this_f = (
-            (1 - L_wt) * (1 - lat_wt) * f[L_idx,lat_idx] +
-            L_wt       * (1 - lat_wt) * f[L_idx+1,lat_idx] +
-            (1 - L_wt) * lat_wt       * f[L_idx,lat_idx+1] +
-            L_wt       * lat_wt       * f[L_idx+1,lat_idx+1]
-        )
-
-        return lsqmdl.Model(mfunc, this_f).solve((this_f.max(), 2., 1.))
-
-
-class DG83Distribution(object):
-    """The Divine & Garrett (1983) model of the Jovian particle distribution.
-
-    bfield
-      An instance of divine1983.JupiterD4Field.
-    n_alpha
-      Number of pitch angles to sample.
-    n_E
-      Number of energies to sample.
-    E0
-      Lower limit of the energies to sample, in MeV.
-    E1
-      Upper limit of the energies to sample, in MeV.
-
-    Several of the returned quantities will be multi-dimensional arrays that
-    are sampled in energy and pitch angle. We linearly sample between pitch
-    angles of 0 and pi/2 radians, and between energies of E0 and E1 specified
-    above. Those numbers are the *edges* of the sampling bins, while the points
-    at which we actually sample are the bin midpoints.
-
-    TODO: log-sample energy.
-
-    Due to some weaknesses in our design, this object needs to be given a
-    handle to the magnetic field model so that it can un-transform the
-    magnetic-field coordinates into body-centric coordinates, which the DG83
-    model is based in because it is fancy.
-
-    """
-    parameter_names = ['n_e', 'n_e_cold', 'p', 'k']
-
-    def __init__(self, bfield, n_alpha, n_E, E0, E1):
-        self.bfield = bfield
-
-        # Construct the pitch-angle grid. divine1983 gives us dN/d(solid
-        # angle); we want dN/d(pitch angle), which means we need the
-        # conversion factor d(solid angle)/d(pitch angle) evaluated for each
-        # alpha bin. The differential factor is `2 pi sin(alpha)`, so,
-        # integrating:
-
-        alpha_edges = np.linspace(0, 0.5 * np.pi, n_alpha + 1)
-        self.alphas = (0.5 * (alpha_edges[1:] + alpha_edges[:-1])).reshape((-1, 1))
-        solid_angle_factors = 2 * np.pi * (1 - np.cos(alpha_edges))
-        alpha_volumes = np.diff(solid_angle_factors).reshape((-1, 1)) # sums to 4pi
-
-        # Construct the energy grid. A bit simpler.
-
-        E_edges = np.linspace(E0, E1, n_E + 1)
-        self.Es = (0.5 * (E_edges[1:] + E_edges[:-1])).reshape((1, -1))
-        E_volumes = np.diff(E_edges).reshape((1, -1))
-
-        # To go from fluxes to instantaneous number densities we have to
-        # divide by the velocities; the `E` are the particle kinetic energies
-        # so they're not hard to compute.
-
-        gamma = 1 + self.Es / 0.510999 # rest mass of electron is *really* close to 511 keV!
-        beta = np.sqrt(1 - gamma**-2)
-        velocities = beta * cgs.c
-
-        # The full scaling terms:
-
-        self._diff_intens_to_density = alpha_volumes * E_volumes / velocities
-
-
-    @broadcastize(3,(0,None,0,0,0))
-    def get_samples(self, mlat, mlon, L, just_ne=False):
-        from .divine1983 import radbelt_e_diff_intensity, cold_e_maxwellian_parameters
-
-        # Futz things so that we broadcast alphas/Es orthogonally to the
-        # coordinate values. If we do these right, numpy's broadcasting rules
-        # make it so `self.diff_intens_to_density` broadcasts as intended too.
-        base_shape = mlat.shape
-        alphas = self.alphas.reshape((1,) * mlat.ndim + self.alphas.shape)
-        Es = self.Es.reshape((1,) * mlat.ndim + self.Es.shape)
-        mlat = mlat.reshape(base_shape + (1, 1))
-        mlon = mlon.reshape(base_shape + (1, 1))
-        L = L.reshape(L.shape + (1, 1))
-
-        L_eff = np.maximum(L, 1.09) # don't go beyond the model's range
-        mr = L_eff * np.cos(mlat)**2
-        bclat, bclon, r = self.bfield._from_dc(mlat, mlon, mr)
-        # this is dN/(dA dT dOmega dMeV):
-        f = radbelt_e_diff_intensity(bclat, bclon, r, alphas, Es, self.bfield)
-        # This gets us to number densities:
-        f *= self._diff_intens_to_density
-
-        # Scalar number density of synchrotron-relevant particles. Must be the
-        # first parameter so that they ray-tracer can tune the bounds of the
-        # ray.
-        n_e = f.sum(axis=(-2, -1))
-
-        if just_ne:
-            return (n_e, n_e, n_e, n_e, n_e) # easiest way to make broadcastize happy
-
-        # Number density of cold electrons is easy.
-        n_e_cold = cold_e_maxwellian_parameters(bclat, bclon, r)[0][...,0,0]
-
-        # Fit our "pitchy" power-law model to the samples. Goodness of fit?
-        # What's that??
-
-        from pwkit import lsqmdl
-
-        gamma = 1 + Es / 0.510999
-        sinth = np.sin(alphas)
-
-        def mfunc(norm, p, k):
-            return norm * gamma**(-p) * sinth**k
-
-        p = np.zeros(base_shape)
-        k = np.zeros(base_shape)
-
-        for i in range(mlat.size):
-            idx = np.unravel_index(i, base_shape)
-            mdl = lsqmdl.Model(mfunc, f[idx]).solve((f[idx].max(), 2., 1.))
-            p[idx] = mdl.params[1]
-            k[idx] = mdl.params[2]
-
-        # Some parts of the code can handle `f` as a return value, so that we
-        # can look at the detailed distribution function that's going into the
-        # fit for p and k. But the new dynamic ray-sampling code can't handle
-        # it, so I'm not returning it at the moment.
-        return (n_e, n_e_cold, p, k)
-
-
 class BasicRayTracer(Configuration):
     """Class the implements the definition of a ray through the magnetosphere. By
     definition, rays end at a specified X/Y location in observer coordinates,
@@ -1274,7 +734,7 @@ class FormalRayTracer(BasicRayTracer):
         # manner.)
 
         min_step_size = 1e-5 * (z1 - z0)
-        buf = np.empty((64, 15 + len(setup.distrib.parameter_names)))
+        buf = np.empty((64, 15 + len(setup.distrib._parameter_names)))
         i = 0
         z = z0
 
@@ -1290,7 +750,7 @@ class FormalRayTracer(BasicRayTracer):
             mc = setup.bfield(*bc)
             dsamps = setup.distrib.get_samples(*mc)
 
-            d_extras = dict(zip(setup.distrib.parameter_names, dsamps))
+            d_extras = dict(zip(setup.distrib._parameter_names, dsamps))
             sc_extras = dict((n, d_extras[n]) for n in setup.synch_calc.param_names)
 
             j, alpha, rho = setup.synch_calc.get_coeffs(
@@ -1339,7 +799,7 @@ class FormalRayTracer(BasicRayTracer):
         r.alpha = buf[:,8:12]
         r.rho = buf[:,12:15]
 
-        for idx, n in enumerate(setup.distrib.parameter_names):
+        for idx, n in enumerate(setup.distrib._parameter_names):
             setattr(r, n, buf[:,idx + 15])
 
         return r
@@ -1429,7 +889,7 @@ class Ray(object):
             self.B = np.zeros(self.z.size)
             self.psi = np.zeros(self.z.size)
 
-            for pn in setup.distrib.parameter_names:
+            for pn in setup.distrib._parameter_names:
                 setattr(self, pn, np.zeros(self.z.size))
         else:
             bhat = setup.bfield.bhat(*self.bc)
@@ -1437,7 +897,7 @@ class Ray(object):
             self.B = setup.bfield.bmag(*self.bc)
             self.psi = setup.o2b.theta_yhat_projected(x, y, z, *bhat)
 
-            for pn, pv in zip(setup.distrib.parameter_names, setup.distrib.get_samples(*self.mc)):
+            for pn, pv in zip(setup.distrib._parameter_names, setup.distrib.get_samples(*self.mc)):
                 setattr(self, pn, pv)
 
 
@@ -1616,7 +1076,7 @@ class VanAllenSetup(object):
       must be an instance of TiltedDipoleField.
     distrib
       An object defining the distribution of electrons around the object. (Instance
-      of SimpleTorusDistribution, SimpleWasherDistribution, etc.)
+      of ``distributions.Distribution``.)
     ray_tracer
       An object used to trace out ray paths.
     synch_calc
@@ -1660,7 +1120,7 @@ def basic_setup(
         nn_dir = None
 ):
     """Create and return a fairly basic VanAllenSetup object. Defaults to using
-    TiltedDipoleField, SimpleTorusDistribution, NeuroSynchrotronCalculator.
+    TiltedDipoleField, TorusDistribution, NeuroSynchrotronCalculator.
 
     ghz
       The observing frequency, in GHz.
@@ -1696,8 +1156,14 @@ def basic_setup(
 
     o2b = ObserverToBodycentric(lat_of_cen, cml)
     bfield = TiltedDipoleField(dipole_tilt, bsurf)
-    distrib = SimpleTorusDistribution(r1, r2, ne0, p)
     ray_tracer = BasicRayTracer()
+
+    from .distributions import TorusDistribution
+    distrib = TorusDistribution()
+    distrib.r1 = r1
+    distrib.r2 = r2
+    distrib.n_e = ne0
+    distrib.p = p
 
     from .integrate import LSODARTIntegrator
     rad_trans = LSODARTIntegrator()
@@ -1791,7 +1257,14 @@ def dg83_setup(
 
     o2b = ObserverToBodycentric(lat_of_cen, cml)
     bfield = JupiterD4Field()
-    distrib = DG83Distribution(bfield, n_alpha, n_E, E0, E1)
+
+    from .distributions import DG83Distribution
+    distrib = DG83Distribution()
+    distrib.n_alpha = n_alpha
+    distrib.n_E = n_E
+    distrib.E0 = E0
+    distrib.E1 = E1
+
     ray_tracer = FormalRayTracer()
     ray_tracer.ne0_cutoff = 1e-6
 
