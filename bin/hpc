@@ -1,0 +1,16 @@
+#! /usr/bin/env python
+# -*- mode: python; coding: utf-8 -*-
+# Copyright 2018 Peter Williams and collaborators.
+# Licensed under the MIT License.
+
+"""Swiss-army-knife access to HPC workflows.
+
+"""
+from pwkit import cli as cli
+from pylib import hpc
+import sys
+
+cli.unicode_stdio()
+cli.propagate_sigint()
+cli.backtrace_on_usr1()
+hpc.entrypoint(sys.argv)
