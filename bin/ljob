@@ -24,7 +24,7 @@ function process() {
 
     if [ -z "$work" ] ; then
         echo >&2 "usage: ljob process <workdir> [-N maxattempts] [-t maxtime] [-n nworkers]"
-        echo >&2 "         [-m mem] [-p partition] [-i identifier] [-r taskidregex]"
+        echo >&2 "  [-m mem] [-p partition] [-i identifier] [-r taskidregex] [--machine-output]"
         exit 1
     fi
 
@@ -37,11 +37,13 @@ function process() {
     nworkers=4
     mem=2048
     ident=process
+    machine_output=false
 
     # Overrides?
 
     while [ $# -gt 0 ] ; do
         case $1 in
+            --machine-output) shift; machine_output=true ;;
 	    -N) shift; maxattempts="$1"; shift ;;
 	    -t) shift; maxtime="$1"; shift ;;
 	    -n) shift; nworkers="$1"; shift ;;
@@ -53,8 +55,9 @@ function process() {
         esac
     done
 
-    echo -n "Request: $nworkers workers, maxtime $maxtime, mem $mem, "
-    echo "$workerpartition partition"
+    if ! $machine_output ; then
+        echo "Request: $nworkers workers, maxtime $maxtime, mem $mem, $workerpartition partition"
+    fi
 
     # Go.
 
@@ -85,7 +88,12 @@ function process() {
 
     # Prep work directory.
 
-    echo "Setting up work directory $inner ..."
+    if $machine_output ; then
+        echo "work=$inner"
+    else
+        echo "Setting up work directory $inner ..."
+    fi
+
     cp $TOP/ljob_support/wrapper.sh $inner/wrapper.sh
     mkdir $inner/worker-outerlogs
     cp -p $TOP/ljob_support/postprocess.py $inner/
@@ -124,7 +132,12 @@ function process() {
 	    $inner/wrapper.sh >$inner/launchjobid
         mjobid=$(cat $inner/launchjobid)
     fi
-    echo "Submitted processing job $jobname, master ID $mjobid."
+
+    if $machine_output ; then
+        echo "masterjobid=$mjobid"
+    else
+        echo "Submitted processing job $jobname, master ID $mjobid."
+    fi
 
     # Launch workers
 
@@ -138,7 +151,11 @@ function process() {
 	    --array=1-$nworkers $inner/wrapper.sh >$inner/worker-arraymasterids
     fi
 
-    echo "Submitted array of $nworkers workers, array ID $(cat $inner/worker-arraymasterids)"
+    if $machine_output ; then
+        echo "arrayjobid=$(cat $inner/worker-arraymasterids)"
+    else
+        echo "Submitted array of $nworkers workers, array ID $(cat $inner/worker-arraymasterids)"
+    fi
 
     ###if ! $debug ; then
     ###    sbatch -D $inner --mem 64 -t 10 --parsable --open-mode=append -J $jobname.postprocess \
@@ -169,4 +186,3 @@ case "$subcommand" in
     process) process "$@" ;;
     *) die "unrecognized subcommand \"$subcommand\"" ;;
 esac
-
