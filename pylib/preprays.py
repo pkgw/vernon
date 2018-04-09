@@ -41,6 +41,15 @@ class PrepraysConfiguration(Configuration):
     min_ghz = 1.
     "The minimum radio frequency that will be imaged from the data."
 
+    # FIXME? These items feel like they don't belong here, but at the moment
+    # this is where they make sense:
+
+    latitude_of_center = 10.
+    "The latitude of center to use when imaging, in degrees."
+
+    n_cml = 4
+    "The number of CMLs to sample."
+
 
 def make_model_parser(prog='preprays', allow_cml=True):
     """These arguments specify the inputs to the physical model and the imaging
@@ -51,8 +60,6 @@ def make_model_parser(prog='preprays', allow_cml=True):
 
     ap.add_argument('-c', dest='config_path', metavar='CONFIG-PATH',
                     help='The path to the configuration file.')
-    ap.add_argument('-L', dest='loc', type=float, metavar='DEGREES', default=10.,
-                    help='The latitude of center to use [%(default).0f].')
 
     if allow_cml:
         ap.add_argument('-C', dest='cml', type=float, metavar='NUMBER', default=0.,
@@ -80,7 +87,7 @@ def compute_cli(args):
 
     setup = geometry.prep_rays_setup(
         ghz = config.min_ghz,
-        lat_of_cen = settings.loc,
+        lat_of_cen = config.latitude_of_center,
         cml = settings.cml,
         radius = config.body.radius,
         bfield = config.field.to_field(),
@@ -128,8 +135,6 @@ def compute_cli(args):
 def make_seed_parser():
     ap = make_model_parser(prog='preprays seed', allow_cml=False)
 
-    ap.add_argument('-N', dest='n_cml', type=int, metavar='NUMBER', default=4,
-                    help='The number of CMLs to sample [%(default)d].')
     ap.add_argument('-g', dest='n_col_groups', type=int, metavar='NUMBER', default=2,
                     help='The number of groups into which the columns are '
                     'broken for processing [%(default)d].')
@@ -141,18 +146,15 @@ def seed_cli(args):
     config = PrepraysConfiguration.from_toml(settings.config_path)
     distrib = config.distrib.get() # check correctly configured
 
-    print('Runtime-fixed parameters:', file=sys.stderr)
-    print('   Latitude of center:', settings.loc, file=sys.stderr)
-    print('   CMLs to image:', settings.n_cml, file=sys.stderr)
     print('Job parameters:', file=sys.stderr)
     print('   Column groups:', settings.n_col_groups, file=sys.stderr)
-    n_tasks = settings.n_cml * config.image.ny * settings.n_col_groups
+    n_tasks = config.n_cml * config.image.ny * settings.n_col_groups
     print('   Total tasks:', n_tasks, file=sys.stderr)
 
-    cmls = np.linspace(0., 360., settings.n_cml + 1)[:-1]
+    cmls = np.linspace(0., 360., config.n_cml + 1)[:-1]
 
     config_path = os.path.realpath(settings.config_path)
-    common_args = '-c %s -L %.3f' % (config_path, settings.loc)
+    common_args = '-c %s' % config_path
 
     if settings.n_col_groups == 1:
         first_width = rest_width = config.image.nx
@@ -170,7 +172,7 @@ def seed_cli(args):
             start_cols.append(start_cols[-1] + rest_width)
             col_widths.append(rest_width)
 
-    for frame_num in range(settings.n_cml):
+    for frame_num in range(config.n_cml):
         cml = cmls[frame_num]
 
         for i_row in range(config.image.ny):
