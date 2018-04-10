@@ -531,8 +531,8 @@ def view_cli(args):
 
     p = om.quickXY(n3b_cml, 1e3 * refdata['justph_ci'][...], 'N33370B phavg I')
     p.addXY(n3b_cml, 1e3 * refdata['justph_cv'][...], 'N33370B phavg V')
-    p.addXY(ii.cmls, ii.lightcurve(best_freq, 'i'), '%d/*/I' % best_freq)
-    p.addXY(ii.cmls, ii.lightcurve(best_freq, 'v'), '%d/*/V' % best_freq)
+    p.addXY(ii.cmls, ii.lightcurve(best_freq, 'i'), '*/%d/I' % best_freq)
+    p.addXY(ii.cmls, ii.lightcurve(best_freq, 'v'), '*/%d/V' % best_freq)
     p.show()
 
     # Fractional circular polarization curve
@@ -540,7 +540,7 @@ def view_cli(args):
     n3b_fc = refdata['justph_cv'][...] / refdata['justph_ci'][...]
 
     p = om.quickXY(n3b_cml, n3b_fc, 'N33370B phavg f_C')
-    p.addXY(ii.cmls, ii.lightcurve(best_freq, 'fc'), '%d/*/f_c' % best_freq)
+    p.addXY(ii.cmls, ii.lightcurve(best_freq, 'fc'), '*/%d/f_c' % best_freq)
     p.show()
 
 
