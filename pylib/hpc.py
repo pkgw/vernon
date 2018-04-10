@@ -195,6 +195,7 @@ def prep_and_image_ui(pre_args, settings, config):
     nextid = config.schedule_next_stage(
         'pandi_pr_assemble',
         pre_args + ['--stage=pr_assemble', '--previd=%s' % masterid],
+        masterid,
     )
 
     print('Preprays ljob master ID:', masterid)
@@ -233,6 +234,7 @@ def prep_and_image_pr_assemble(pre_args, settings, config):
     nextid = config.schedule_next_stage(
         'pandi_integ_assemble',
         pre_args + ['--stage=integ_assemble', '--previd=%s' % masterid],
+        masterid,
     )
 
     print('Integrate ljob master ID:', masterid)
