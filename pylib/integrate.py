@@ -359,6 +359,7 @@ def seed_cli(args):
 
     config.validate()
 
+    cfgpath = os.path.realpath(settings.config_path)
     assembled = os.path.realpath(settings.assembled_path)
 
     import h5py
@@ -393,7 +394,7 @@ def seed_cli(args):
                 n_rows = row_heights[icg]
                 jobid = '%s_%d_%d' % (frame_name, ifreq, icg)
                 print('%s integrate _integrate %s %s %s %.3f %d %d' %
-                      (jobid, settings.config_path, assembled, frame_name, freq, start_row, n_rows))
+                      (jobid, cfgpath, assembled, frame_name, freq, start_row, n_rows))
 
 
 # Assembling the numpy files into one big HDF
