@@ -109,7 +109,7 @@ class HPCConfiguration(Configuration):
         time_limit = getattr(self, task_name + '_time_limit', '0-1')
         memory = getattr(self, task_name + '_memory', '8192')
 
-        script = '#!/bin/bash\nexec' + ' '.join(quote(a) for a in task_argv) + '\n'
+        script = '#!/bin/bash\nexec ' + ' '.join(quote(a) for a in task_argv) + '\n'
 
         argv = [
             'sbatch',
@@ -203,14 +203,14 @@ def prep_and_image_ui(pre_args, settings, config):
 
 
 def prep_and_image_pr_assemble(pre_args, settings, config):
-    config.assert_job_succeded(settings.previd)
+    config.assert_job_succeeded(settings.previd)
 
     # Assemble the results
 
     subprocess.check_call(
         ['preprays', 'assemble',
          '-c', 'Config.toml',
-         'preprays/archive/*.npy', # note: this is a glob literal
+         'preprays/*.npy', # note: this is a glob literal
          'preprays.h5',
         ],
         shell = False,
@@ -242,17 +242,15 @@ def prep_and_image_pr_assemble(pre_args, settings, config):
 
 
 def prep_and_image_integ_assemble(pre_args, settings, config):
-    config.assert_job_succeded(settings.previd)
+    config.assert_job_succeeded(settings.previd)
 
     # Assemble the results
 
-    os.chdir('integrate')
-
     subprocess.check_call(
         ['integrate', 'assemble',
-         '-c', '../Config.toml',
-         'archive/*.npy', # note: this is a glob literal
-         '../integrate.h5',
+         '-c', 'Config.toml',
+         'integrate/*.npy', # note: this is a glob literal
+         'integrate.h5',
         ],
         shell = False,
     )
