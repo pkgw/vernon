@@ -79,10 +79,10 @@ class TorusDistribution(Distribution):
         r = L * np.cos(mlat)**2
         x, y, z = sph_to_cart(mlat, mlon, r)
 
-        # Thanks, Internet:
+        # Thanks, Internet! (Ironically, the first formula I copied was incorrect!)
         a = self.major_radius
         b = self.minor_radius
-        q = (x**2 + y**2 + z**2 - (a**2 + b**2))**2 - 4 * a * b * (b**2 - z**2)
+        q = (x**2 + y**2 + z**2 - (a**2 + b**2))**2 - 4 * a**2 * (b**2 - z**2)
         inside = (q < 0)
 
         n_e = np.zeros(mlat.shape)
@@ -258,7 +258,7 @@ class PancakeTorusDistribution(Distribution):
 
         a = self.major_radius
         b = self.minor_radius
-        q = (x**2 + y**2 + z**2 - (a**2 + b**2))**2 - 4 * a * b * (b**2 - z**2)
+        q = (x**2 + y**2 + z**2 - (a**2 + b**2))**2 - 4 * a**2 * (b**2 - z**2)
         inside_torus = (q < 0)
 
         z_norm = z[inside_torus] * 1.0289525193081477 / self.pancake_fwhm
