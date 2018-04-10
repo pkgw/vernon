@@ -128,7 +128,7 @@ function process() {
         LJOB_IS_MASTER=y SLURM_JOB_ID=master bash $inner/wrapper.sh |& tee $inner/ljob.log &
     else
         sbatch $sbargs --export-file=$inner/master.sbenv -J $jobname.master \
-            -o $inner/outer.log --no-requeue -p general,shared \
+            -o $inner/outer.log --no-requeue -p general,shared,unrestricted \
 	    $inner/wrapper.sh >$inner/launchjobid
         mjobid=$(cat $inner/launchjobid)
     fi

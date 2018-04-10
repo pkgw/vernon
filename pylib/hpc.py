@@ -30,12 +30,12 @@ class HPCConfiguration(Configuration):
     """
     __section__ = 'hpc'
 
-    serial_partition = 'general,shared'
+    serial_partition = 'general,shared,unrestricted'
     """Which Slurm partition serials tasks should be run on. This should not be a
     partition in which jobs can be interrupted and requeued.
 
     """
-    ljob_worker_partition = 'general,shared,serial_requeue'
+    ljob_worker_partition = 'general,shared,serial_requeue,unrestricted'
     "Which Slurm partition ljob worker tasks should be run on."
 
     preprays_n_col_groups = 2
