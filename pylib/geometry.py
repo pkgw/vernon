@@ -619,6 +619,9 @@ class BasicRayTracer(Configuration):
     nsamps = 300
     "Number of points to sample along the ray."
 
+    nsamps_close = 3000
+    close_radius = 1.5
+
     def create_ray(self, x, y, setup, **kwargs):
         """Create and initialize a Ray object to trace a particular ray path.
 
@@ -634,14 +637,23 @@ class BasicRayTracer(Configuration):
           An initialized Ray instance.
 
         """
-        if x**2 + y**2 <= 1:
+        r2 = x**2 + y**2
+
+        if r2 <= 1:
             # Start just above body's surface.
-            z0 = np.sqrt((1 + self.surface_delta_radius)**2 - (x**2 + y**2))
+            z0 = np.sqrt((1 + self.surface_delta_radius)**2 - r2)
         else:
             # Start behind object.
             z0 = self.way_back_z
 
         z1 = self.way_front_z
+
+        # Oversample close to the body
+
+        if r2 < self.close_radius**2:
+            nsamps = self.nsamps_close
+        else:
+            nsamps = self.nsamps
 
         # If ne(z0) = 0, the emission and absorption coefficients are zero,
         # the ODE integrator takes really big steps, and the results are bad.
@@ -690,12 +702,12 @@ class BasicRayTracer(Configuration):
 
         # OK, we finally have good bounds. Sample the ray between them.
 
-        return self._sample_ray(x, y, z0, z1, setup, **kwargs)
+        return self._sample_ray(x, y, z0, z1, nsamps, setup, **kwargs)
 
 
-    def _sample_ray(self, x, y, z0, z1, setup):
+    def _sample_ray(self, x, y, z0, z1, nsamps, setup):
         "The default implementation always uses a fixed number of samples."
-        return Ray(x, y, np.linspace(z0, z1, self.nsamps), setup)
+        return Ray(x, y, np.linspace(z0, z1, nsamps), setup)
 
 
 class FormalRayTracer(BasicRayTracer):
@@ -720,7 +732,7 @@ class FormalRayTracer(BasicRayTracer):
     in the particle populations are expected to be densest.
 
     """
-    def _sample_ray(self, x, y, z0, z1, setup, max_dxlam1=50.):
+    def _sample_ray(self, x, y, z0, z1, nsamps, setup, max_dxlam1=50.):
         """This function choses to sample the ray in such a way that it should be
         possible to integrate the RT successfully using the "formal"
         integrator of provided by "grtrans". In order to accomplish this, the
