@@ -14,6 +14,7 @@ Distribution
 TorusDistribution
 WasherDistribution
 PancakeTorusDistribution
+PancakeWasherDistribution
 GriddedDistribution
 DG83Distribution
 '''.split()
@@ -274,6 +275,134 @@ class PancakeTorusDistribution(Distribution):
         k = np.zeros(mlat.shape)
         k[inside_torus] = self.pitch_angle_k_torus + \
                           (self.pitch_angle_k_pancake - self.pitch_angle_k_torus) * pancake_factor
+
+        return n_e, p, k
+
+
+class PancakeWasherDistribution(Distribution):
+    """A distribution where the overall particle distribution is a washer but the
+    parameters smoothly interpolate to different values in a "pancake" along
+    the magnetic equator.
+
+    Plus some other bells and whistles to vaguely match the overall trends
+    seen in Jupiter's magnetosphere as described in de Pater+
+    (2003Icar..163..434D).
+
+    """
+    __section__ = 'pancake-washer-distribution'
+
+    r_inner = 2.0
+    "Inner radius, in units of the body's radius."
+
+    r_outer = 7.0
+    "Outer radius, in units of the body's radius."
+
+    thickness = 0.7
+    """Washer thickness, in units of the body's radius. Note that the washer will
+    extend in the magnetic z coordinate from ``-thickness/2`` to
+    ``+thickness/2``, and that this parameter must be set to 2 for the washer
+    to have the same height as the body.
+
+    """
+    n_e_washer = 1e4
+    """The density of energetic electrons in the washer component, in units of
+    total electrons per cubic centimeter; see ``radial_concentration``,
+    though.
+
+    """
+    n_e_pancake_factor = 100
+    """The factor by which n_e goes up as you enter the pancake region.
+
+    """
+    radial_concentration = 0.0
+    """A power-law index giving the degree to which n_e_washer increases toward the
+    inner edge of the washer:
+
+        n_e(r) \propto [(r_out - r) / (r_out - r_in)]^radial_concentration
+
+    Zero implies a flat distribution; 1 implies a linear increase from outer
+    to inner. The total number of electrons in the washer is conserved.
+
+    """
+    power_law_p_inner = 3
+    """The power-law index of the energetic electrons at the inner edge of the
+    washer, such that N(>E) ~ E^(-p).
+
+    """
+    power_law_p_outer = 3
+    """The power-law index of the energetic electrons at the outer edge of the
+    washer.
+
+    """
+    pitch_angle_k_washer = 1
+    """The power-law index of the pitch angle distribution in sin(theta) in the
+    washer component.
+
+    """
+    pitch_angle_k_pancake = 9
+    """The power-law index of the pitch angle distribution in sin(theta) in the
+    pancake component. The modeled power law index will interpolate smoothly
+    to this value in the "pancake" zone.
+
+    """
+    pancake_fwhm = 0.4
+    """The FWHM of the pancake layer, in units of the body's radius. The pancake
+    zone is defined as having a profile of ``clipped_cos(z_norm)^5``, where z
+    is the magnetic z coordinate (i.e., vertical displacement out of the
+    magnetic equator) normalized such that the full-width at half-maximum
+    (FWHM) of the resulting profile is the value specified here. The ``cos``
+    function is clipped in the sense that values of z far beyond the equator
+    are 0.
+
+    """
+    _parameter_names = ['n_e', 'p', 'k']
+    _density_factor = None
+
+    @broadcastize(3,(0,0))
+    def get_samples(self, mlat, mlon, L, just_ne=False):
+        if self._density_factor is None:
+            # We want the total number of electrons to stay constant if
+            # radial_concentration changes. In the simplest case,
+            # radial_concentration is zero, n_e is spatially uniform, and
+            #
+            #   N = n_e * thickness * pi * (r_outer**2 - r_inner**2).
+            #
+            # In the less trivial case, n_e(r) ~ ((r_out - r)/(r_out -
+            # r_in))**c. Denote the constant of proportionality
+            # `density_factor`. If you work out the integral for N in the
+            # generic case and simplify, you get the following. Note that if c
+            # = 0, you get density_factor = n_e as you would hope.
+
+            c = self.radial_concentration
+            numer = float(self.n_e_washer) * (self.r_outer**2 - self.r_inner**2)
+            denom = (2 * (self.r_outer - self.r_inner) * \
+                     ((c + 1) * self.r_inner + self.r_outer) / ((c + 1) * (c + 2)))
+            self._density_factor = numer / denom
+
+        r = L * np.cos(mlat)**2
+        x, y, z = sph_to_cart(mlat, mlon, r)
+        r2 = x**2 + y**2
+        inside = (r2 > self.r_inner**2) & (r2 < self.r_outer**2) & (np.abs(z) < 0.5 * self.thickness)
+
+        z_norm = z[inside] * 1.0289525193081477 / self.pancake_fwhm
+        pancake_factor = np.cos(z_norm)**5
+        pancake_factor[np.abs(z_norm) > 0.5 * np.pi] = 0.
+
+        radial_factor = (r - self.r_inner) / (self.r_outer - self.r_inner) # 0 if at r_inner, 1 if at r_outer
+
+        n_e_w = np.zeros(mlat.shape)
+        n_e_w[inside] = self._density_factor * ((self.r_outer - r[inside]) /
+                                                       (self.r_outer - self.r_inner))**self.radial_concentration
+
+        n_e = np.zeros(mlat.shape)
+        n_e[inside] = n_e_w[inside] * (1 + (self.n_e_pancake_factor - 1) * pancake_factor)
+
+        p = np.zeros(mlat.shape)
+        p[inside] = self.power_law_p_inner + (self.power_law_p_outer - self.power_law_p_outer) * radial_factor[inside]
+
+        k = np.zeros(mlat.shape)
+        k[inside] = self.pitch_angle_k_washer + \
+            (self.pitch_angle_k_pancake - self.pitch_angle_k_washer) * pancake_factor
 
         return n_e, p, k
 
@@ -577,6 +706,7 @@ class DistributionConfiguration(Configuration):
     torus = TorusDistribution
     washer = WasherDistribution
     pancake_torus = PancakeTorusDistribution
+    pancake_washer = PancakeWasherDistribution
     gridded = GriddedDistribution
     dg83 = DG83Distribution
 
@@ -587,6 +717,8 @@ class DistributionConfiguration(Configuration):
             return self.washer
         elif self.name == 'pancake-torus':
             return self.pancake_torus
+        elif self.name == 'pancake-washer':
+            return self.pancake_washer
         elif self.name == 'gridded':
             return self.gridded
         elif self.name == 'dg83':
