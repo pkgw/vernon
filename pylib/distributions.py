@@ -62,7 +62,7 @@ class TorusDistribution(Distribution):
     _parameter_names = ['n_e', 'p', 'k']
 
 
-    @broadcastize(3,(0,0))
+    @broadcastize(3, (0, 0, 0))
     def get_samples(self, mlat, mlon, L, just_ne=False):
         """Sample properties of the electron distribution at the specified locations
         in magnetic field coordinates. Arguments are magnetic latitude,
@@ -137,7 +137,7 @@ class WasherDistribution(Distribution):
     _parameter_names = ['n_e', 'p', 'k']
     _density_factor = None
 
-    @broadcastize(3,(0,0))
+    @broadcastize(3, (0, 0, 0))
     def get_samples(self, mlat, mlon, L, just_ne=False):
         """Sample properties of the electron distribution at the specified locations
         in magnetic field coordinates. Arguments are magnetic latitude,
@@ -252,7 +252,7 @@ class PancakeTorusDistribution(Distribution):
     _parameter_names = ['n_e', 'p', 'k']
 
 
-    @broadcastize(3,(0,0))
+    @broadcastize(3, (0, 0, 0))
     def get_samples(self, mlat, mlon, L, just_ne=False):
         r = L * np.cos(mlat)**2
         x, y, z = sph_to_cart(mlat, mlon, r)
@@ -358,7 +358,7 @@ class PancakeWasherDistribution(Distribution):
     _parameter_names = ['n_e', 'p', 'k']
     _density_factor = None
 
-    @broadcastize(3,(0,0))
+    @broadcastize(3, (0, 0, 0))
     def get_samples(self, mlat, mlon, L, just_ne=False):
         if self._density_factor is None:
             # We want the total number of electrons to stay constant if
@@ -424,7 +424,7 @@ class GriddedDistribution(Distribution):
     _particles = None
     _ne_interp = None
 
-    @broadcastize(3,(0,0,0))
+    @broadcastize(3, (0, 0, 0))
     def get_samples(self, mlat, mlon, L, just_ne=False):
         if self._particles is None:
             from .particles import ParticleDistribution

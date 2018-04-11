@@ -23,8 +23,7 @@ class FormalRTIntegrator(object):
     integrator in `grtrans`.
 
     The sampling must be such that `exp(deltax * lambda1)` has a reasonable
-    value, where lambda1 depends on the alpha and rho coefficients. See
-    pylib.geometry.BasicRayTracer.create_ray_for_formal.
+    value, where lambda1 depends on the alpha and rho coefficients.
 
     """
     def integrate(self, x, j, a, rho):

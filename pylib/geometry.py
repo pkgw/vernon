@@ -699,6 +699,18 @@ class BasicRayTracer(Configuration):
 
 
 class FormalRayTracer(BasicRayTracer):
+    """Argh, we need to re-enter all of the configuration parameters used in
+    BasicRayTracer. Fix that!!!!!
+
+    """
+    __section__ = 'ray-tracing'
+    way_back_z = -15.
+    way_front_z = 15.
+    surface_delta_radius = 0.03
+    ne0_cutoff = 1
+    delta_z = 1.
+    nsamps = 300
+
     warn_n_pts = 1000
 
     max_step_size_factor = 0.05

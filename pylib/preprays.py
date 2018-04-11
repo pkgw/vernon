@@ -19,7 +19,7 @@ import numpy as np
 from pwkit.cli import die
 
 from .config import Configuration
-from .geometry import BasicRayTracer, BodyConfiguration, ImageConfiguration, MagneticFieldConfiguration
+from .geometry import FormalRayTracer, BodyConfiguration, ImageConfiguration, MagneticFieldConfiguration
 from .distributions import DistributionConfiguration
 
 
@@ -32,7 +32,7 @@ class PrepraysConfiguration(Configuration):
     body = BodyConfiguration
     image = ImageConfiguration
     field = MagneticFieldConfiguration
-    ray_tracer = BasicRayTracer
+    ray_tracer = FormalRayTracer
     distrib = DistributionConfiguration
 
     max_n_samps = 1500
