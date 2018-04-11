@@ -201,6 +201,10 @@ def prep_and_image_ui(pre_args, settings, config):
     print('Preprays ljob master ID:', masterid)
     print('Next-stage job ID:', nextid)
 
+    with open('pandi_launch.log', 'wt') as log:
+        print('Preprays ljob master ID:', masterid, file=log)
+        print('Next-stage job ID:', nextid, file=log)
+
 
 def prep_and_image_pr_assemble(pre_args, settings, config):
     config.assert_job_succeeded(settings.previd)
