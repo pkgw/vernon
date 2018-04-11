@@ -543,6 +543,13 @@ def view_cli(args):
     p.addXY(ii.cmls, ii.lightcurve(best_freq, 'fc'), '*/%d/f_c' % best_freq)
     p.show()
 
+    # Fractional linear polarization curve
+
+    p = om.RectPlot()
+    p.addXY(ii.cmls, ii.lightcurve(best_freq, 'fl'), '*/%d/f_l' % best_freq)
+    p.addHLine(0, 'Zero')
+    p.show()
+
 
 # Movie-making
 
