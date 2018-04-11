@@ -369,13 +369,12 @@ class PancakeWasherDistribution(Distribution):
         # For the scaling of the density:
         log_ne_factor = self.n_e_ln_dynrange * (self.r_outer - r[inside]) / (self.r_outer - self.r_inner)
         log_ne_factor *= np.exp(self.cutoff_numerator / (self.cutoff_offset - r[inside]))
-        log_ne_factor -= log_ne_factor.max()
-
-        n_e_w = np.zeros(mlat.shape)
-        n_e_w[inside] = self.n_e_washer_max * np.exp(log_ne_factor)
+        if log_ne_factor.size:
+            log_ne_factor -= log_ne_factor.max()
+        n_e_washer = self.n_e_washer_max * np.exp(log_ne_factor)
 
         n_e = np.zeros(mlat.shape)
-        n_e[inside] = n_e_w[inside] * (1 + (self.n_e_pancake_factor - 1) * pancake_factor)
+        n_e[inside] = n_e_washer * (1 + (self.n_e_pancake_factor - 1) * pancake_factor)
 
         p = np.zeros(mlat.shape)
         p[inside] = self.power_law_p_inner + (self.power_law_p_outer - self.power_law_p_outer) * radial_factor[inside]
