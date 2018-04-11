@@ -109,7 +109,7 @@ def compute_cli(args):
     for i in range(settings.n_cols_to_compute):
         ray = imaker.get_ray(settings.start_col + i, settings.row_num)
 
-        if ray.s.size >= config.max_n_samps:
+        if ray.s.size > config.max_n_samps:
             die('too many samples required for ray at ix=%d iy=%d: max=%d, got=%d',
                 settings.start_col + i, settings.row_num, config.max_n_samps, ray.s.size)
 
