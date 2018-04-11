@@ -234,6 +234,15 @@ class IntegratedImages(object):
         return np.array([self.flux(i, i_freq, i_stokes) for i in range(self.n_cmls)])
 
 
+    def lightcurve_360(self, i_freq, i_stokes):
+        lc = self.lightcurve(i_freq, i_stokes)
+        cmls_360 = np.linspace(0, 360, self.n_cmls + 1) # cf. how self.cmls is determined
+        lc_360 = np.empty(self.n_cmls + 1)
+        lc_360[:-1] = lc
+        lc_360[-1] = lc[0]
+        return cmls_360, lc_360
+
+
     def rotmovie(self, i_freq, i_stokes, yflip=False):
         return [self.frame(i, i_freq, i_stokes, yflip=yflip) for i in range(self.n_cmls)]
 
