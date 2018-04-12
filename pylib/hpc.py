@@ -48,7 +48,7 @@ class HPCConfiguration(Configuration):
     preprays_time_limit = '0-3'
     preprays_memory = '8192'
 
-    pandi_pr_assemble_time_limit = '0-1'
+    pandi_pr_assemble_time_limit = '0-4'
     pandi_pr_assemble_memory = '16384'
 
     integrate_n_row_groups = 2
@@ -57,8 +57,8 @@ class HPCConfiguration(Configuration):
     each job takes to run.
 
     """
-    integrate_n_workers = 300
-    integrate_time_limit = '0-6'
+    integrate_n_workers = 100
+    integrate_time_limit = '0-3'
     integrate_memory = '8192'
 
     pandi_integ_assemble_time_limit = '0-1'
