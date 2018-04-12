@@ -207,6 +207,7 @@ def assemble_cli(args):
     params = common_ray_parameters + distrib._parameter_names
 
     info_by_frame = {}
+    tot_n_samps_by_frame = {}
     n_frames = 0
     n_rows = 0
     n_cols = n_vals = None
@@ -222,40 +223,45 @@ def assemble_cli(args):
         n_frames = max(frame_num + 1, n_frames)
         n_rows = max(row_num + 1, n_rows)
 
-        if start_col > max_start_col:
-            with io.open(path, 'rb') as f:
-                counts = np.load(f)
-                arr = np.load(f)
+        with io.open(path, 'rb') as f:
+            counts = np.load(f)
+            n_samps = counts.sum()
+            del counts
 
-            n_vals, width, _ = arr.shape
-            assert n_vals == len(params)
-            n_cols = start_col + width
-            max_start_col = start_col
+            if start_col > max_start_col: # does this actually save us anything?
+                arr = np.load(f)
+                n_vals, width, this_max_n_samps = arr.shape
+                assert n_vals == len(params)
+                n_cols = start_col + width
+                max_start_col = start_col
+                del arr
 
         info_by_frame.setdefault(frame_num, []).append((row_num, start_col, path))
+        tot_n_samps_by_frame[frame_num] = tot_n_samps_by_frame.get(frame_num, 0) + n_samps
 
     with h5py.File(settings.outpath) as ds:
         for frame_num, info in info_by_frame.items():
-            max_n_samps = 16
+            offsets = np.zeros((n_rows, n_cols), dtype=np.int)
             counts = np.zeros((n_rows, n_cols), dtype=np.int)
-            data = np.zeros((n_vals, n_rows, n_cols, max_n_samps))
+            data = np.empty((n_vals, tot_n_samps_by_frame[frame_num]))
+            offset = 0
 
             for row_num, start_col, path in info:
                 with io.open(path, 'rb') as f:
                     i_counts = np.load(f)
                     i_data = np.load(f)
 
-                this_n_samps = i_data.shape[2]
+                width = i_data.shape[1]
 
-                if this_n_samps > max_n_samps:
-                    new_data = np.zeros((n_vals, n_rows, n_cols, this_n_samps))
-                    new_data[...,:max_n_samps] = data
-                    max_n_samps = this_n_samps
-                    data = new_data
+                for j in range(width):
+                    col_num = start_col + j
+                    n_samps = i_counts[j]
+                    offsets[row_num,col_num] = offset
+                    counts[row_num,col_num] = n_samps
+                    data[:,offset:offset+n_samps] = i_data[:,j,:n_samps]
+                    offset += n_samps
 
-                counts[row_num,start_col:start_col+width] = i_counts
-                data[:,row_num,start_col:start_col+width,:this_n_samps] = i_data
-
+            ds['/frame%04d/offsets' % frame_num] = offsets
             ds['/frame%04d/counts' % frame_num] = counts
 
             for i, pname in enumerate(params):

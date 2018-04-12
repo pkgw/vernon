@@ -387,7 +387,7 @@ def seed_cli(args):
     import h5py
     with h5py.File(assembled, 'r') as ds:
         frame_names = sorted(x for x in ds if x.startswith('frame'))
-        n_rows = ds[frame_names[0]]['n_e'].shape[0]
+        n_rows = ds[frame_names[0]]['offsets'].shape[0]
 
     freqs = np.logspace(np.log10(config.nu_low), np.log10(config.nu_high), config.n_freq)
 

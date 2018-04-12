@@ -1542,19 +1542,20 @@ class PrecomputedImageMaker(ImageMaker):
         if iy < 0 or iy >= self.config.ny:
             raise ValueError('bad iy (%r); ny = %d' % (iy, self.config.ny))
 
+        ofs = self.cur_frame_group['offsets'][iy,ix]
         n = self.cur_frame_group['counts'][iy,ix]
         ray = Ray(None, None, None, self.setup, no_init=True)
         # We don't have saved x/y values, but it can be useful to have some
         # kind of positional diagnostic, so:
         ray.ix = ix
         ray.iy = iy
-        sl = slice(0, n)
+        sl = slice(ofs, ofs + n)
 
         for itemname in self.cur_frame_group:
-            if itemname == 'counts':
+            if itemname == 'counts' or itemname == 'offsets':
                 continue
 
-            data = self.cur_frame_group[itemname][iy,ix,sl]
+            data = self.cur_frame_group[itemname][sl]
             setattr(ray, itemname, data)
 
         return ray
