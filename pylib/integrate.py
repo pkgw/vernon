@@ -8,6 +8,7 @@
 from __future__ import absolute_import, division, print_function
 
 import numpy as np
+import os
 import six
 from six.moves import range
 from pwkit import astutil, cgs
@@ -328,6 +329,19 @@ def integrate_cli(args):
                     help='The number of rows in the sub-image to be made.')
     settings = ap.parse_args(args=args)
     config = RTConfiguration.from_toml(settings.config_path)
+
+    # keras uses Theano which compiles C modules and stores them in a cache
+    # directory. I've been experimenting with where to keep the cache since
+    # accessing it can be a big bottleneck in the RT integrations. Without
+    # this setting, theano uses `/scratch/...`; my `/scratch` setting just
+    # makes the cache directory name less gross.
+
+    jobid = os.environ.get('SLURM_JOB_ID')
+    if jobid is not None:
+        #os.environ['THEANO_FLAGS'] = 'base_compiledir=/n/panlfs3/pwilliam/vernon_jobs/theano'
+        os.environ['THEANO_FLAGS'] = 'base_compiledir=/scratch/pwilliam/vernon,compiledir_format=theano'
+
+    # End workaround.
 
     freq_code = ('nu%.3f' % settings.frequency).replace('.', 'p')
 
