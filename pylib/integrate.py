@@ -535,7 +535,7 @@ def view_cli(args):
     cycle(ii.rotmovie(1, 'i', yflip=True))
     cycle(ii.rotmovie(1, 'fc', yflip=True))
 
-    # Stokes I spectrum - backing data slurped from my dulk85 interactive
+    # Stokes I+V spectrum - backing data slurped from my dulk85 interactive
     # javascript slide, which patched it together from who knows where.
 
     n3b_freq = np.array([1.4, 6.05, 21.85, 33.5, 43.7, 97.5])
@@ -543,8 +543,10 @@ def view_cli(args):
 
     p = om.quickXY(n3b_freq, n3b_ujy, 'N33370B', xlog=True, ylog=True)
     p.addXY(ii.freqs, ii.spectrum(0, 'i'), '0/*/I')
+    p.addXY(ii.freqs, np.abs(ii.spectrum(0, 'v')), '0/*/|V|', dsn=1, lineStyle={'dashing': [3, 3]})
     n = ii.n_cmls // 2
     p.addXY(ii.freqs, ii.spectrum(n, 'i'), '%d/*/I' % n)
+    p.addXY(ii.freqs, np.abs(ii.spectrum(n, 'v')), '%d/*/|V|' % n, dsn=2, lineStyle={'dashing': [3, 3]})
     p.show()
 
     # Light curve. TODO: phasing?
