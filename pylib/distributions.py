@@ -350,9 +350,17 @@ class PancakeWasherDistribution(Distribution):
 
     """
     _parameter_names = ['n_e', 'p', 'k']
+    _log_ne_norm = None
 
     @broadcastize(3, (0, 0, 0))
     def get_samples(self, mlat, mlon, L, just_ne=False):
+        if self._log_ne_norm is None:
+            # find the maximum the dumb way!
+            r = np.linspace(self.r_inner, self.r_outer, 100)
+            lnef = self.n_e_ln_dynrange * (self.r_outer - r) / (self.r_outer - self.r_inner)
+            lnef *= np.exp(self.cutoff_numerator / (self.cutoff_offset - r))
+            self._log_ne_norm = lnef.max()
+
         r = L * np.cos(mlat)**2
         x, y, z = sph_to_cart(mlat, mlon, r)
         r2 = x**2 + y**2
@@ -369,8 +377,7 @@ class PancakeWasherDistribution(Distribution):
         # For the scaling of the density:
         log_ne_factor = self.n_e_ln_dynrange * (self.r_outer - r[inside]) / (self.r_outer - self.r_inner)
         log_ne_factor *= np.exp(self.cutoff_numerator / (self.cutoff_offset - r[inside]))
-        if log_ne_factor.size:
-            log_ne_factor -= log_ne_factor.max()
+        log_ne_factor -= self._log_ne_norm
         n_e_washer = self.n_e_washer_max * np.exp(log_ne_factor)
 
         n_e = np.zeros(mlat.shape)
