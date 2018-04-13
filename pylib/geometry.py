@@ -1067,6 +1067,7 @@ class Ray(object):
 
         """
         from scipy.integrate import trapz
+        self.ensure_rt_coeffs()
         return trapz(self.alpha[:,0], self.s)
 
 
