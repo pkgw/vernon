@@ -541,13 +541,15 @@ def view_cli(args):
     n3b_freq = np.array([1.4, 6.05, 21.85, 33.5, 43.7, 97.5])
     n3b_ujy = np.array([890, 1360, 1460, 1300, 1180, 680])
 
+    pg = om.makeDisplayPager()
+
     p = om.quickXY(n3b_freq, n3b_ujy, 'N33370B', xlog=True, ylog=True)
     p.addXY(ii.freqs, ii.spectrum(0, 'i'), '0/*/I')
     p.addXY(ii.freqs, np.abs(ii.spectrum(0, 'v')), '0/*/|V|', dsn=1, lineStyle={'dashing': [3, 3]})
     n = ii.n_cmls // 2
     p.addXY(ii.freqs, ii.spectrum(n, 'i'), '%d/*/I' % n)
     p.addXY(ii.freqs, np.abs(ii.spectrum(n, 'v')), '%d/*/|V|' % n, dsn=2, lineStyle={'dashing': [3, 3]})
-    p.show()
+    pg.send(p)
 
     # Light curve. TODO: phasing?
 
@@ -557,7 +559,7 @@ def view_cli(args):
     p.addXY(n3b_cml, 1e3 * refdata['justph_cv'][...], 'N33370B phavg V')
     p.addXY(ii.cmls, ii.lightcurve(best_freq, 'i'), '*/%d/I' % best_freq)
     p.addXY(ii.cmls, ii.lightcurve(best_freq, 'v'), '*/%d/V' % best_freq)
-    p.show()
+    pg.send(p)
 
     # Fractional circular polarization curve
 
@@ -565,14 +567,16 @@ def view_cli(args):
 
     p = om.quickXY(n3b_cml, n3b_fc, 'N33370B phavg f_C')
     p.addXY(ii.cmls, ii.lightcurve(best_freq, 'fc'), '*/%d/f_c' % best_freq)
-    p.show()
+    pg.send(p)
 
     # Fractional linear polarization curve
 
     p = om.RectPlot()
     p.addXY(ii.cmls, ii.lightcurve(best_freq, 'fl'), '*/%d/f_l' % best_freq)
     p.addHLine(0, 'Zero')
-    p.show()
+    pg.send(p)
+
+    pg.done()
 
 
 # Movie-making
