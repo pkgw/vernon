@@ -51,6 +51,37 @@ class PrepraysConfiguration(Configuration):
     n_cml = 4
     "The number of CMLs to sample."
 
+    def get_prep_rays_imaker(self, cml):
+        from . import geometry
+
+        setup = geometry.prep_rays_setup(
+            ghz = self.min_ghz,
+            lat_of_cen = self.latitude_of_center,
+            cml = cml,
+            radius = self.body.radius,
+            bfield = self.field.to_field(),
+            distrib = self.distrib.get(),
+            ray_tracer = self.ray_tracer,
+        )
+
+        return geometry.ImageMaker(setup=setup, config=self.image)
+
+
+def get_full_imaker(config_path, cml):
+    """Convenience function, combines the functionality that is usually divided
+    between the "preprays" and "integrate" HPC operations.
+
+    """
+    pr_cfg = PrepraysConfiguration.from_toml(config_path)
+    imaker = pr_cfg.get_prep_rays_imaker(cml)
+
+    from .integrate import RTConfiguration
+    rt_cfg = RTConfiguration.from_toml(config_path)
+    imaker.setup.synch_calc = rt_cfg.get_synch_calc()
+    imaker.setup.rad_trans = rt_cfg.get_rad_trans()
+
+    return imaker
+
 
 def make_model_parser(prog='preprays', allow_cml=True):
     """These arguments specify the inputs to the physical model and the imaging
@@ -84,25 +115,9 @@ def compute_cli(args):
     settings = make_compute_parser().parse_args(args=args)
     config = PrepraysConfiguration.from_toml(settings.config_path)
 
-    from . import geometry
+    imaker = config.get_prep_rays_imaker(settings.cml)
 
-    setup = geometry.prep_rays_setup(
-        ghz = config.min_ghz,
-        lat_of_cen = config.latitude_of_center,
-        cml = settings.cml,
-        radius = config.body.radius,
-        bfield = config.field.to_field(),
-        distrib = config.distrib.get(),
-        ray_tracer = config.ray_tracer,
-    )
-
-    half_radii_per_xpix = config.image.xhalfsize / config.image.nx
-    half_radii_per_ypix = half_radii_per_xpix / config.image.aspect
-    half_height = half_radii_per_ypix * config.image.ny
-
-    imaker = geometry.ImageMaker(setup = setup, config = config.image)
-
-    ray_parameters = common_ray_parameters + setup.distrib._parameter_names
+    ray_parameters = common_ray_parameters + imaker.setup.distrib._parameter_names
     n_vals = len(ray_parameters)
     data = np.zeros((n_vals, settings.n_cols_to_compute, config.max_n_samps))
     n_samps = np.zeros((settings.n_cols_to_compute,), dtype=np.int)
