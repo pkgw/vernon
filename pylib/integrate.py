@@ -503,23 +503,52 @@ def assemble_cli(args):
             ds.attrs['distance_cgs'] = config.body.distance * cgs.cmperpc
 
 
-# Viewing an assembled file.
+# Viewing an assembled file - rotation mode
 
-def make_view_parser():
+def make_view_rot_parser():
     ap = argparse.ArgumentParser(
-        prog = 'integrate view'
+        prog = 'integrate view rot'
+    )
+    ap.add_argument('-s', dest='stokes', default='i',
+                    help='Which Stokes parameter to view: i q u v l fl fc')
+    ap.add_argument('path',
+                    help='The name of the HDF file to view.')
+    ap.add_argument('ifreq', type=int,
+                    help='Which frequency plane to view')
+    return ap
+
+
+def view_rot_cli(args):
+    from pwkit.ndshow_gtk3 import cycle
+
+    settings = make_view_rot_parser().parse_args(args=args)
+    ii = IntegratedImages(settings.path)
+
+    arrays = ii.rotmovie(settings.ifreq, settings.stokes, yflip=True)
+    descs = ['%s freq=%s stokes=%s CML=%.0f' %
+             (settings.path, ii.freq_names[settings.ifreq], settings.stokes, cn)
+             for cn in ii.cmls]
+
+    cycle(arrays, descs, yflip=True)
+
+
+# Viewing an assembled file - the "summary" mode with lots of stats
+
+def make_view_summary_parser():
+    ap = argparse.ArgumentParser(
+        prog = 'integrate view summary'
     )
     ap.add_argument('path',
                     help='The name of the HDF file to view.')
     return ap
 
 
-def view_cli(args):
+def view_summary_cli(args):
     import h5py, omega as om
     from pwkit.ndshow_gtk3 import cycle, view
     from pylib import top
 
-    settings = make_view_parser().parse_args(args=args)
+    settings = make_view_summary_parser().parse_args(args=args)
     ii = IntegratedImages(settings.path)
 
     # Reference data that go into Figure 9 of Williams+ (2015ApJ...799..192W,
@@ -577,6 +606,20 @@ def view_cli(args):
     pg.send(p)
 
     pg.done()
+
+
+# The viewer dispatcher
+
+def view_cli(args):
+    if len(args) == 0:
+        die('must supply a sub-subcommand: "rot", "summary"')
+
+    if args[0] == 'rot':
+        view_rot_cli(args[1:])
+    elif args[0] == 'summary':
+        view_summary_cli(args[1:])
+    else:
+        die('unrecognized sub-subcommand %r', args[0])
 
 
 # Movie-making
