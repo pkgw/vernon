@@ -503,6 +503,35 @@ def assemble_cli(args):
             ds.attrs['distance_cgs'] = config.body.distance * cgs.cmperpc
 
 
+# Viewing an assembled file - lightcurve mode
+
+def make_view_lc_parser():
+    ap = argparse.ArgumentParser(
+        prog = 'integrate view lc'
+    )
+    ap.add_argument('-s', dest='stokes', default='i',
+                    help='Which Stokes parameter to view: i q u v l fl fc')
+    ap.add_argument('path',
+                    help='The name of the HDF file to view.')
+    ap.add_argument('ifreq', type=int,
+                    help='Which frequency plane to plot')
+    return ap
+
+
+def view_lc_cli(args):
+    import omega as om
+
+    settings = make_view_lc_parser().parse_args(args=args)
+    ii = IntegratedImages(settings.path)
+
+    lc = ii.lightcurve(settings.ifreq, settings.stokes)
+    desc = '%s freq=%.2f stokes=%s' % (settings.path, ii.freqs[settings.ifreq], settings.stokes)
+
+    p = om.quickXY(ii.cmls, lc, None)
+    p.setLabels('CML (deg)', '%s (uJy)' % desc)
+    p.show()
+
+
 # Viewing an assembled file - rotation mode
 
 def make_view_rot_parser():
@@ -612,9 +641,11 @@ def view_summary_cli(args):
 
 def view_cli(args):
     if len(args) == 0:
-        die('must supply a sub-subcommand: "rot", "summary"')
+        die('must supply a sub-subcommand: "lc", "rot", "summary"')
 
-    if args[0] == 'rot':
+    if args[0] == 'lc':
+        view_lc_cli(args[1:])
+    elif args[0] == 'rot':
         view_rot_cli(args[1:])
     elif args[0] == 'summary':
         view_summary_cli(args[1:])
