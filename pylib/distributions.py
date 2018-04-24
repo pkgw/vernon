@@ -15,6 +15,7 @@ TorusDistribution
 WasherDistribution
 PancakeTorusDistribution
 PancakeWasherDistribution
+PexpPancakeWasherDistribution
 GriddedDistribution
 DG83Distribution
 '''.split()
@@ -404,6 +405,117 @@ class PancakeWasherDistribution(Distribution):
         return r, n_e_w
 
 
+class PexpPancakeWasherDistribution(Distribution):
+    """A distribution where the overall particle distribution is a washer but the
+    parameters smoothly interpolate to different values in a "pancake" along
+    the magnetic equator, AND the radial distribution is a
+    powerlaw*exponential rather than the log-linear form used in the
+    PancakeWasherDistribution.
+
+    Plus some other bells and whistles to vaguely match the overall trends
+    seen in Jupiter's magnetosphere as described in de Pater+
+    (2003Icar..163..434D).
+
+    """
+    __section__ = 'pexp-pancake-washer-distribution'
+
+    r_inner = 2.0
+    "Inner radius, in units of the body's radius."
+
+    r_outer = 7.0
+    "Outer radius, in units of the body's radius."
+
+    thickness = 0.7
+    """Washer thickness, in units of the body's radius. Note that the washer will
+    extend in the magnetic z coordinate from ``-thickness/2`` to
+    ``+thickness/2``, and that this parameter must be set to 2 for the washer
+    to have the same height as the body.
+
+    """
+    n_e_washer_max = 1e4
+    """The peak density of energetic electrons in the washer component, in units
+    of total electrons per cubic centimeter.
+
+    """
+    n_e_radial_pl_exponent = 11
+    n_e_radial_exp_factor = -3
+
+    n_e_pancake_factor = 100
+    """The factor by which n_e goes up as you enter the pancake region.
+
+    """
+    power_law_p_inner = 3
+    """The power-law index of the energetic electrons at the inner edge of the
+    washer, such that N(>E) ~ E^(-p).
+
+    """
+    power_law_p_outer = 3
+    """The power-law index of the energetic electrons at the outer edge of the
+    washer.
+
+    """
+    pitch_angle_k_washer = 1
+    """The power-law index of the pitch angle distribution in sin(theta) in the
+    washer component.
+
+    """
+    pitch_angle_k_pancake = 9
+    """The power-law index of the pitch angle distribution in sin(theta) in the
+    pancake component. The modeled power law index will interpolate smoothly
+    to this value in the "pancake" zone.
+
+    """
+    pancake_fwhm = 0.4
+    """The FWHM of the pancake layer, in units of the body's radius. The pancake
+    zone is defined as having a profile of ``clipped_cos(z_norm)^5``, where z
+    is the magnetic z coordinate (i.e., vertical displacement out of the
+    magnetic equator) normalized such that the full-width at half-maximum
+    (FWHM) of the resulting profile is the value specified here. The ``cos``
+    function is clipped in the sense that values of z far beyond the equator
+    are 0.
+
+    """
+    _parameter_names = ['n_e', 'p', 'k']
+    _ne_norm = None
+
+    @broadcastize(3, (0, 0, 0))
+    def get_samples(self, mlat, mlon, L, just_ne=False):
+        if self._ne_norm is None:
+            # find the maximum the dumb way!
+            r = np.linspace(self.r_inner, self.r_outer, 100)
+            ne = r**self.n_e_radial_pl_exponent * np.exp(self.n_e_radial_exp_factor * r)
+            self._ne_norm = ne.max()
+
+        r = L * np.cos(mlat)**2
+        x, y, z = sph_to_cart(mlat, mlon, r)
+        r2 = x**2 + y**2
+        inside = (r2 > self.r_inner**2) & (r2 < self.r_outer**2) & (np.abs(z) < 0.5 * self.thickness)
+
+        # For the pancake parts:
+        z_norm = z[inside] * 1.0289525193081477 / self.pancake_fwhm
+        pancake_factor = np.cos(z_norm)**5
+        pancake_factor[np.abs(z_norm) > 0.5 * np.pi] = 0.
+
+        # For the scaling of the power-law index:
+        radial_factor = (r - self.r_inner) / (self.r_outer - self.r_inner) # 0 if at r_inner, 1 if at r_outer
+
+        # For the scaling of the density:
+        ne_factor = r[inside]**self.n_e_radial_pl_exponent * np.exp(self.n_e_radial_exp_factor * r[inside])
+        n_e_washer = self.n_e_washer_max * ne_factor / self._ne_norm
+
+        n_e = np.zeros(mlat.shape)
+        n_e[inside] = n_e_washer * (1 + (self.n_e_pancake_factor - 1) * pancake_factor)
+
+        p = np.zeros(mlat.shape)
+        p[inside] = self.power_law_p_inner + (self.power_law_p_outer - self.power_law_p_outer) * radial_factor[inside]
+
+        k = np.zeros(mlat.shape)
+        k[inside] = self.pitch_angle_k_washer + \
+            (self.pitch_angle_k_pancake - self.pitch_angle_k_washer) * pancake_factor
+
+        return n_e, p, k
+
+
 class GriddedDistribution(Distribution):
     """A distribution of particles evaluated numerically on some grid."""
 
@@ -704,6 +816,7 @@ class DistributionConfiguration(Configuration):
     washer = WasherDistribution
     pancake_torus = PancakeTorusDistribution
     pancake_washer = PancakeWasherDistribution
+    pexp_pancake_washer = PexpPancakeWasherDistribution
     gridded = GriddedDistribution
     dg83 = DG83Distribution
 
@@ -716,6 +829,8 @@ class DistributionConfiguration(Configuration):
             return self.pancake_torus
         elif self.name == 'pancake-washer':
             return self.pancake_washer
+        elif self.name == 'pexp-pancake-washer':
+            return self.pexp_pancake_washer
         elif self.name == 'gridded':
             return self.gridded
         elif self.name == 'dg83':
