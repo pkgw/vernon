@@ -757,11 +757,91 @@ def movie_cli(args):
     tempdir.rmtree()
 
 
+# Framegrabbing
+
+def make_framegrab_parser():
+    ap = argparse.ArgumentParser(
+        prog = 'integrate framegrab'
+    )
+    ap.add_argument('-s', dest='scaling', metavar='FACTOR', type=int, default=1,
+                    help='By what (integer) factor to scale the output frame size.')
+    ap.add_argument('-c', dest='crop', metavar='PIXELS', type=int, default=0,
+                    help='How many pixels to crop off every edge of the saved frames.')
+    ap.add_argument('--colormap', metavar='MAPNAME', default='white_to_blue',
+                    help='The pwkit colormap name to use to convert values to colors.')
+    ap.add_argument('--symmetrize', action='store_true',
+                    help='Symmetrize the color map around zero.')
+    ap.add_argument('inpath', metavar='HDF5-PATH',
+                    help='The name of the HDF file to movify.')
+    ap.add_argument('icml', metavar='INDEX', type=np.int,
+                    help='The index into the CML axis to choose.')
+    ap.add_argument('ifreq', metavar='INDEX', type=np.int,
+                    help='The index into the frequency axis to choose.')
+    ap.add_argument('stokes', metavar='STOKES',
+                    help='Which parameter to image: i q u v l fl fc')
+    ap.add_argument('outpath', metavar='PNG-PATH',
+                    help='The name of the output PNG file.')
+    return ap
+
+
+def framegrab_cli(args):
+    import cairo
+    from pwkit.cli import die
+    from pwkit.data_gui_helpers import Clipper, ColorMapper
+    from pwkit.io import Path
+
+    settings = make_framegrab_parser().parse_args(args=args)
+    ii = IntegratedImages(settings.inpath)
+    frame = ii.frame(settings.icml, settings.ifreq, settings.stokes, yflip=True)
+
+    if settings.crop != 0:
+        c = settings.crop
+        frame = frame[c:-c,c:-c]
+
+    h, w = frame.shape
+
+    s = settings.scaling
+    h *= s
+    w *= s
+    scaled = np.empty((h, w), dtype=frame.dtype)
+    tiled = scaled.reshape((h // s, s, w // s, s))
+
+    stride = cairo.ImageSurface.format_stride_for_width(cairo.FORMAT_ARGB32, w)
+    assert stride % 4 == 0 # stride is in bytes
+    assert stride == 4 * w
+
+    clipper = Clipper()
+    clipper.alloc_buffer(scaled)
+    clipper.set_tile_size()
+
+    if settings.symmetrize:
+        m = np.nanmax(np.abs(frame))
+        clipper.dmin = -m
+        clipper.dmax = m
+    else:
+        clipper.default_bounds(frame)
+
+    mapper = ColorMapper(settings.colormap)
+    mapper.alloc_buffer(scaled)
+    mapper.set_tile_size()
+
+    surface = cairo.ImageSurface.create_for_data(mapper.buffer,
+                                                 cairo.FORMAT_ARGB32,
+                                                 w, h, stride)
+
+    tiled[...] = frame.reshape((frame.shape[0], 1, frame.shape[1], 1))
+    clipper.invalidate()
+    clipper.ensure_all_updated(scaled)
+    mapper.invalidate()
+    mapper.ensure_all_updated(clipper.buffer)
+    surface.write_to_png(settings.outpath)
+
+
 # Entrypoint
 
 def entrypoint(argv):
     if len(argv) == 1:
-        die('must supply a subcommand: "assemble", "movie", "seed", "view"')
+        die('must supply a subcommand: "assemble", "framegrab", "movie", "seed", "view"')
 
     if argv[1] == 'seed':
         seed_cli(argv[2:])
@@ -773,5 +853,7 @@ def entrypoint(argv):
         view_cli(argv[2:])
     elif argv[1] == 'movie':
         movie_cli(argv[2:])
+    elif argv[1] == 'framegrab':
+        framegrab_cli(argv[2:])
     else:
         die('unrecognized subcommand %r', argv[1])
