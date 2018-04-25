@@ -302,6 +302,13 @@ class RTConfiguration(Configuration):
     def get_rad_trans(self):
         return FormalRTIntegrator()
 
+    def get_setup(self, ghz):
+        from .geometry import RTOnlySetup
+
+        synch_calc = self.get_synch_calc()
+        rad_trans = self.get_rad_trans()
+        return RTOnlySetup(synch_calc, rad_trans, ghz * 1e9)
+
 
 # Command-line interface to jobs that do the RT integration for a series of
 # frames at a series of frequencies
@@ -345,12 +352,11 @@ def integrate_cli(args):
 
     freq_code = ('nu%.3f' % settings.frequency).replace('.', 'p')
 
-    synch_calc = config.get_synch_calc()
-    rad_trans = config.get_rad_trans()
+    setup = config.get_setup(settings.frequency)
 
-    from .geometry import RTOnlySetup, PrecomputedImageMaker
-    setup = RTOnlySetup(synch_calc, rad_trans, settings.frequency * 1e9)
+    from .geometry import PrecomputedImageMaker
     imaker = PrecomputedImageMaker(setup, settings.assembled_path)
+
     imaker.select_frame_by_name(settings.frame_name)
     img = imaker.compute(
         parallel = False, # for cluster jobs, do not parallelize individual tasks
