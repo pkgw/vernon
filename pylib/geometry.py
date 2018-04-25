@@ -1340,8 +1340,8 @@ class ImageMaker(object):
         self._yvals = np.linspace(-yhs, yhs, self.config.ny)
 
 
-    def compute(self, whole_ray=False, **kwargs):
-        return self.image_ray_func(lambda r: r.integrate(whole_ray=whole_ray), **kwargs)
+    def compute(self, whole_ray=False, extras=False, **kwargs):
+        return self.image_ray_func(lambda r: r.integrate(extras=extras, whole_ray=whole_ray), **kwargs)
 
 
     def _prep_for_multiprocessing(self):
