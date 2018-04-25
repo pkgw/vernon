@@ -561,6 +561,35 @@ def view_rot_cli(args):
     cycle(arrays, descs, yflip=True)
 
 
+# Viewing an assembled file - "spectral movie" mode
+
+def make_view_specmovie_parser():
+    ap = argparse.ArgumentParser(
+        prog = 'integrate view specmovie'
+    )
+    ap.add_argument('-s', dest='stokes', default='i',
+                    help='Which Stokes parameter to view: i q u v l fl fc')
+    ap.add_argument('path',
+                    help='The name of the HDF file to view.')
+    ap.add_argument('icml', type=int,
+                    help='Which rotation plane to view')
+    return ap
+
+
+def view_specmovie_cli(args):
+    from pwkit.ndshow_gtk3 import cycle
+
+    settings = make_view_specmovie_parser().parse_args(args=args)
+    ii = IntegratedImages(settings.path)
+
+    arrays = ii.specmovie(settings.icml, settings.stokes, yflip=True)
+    descs = ['%s freq=%s stokes=%s CML=%.0f' %
+             (settings.path, fn, settings.stokes, ii.cmls[settings.icml])
+             for fn in ii.freq_names]
+
+    cycle(arrays, descs, yflip=True)
+
+
 # Viewing an assembled file - the "summary" mode with lots of stats
 
 def make_view_summary_parser():
@@ -641,12 +670,14 @@ def view_summary_cli(args):
 
 def view_cli(args):
     if len(args) == 0:
-        die('must supply a sub-subcommand: "lc", "rot", "summary"')
+        die('must supply a sub-subcommand: "lc", "rot", "specmovie", "summary"')
 
     if args[0] == 'lc':
         view_lc_cli(args[1:])
     elif args[0] == 'rot':
         view_rot_cli(args[1:])
+    elif args[0] == 'specmovie':
+        view_specmovie_cli(args[1:])
     elif args[0] == 'summary':
         view_summary_cli(args[1:])
     else:
