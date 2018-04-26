@@ -234,6 +234,16 @@ class IntegratedImages(object):
         return np.array([self.flux(i, i_freq, i_stokes) for i in range(self.n_cmls)])
 
 
+    def rot_avg_flux(self, i_freq, i_stokes):
+        """NB for linear polarization, we are not letting different orientations
+        cancel each other out. I think this will always be the right approach
+        (unless somehow there are raw data that time average over a
+        substantial portion of a rotation).
+
+        """
+        return self.lightcurve(i_freq, i_stokes).mean()
+
+
     def lightcurve_360(self, i_freq, i_stokes):
         lc = self.lightcurve(i_freq, i_stokes)
         cmls_360 = np.linspace(0, 360, self.n_cmls + 1) # cf. how self.cmls is determined
@@ -249,6 +259,10 @@ class IntegratedImages(object):
 
     def spectrum(self, i_cml, i_stokes):
         return np.array([self.flux(i_cml, i, i_stokes) for i in range(self.n_freqs)])
+
+
+    def rot_avg_spectrum(self, i_stokes):
+        return np.array([self.rot_avg_flux(i, i_stokes) for i in range(self.n_freqs)])
 
 
     def specmovie(self, i_cml, i_stokes, yflip=False):
@@ -639,9 +653,11 @@ def view_summary_cli(args):
     p = om.quickXY(n3b_freq, n3b_ujy, 'N33370B', xlog=True, ylog=True)
     p.addXY(ii.freqs, ii.spectrum(0, 'i'), '0/*/I')
     p.addXY(ii.freqs, np.abs(ii.spectrum(0, 'v')), '0/*/|V|', dsn=1, lineStyle={'dashing': [3, 3]})
-    n = ii.n_cmls // 2
-    p.addXY(ii.freqs, ii.spectrum(n, 'i'), '%d/*/I' % n)
-    p.addXY(ii.freqs, np.abs(ii.spectrum(n, 'v')), '%d/*/|V|' % n, dsn=2, lineStyle={'dashing': [3, 3]})
+    #n = ii.n_cmls // 2
+    #p.addXY(ii.freqs, ii.spectrum(n, 'i'), '%d/*/I' % n)
+    #p.addXY(ii.freqs, np.abs(ii.spectrum(n, 'v')), '%d/*/|V|' % n, dsn=2, lineStyle={'dashing': [3, 3]})
+    p.addXY(ii.freqs, ii.rot_avg_spectrum('i'), 'mean/*/I')
+    p.addXY(ii.freqs, np.abs(ii.rot_avg_spectrum('v')), 'mean/*/|V|', dsn=2, lineStyle={'dashing': [3, 3]})
     pg.send(p)
 
     # Light curve. TODO: phasing?
