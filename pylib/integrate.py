@@ -621,6 +621,12 @@ def make_view_summary_parser():
     return ap
 
 
+def frac_peak_to_peak(data):
+    mx = data.max()
+    mn = data.min()
+    return abs((mx - mn) / (mx + mn))
+
+
 def view_summary_cli(args):
     import h5py, omega as om
     from pwkit.ndshow_gtk3 import cycle, view
@@ -664,10 +670,15 @@ def view_summary_cli(args):
 
     n3b_cml = refdata['justph_ph'][...] * 360
 
-    p = om.quickXY(n3b_cml, 1e3 * refdata['justph_ci'][...], 'N33370B phavg I')
-    p.addXY(n3b_cml, 1e3 * refdata['justph_cv'][...], 'N33370B phavg V')
-    p.addXY(ii.cmls, ii.lightcurve(best_freq, 'i'), '*/%d/I' % best_freq)
-    p.addXY(ii.cmls, ii.lightcurve(best_freq, 'v'), '*/%d/V' % best_freq)
+    lci = ii.lightcurve(best_freq, 'i')
+    lcv = ii.lightcurve(best_freq, 'v')
+
+    p = om.quickXY(n3b_cml, 1e3 * refdata['justph_ci'][...],
+                   'N33370B phavg I (FPTP: %.2f)' % frac_peak_to_peak(refdata['justph_ci'][...]))
+    p.addXY(n3b_cml, 1e3 * refdata['justph_cv'][...],
+            'N33370B phavg V (FPTP: %.2f)' % frac_peak_to_peak(refdata['justph_cv'][...]))
+    p.addXY(ii.cmls, lci, '*/%d/I (FPTP: %.2f)' % (best_freq, frac_peak_to_peak(lci)))
+    p.addXY(ii.cmls, lcv, '*/%d/V (FPTP: %.2f)' % (best_freq, frac_peak_to_peak(lcv)))
     pg.send(p)
 
     # Fractional circular polarization curve
