@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 # -*- mode: python; coding: utf-8 -*-
-# Copyright 2017 Peter Williams and collaborators.
+# Copyright 2017-2018 Peter Williams and collaborators.
 # Licensed under the MIT License.
 
 """Summarize the results from a Symphony sampling run
@@ -18,6 +18,29 @@ from . import basic_load
 
 
 # "lock-domain-range"
+
+def _hack_pytoml():
+    """pytoml will stringify floats using repr, which is ugly and fails outright with
+    very small values (i.e. 1e-30 becomes "0.000...."). Here we hack it to use
+    exponential notation if needed.
+
+    """
+    from pytoml import writer
+    orig_format_value = writer._format_value
+
+    if not getattr(orig_format_value, '_neurosynchro_hack_applied', False):
+        def better_format_value(v):
+            if isinstance(v, float):
+                if not np.isfinite(v):
+                    raise ValueError("{0} is not a valid TOML value".format(v))
+                return '%.16g' % v
+            return orig_format_value(v)
+
+        better_format_value._neurosynchro_hack_applied = True
+        writer._format_value = better_format_value
+
+_hack_pytoml()
+
 
 def make_ldr_parser():
     ap = argparse.ArgumentParser()
