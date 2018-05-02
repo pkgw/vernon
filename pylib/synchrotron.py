@@ -262,7 +262,17 @@ class NeuroSynchrotronCalculator(SynchrotronCalculator):
 
 
     def _get_coeffs_inner(self, nu, B, n_e, theta, **kwargs):
-        nontriv = self.apx.compute_all_nontrivial(nu, B, n_e, theta, **kwargs)
+        nontriv, flags = self.apx.compute_all_nontrivial(nu, B, n_e, theta, **kwargs)
+
+        danger_quantities = []
+        for i, mapping in enumerate(self.apx.domain_range.pmaps):
+            if flags & (1 << i):
+                danger_quantities.append(mapping.name)
+
+        if len(danger_quantities):
+            import sys
+            print('warning: out-of-bounds quantities: %s' % ' '.join(sorted(danger_quantities)),
+                  file=sys.stderr)
 
         expanded = np.empty(nontriv.shape[:-1] + (11,))
         # J IQ(U)V:

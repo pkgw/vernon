@@ -1000,10 +1000,16 @@ class Ray(object):
 
         """
         if self.j is None:
-            extras = dict((n, getattr(self, n)) for n in self.setup.synch_calc.param_names)
-            self.j, self.alpha, self.rho = self.setup.synch_calc.get_coeffs(
-                self.setup.nu, self.B, self.n_e, self.theta, self.psi, **extras
-            )
+            if np.all(self.n_e == 0):
+                # Avoid driving the neural net with out-of-bounds parameters
+                self.j = np.zeros(self.s.shape + (4,))
+                self.alpha = np.zeros(self.s.shape + (4,))
+                self.rho = np.zeros(self.s.shape + (3,))
+            else:
+                extras = dict((n, getattr(self, n)) for n in self.setup.synch_calc.param_names)
+                self.j, self.alpha, self.rho = self.setup.synch_calc.get_coeffs(
+                    self.setup.nu, self.B, self.n_e, self.theta, self.psi, **extras
+                )
         return self
 
 

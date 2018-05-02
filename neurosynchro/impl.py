@@ -86,7 +86,7 @@ class NSModel(models.Sequential):
             npred = npred[ok]
 
         if to_phys:
-            pred = self.domain_range.rmaps[self.result_index].norm_to_phys(npred)
+            pred, _ = self.domain_range.rmaps[self.result_index].norm_to_phys(npred)
         else:
             pred = npred
 
@@ -195,29 +195,24 @@ class NaiveApproximator(object):
         theta[flip] = np.pi - theta[flip]
         kwargs['theta'] = theta
 
-        # XXX we only clip 's' here, and not earlier in the pipeline. More hacks.
+        # Normalize inputs.
 
-        if kwargs['s'].min() < 1.:
-            import sys
-            print('neurosynchro quasi-underflow in s:', kwargs['s'].min(), file=sys.stderr)
-        if kwargs['s'].max() > 5e7:
-            import sys
-            print('neurosynchro quasi-overflow in s:', kwargs['s'].max(), file=sys.stderr)
-
-        # Normalize inputs. TO DO: it would probably be wise to bounds check
-        # aggressively, although I'm not sure what to do if out-of-bounds
-        # inputs pop up.
+        oos_flags = 0
 
         norm = np.empty(nu.shape + (self.domain_range.n_params,))
         for i, mapping in enumerate(self.domain_range.pmaps):
-            norm[...,i] = mapping.phys_to_norm(kwargs[mapping.name])
+            norm[...,i], flag = mapping.phys_to_norm(kwargs[mapping.name])
+            if flag:
+                oos_flags |= (1 << i)
 
         # Compute outputs.
 
         result = np.empty(nu.shape + (self.domain_range.n_results,))
         for i in range(self.domain_range.n_results):
             r = self.models[i].predict(norm)[...,0]
-            result[...,i] = self.domain_range.rmaps[i].norm_to_phys(r)
+            result[...,i], flag = self.domain_range.rmaps[i].norm_to_phys(r)
+            if flag:
+                oos_flags |= (1 << (self.domain_range.n_params + i))
 
         # Now apply the known scalings. Everything scales linearly with n_e.
 
@@ -237,11 +232,9 @@ class NaiveApproximator(object):
 
         result[np.broadcast_to(no_B[...,np.newaxis], result.shape)] = 0.
 
-        # TO DO: ensure that the computed values obey the right invariants.
-        # j_I**2 >= j_Q**2 + j_U**2 + j_V**2. I do not know how what, if any,
-        # invariants apply to the alpha/rho parameters.
+        # NOTE: the computed values might not obey the necessary invariants!
 
-        return result
+        return result, oos_flags
 
 
 class PhysicalApproximator(object):
@@ -263,7 +256,6 @@ class PhysicalApproximator(object):
             m.domain_range = self.domain_range
             setattr(self, r, m)
 
-        print('!!! neurosynchro.PhysicalApproximator: HARDCODED INPUT CLIPPING')
 
     @broadcastize(4, ret_spec=None)
     def compute_all_nontrivial(self, nu, B, n_e, theta, **kwargs):
@@ -285,38 +277,49 @@ class PhysicalApproximator(object):
         theta[flip] = np.pi - theta[flip]
         kwargs['theta'] = theta
 
-        # XXX this code shouldn't know about limits on "s", but it's not
-        # computed until we get here. Note that we just report bounds problems
-        # but don't actually clip.
-
-        if kwargs['s'].min() < 1.:
-            import sys
-            print('neurosynchro quasi-underflow in s:', kwargs['s'].min(), file=sys.stderr)
-        if kwargs['s'].max() > 5e7:
-            import sys
-            print('neurosynchro quasi-overflow in s:', kwargs['s'].max(), file=sys.stderr)
-
-        # XXX Even worse encapsulation breakage. I need to figure out the plan here.
-
-        kwargs['p'] = np.clip(kwargs['p'], 1.5, 7)
-        kwargs['k'] = np.clip(kwargs['k'], 0., 9)
-
         # Normalize inputs.
+
+        oos_flags = 0
 
         norm = np.empty(nu.shape + (self.domain_range.n_params,))
         for i, mapping in enumerate(self.domain_range.pmaps):
-            norm[...,i] = mapping.phys_to_norm(kwargs[mapping.name])
+            norm[...,i], flag = mapping.phys_to_norm(kwargs[mapping.name])
+            if flag:
+                oos_flags |= (1 << i)
 
         # Compute base outputs.
 
-        j_I = self.domain_range.rmaps[0].norm_to_phys(self.j_I.predict(norm)[...,0])
-        alpha_I = self.domain_range.rmaps[1].norm_to_phys(self.alpha_I.predict(norm)[...,0])
-        j_frac_pol = self.domain_range.rmaps[2].norm_to_phys(self.j_frac_pol.predict(norm)[...,0])
-        alpha_frac_pol = self.domain_range.rmaps[3].norm_to_phys(self.alpha_frac_pol.predict(norm)[...,0])
-        j_V_share = self.domain_range.rmaps[4].norm_to_phys(self.j_V_share.predict(norm)[...,0])
-        alpha_V_share = self.domain_range.rmaps[5].norm_to_phys(self.alpha_V_share.predict(norm)[...,0])
-        rel_rho_Q = self.domain_range.rmaps[6].norm_to_phys(self.rel_rho_Q.predict(norm)[...,0])
-        rel_rho_V = self.domain_range.rmaps[7].norm_to_phys(self.rel_rho_V.predict(norm)[...,0])
+        j_I, flag = self.domain_range.rmaps[0].norm_to_phys(self.j_I.predict(norm)[...,0])
+        if flag:
+            oos_flags |= (1 << (self.domain_range.n_params + 0))
+
+        alpha_I, flag = self.domain_range.rmaps[1].norm_to_phys(self.alpha_I.predict(norm)[...,0])
+        if flag:
+            oos_flags |= (1 << (self.domain_range.n_params + 1))
+
+        j_frac_pol, flag = self.domain_range.rmaps[2].norm_to_phys(self.j_frac_pol.predict(norm)[...,0])
+        if flag:
+            oos_flags |= (1 << (self.domain_range.n_params + 2))
+
+        alpha_frac_pol, flag = self.domain_range.rmaps[3].norm_to_phys(self.alpha_frac_pol.predict(norm)[...,0])
+        if flag:
+            oos_flags |= (1 << (self.domain_range.n_params + 3))
+
+        j_V_share, flag = self.domain_range.rmaps[4].norm_to_phys(self.j_V_share.predict(norm)[...,0])
+        if flag:
+            oos_flags |= (1 << (self.domain_range.n_params + 4))
+
+        alpha_V_share, flag = self.domain_range.rmaps[5].norm_to_phys(self.alpha_V_share.predict(norm)[...,0])
+        if flag:
+            oos_flags |= (1 << (self.domain_range.n_params + 5))
+
+        rel_rho_Q, flag = self.domain_range.rmaps[6].norm_to_phys(self.rel_rho_Q.predict(norm)[...,0])
+        if flag:
+            oos_flags |= (1 << (self.domain_range.n_params + 6))
+
+        rel_rho_V, flag = self.domain_range.rmaps[7].norm_to_phys(self.rel_rho_V.predict(norm)[...,0])
+        if flag:
+            oos_flags |= (1 << (self.domain_range.n_params + 7))
 
         # Patch up B = 0 in the obvious way. (Although if we ever have to deal
         # with nontrivial cold plasma densities, zones of zero B might affect
@@ -379,4 +382,4 @@ class PhysicalApproximator(object):
         result[:,5] = alpha_V
         result[:,6] = rho_Q
         result[:,7] = rho_V
-        return result
+        return result, oos_flags

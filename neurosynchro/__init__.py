@@ -34,6 +34,7 @@ from pwkit.io import Path
 
 class Mapping(object):
     trainer = None
+    out_of_sample = 'ignore'
 
     def __init__(self, name):
         self.name = name
@@ -71,13 +72,40 @@ class Mapping(object):
 
 
     def phys_to_norm(self, phys):
-        # TODO: (optional?) bounds checking!
-        return (self._to_xform(phys) - self.x_mean) / self.x_std
+        oos = ~((phys >= self.p_min) & (phys <= self.p_max)) # catches NaNs
+        any_oos = np.any(oos)
+
+        if any_oos:
+            print('TMP OOB:', self.name, self.p_min, self.p_max, phys.min(), phys.max())
+            if self.out_of_sample == 'ignore':
+                pass
+            elif self.out_of_sample == 'clip':
+                phys = np.clip(phys, self.p_min, self.p_max)
+            elif self.out_of_sample == 'nan':
+                phys = phys.copy()
+                phys[oos] = np.nan
+            else:
+                raise Exception('unrecognized out-of-sample behavior %r' % self.out_of_sample)
+
+        return (self._to_xform(phys) - self.x_mean) / self.x_std, any_oos
 
 
     def norm_to_phys(self, norm):
-        # TODO: (optional?) bounds checking!
-        return self._from_xform(norm * self.x_std + self.x_mean)
+        oos = ~((norm >= self.n_min) & (norm <= self.n_max)) # catches NaNs
+        any_oos = np.any(oos)
+
+        if any_oos:
+            if self.out_of_sample == 'ignore':
+                pass
+            elif self.out_of_sample == 'clip':
+                norm = np.clip(norm, self.n_min, self.n_max)
+            elif self.out_of_sample == 'nan':
+                norm = norm.copy()
+                norm[oos] = np.nan
+            else:
+                raise Exception('unrecognized out-of-sample behavior %r' % self.out_of_sample)
+
+        return self._from_xform(norm * self.x_std + self.x_mean), any_oos
 
 
     def to_dict(self):
@@ -87,6 +115,8 @@ class Mapping(object):
 
         if self.trainer is not None:
             d['trainer'] = self.trainer
+        if self.out_of_sample is not None:
+            d['out_of_sample'] = self.out_of_sample
 
         d['x_mean'] = self.x_mean
         d['x_std'] = self.x_std
@@ -105,6 +135,8 @@ class Mapping(object):
         inst = cls(str(info['name']))
         if 'trainer' in info:
             inst.trainer = info['trainer']
+        if 'out_of_sample' in info:
+            inst.out_of_sample = info['out_of_sample']
         inst.x_mean = float(info['x_mean'])
         inst.x_std = float(info['x_std'])
         inst.p_min = float(info['phys_min'])
@@ -203,6 +235,8 @@ def mapping_from_info_and_samples(info, phys_samples):
     inst = cls.from_samples(info['name'], phys_samples)
     if 'trainer' in info:
         inst.trainer = info['trainer']
+    if 'out_of_sample' in info:
+        inst.out_of_sample = info['out_of_sample']
     return inst
 
 def mapping_from_dict(info):
@@ -373,13 +407,18 @@ class SampleData(object):
         self.phys = phys_samples
 
         self.norm = np.empty_like(self.phys)
+        self.oos_flags = 0
 
         for i in range(self.domain_range.n_params):
-            self.norm[:,i] = self.domain_range.pmaps[i].phys_to_norm(self.phys[:,i])
+            self.norm[:,i], flag = self.domain_range.pmaps[i].phys_to_norm(self.phys[:,i])
+            if flag:
+                self.oos_flags |= (1 << i)
 
         for i in range(self.domain_range.n_results):
             j = i + self.domain_range.n_params
-            self.norm[:,j] = self.domain_range.rmaps[i].phys_to_norm(self.phys[:,j])
+            self.norm[:,j], flag = self.domain_range.rmaps[i].phys_to_norm(self.phys[:,j])
+            if flag:
+                self.oos_flags |= (1 << j)
 
     @property
     def phys_params(self):
