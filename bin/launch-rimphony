@@ -4,23 +4,23 @@ if [ "$1" = test ] ; then
     # 0.05 cpu-hours
     array_spec=0-1
     time_lim=1
-    partition=interact
+    partition=test,general,shared,unrestricted,serial_requeue
     set -x
 elif [ "$1" = prod ] ; then
     # ~1000 cpu-hours
     array_spec=0-1023
     time_lim=60
-    partition=serial_requeue
+    partition=general,shared,unrestricted,serial_requeue
 elif [ "$1" = med ] ; then
     # ~20 cpu-hours
     array_spec=0-128
     time_lim=10
-    partition=serial_requeue
+    partition=general,shared,unrestricted,serial_requeue
 elif [ "$1" = huge ] ; then
     # ~6000 cpu-hours
     array_spec=0-1023
     time_lim=0-6
-    partition=serial_requeue
+    partition=general,shared,unrestricted,serial_requeue
 else
     echo >&2 "first argument must be either \"test\" or \"prod\" or \"med\" or \"huge\""
     exit 1
@@ -28,12 +28,15 @@ fi
 
 case "$2" in
     pitchypl)
-        # Keep the arg structure synchronized with neurosynchro/compute.py!
         params="5 5e7 0.001 1.5707963267948966 1.5 7 0 9"
         prog=crank-out-pitchypl
         ;;
+    pitchykappa)
+        params="5 5e7 0.001 1.5707963267948966 1.2 7 1 20 0.5 9"
+        prog=crank-out-pitchykappa
+        ;;
     *)
-	echo >&2 "second argument must be \"pitchypl\""
+	echo >&2 "second argument must be \"pitchykappa\" or \"pitchypl\""
 	exit 1 ;;
 esac
 
