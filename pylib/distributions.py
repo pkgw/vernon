@@ -90,11 +90,11 @@ class TorusDistribution(Distribution):
         n_e = np.zeros(mlat.shape)
         n_e[inside] = self.n_e
 
-        p = np.zeros(mlat.shape)
-        p[inside] = self.power_law_p
+        p = np.empty(mlat.shape)
+        p.fill(self.power_law_p)
 
-        k = np.zeros(mlat.shape)
-        k[inside] = self.pitch_angle_k
+        k = np.empty(mlat.shape)
+        k.fill(self.pitch_angle_k)
 
         return n_e, p, k
 
@@ -183,11 +183,11 @@ class WasherDistribution(Distribution):
         n_e[inside] = self._density_factor * ((self.r_outer - r[inside]) /
                                               (self.r_outer - self.r_inner))**self.radial_concentration
 
-        p = np.zeros(mlat.shape)
-        p[inside] = self.power_law_p
+        p = np.empty(mlat.shape)
+        p.fill(self.power_law_p)
 
-        k = np.zeros(mlat.shape)
-        k[inside] = self.pitch_angle_k
+        k = np.empty(mlat.shape)
+        k.fill(self.pitch_angle_k)
 
         return n_e, p, k
 
@@ -270,10 +270,11 @@ class PancakeTorusDistribution(Distribution):
         n_e = np.zeros(mlat.shape)
         n_e[inside_torus] = self.n_e_torus + (self.n_e_pancake - self.n_e_torus) * pancake_factor
 
-        p = np.zeros(mlat.shape)
-        p[inside_torus] = self.power_law_p
+        p = np.empty(mlat.shape)
+        p.fill(self.power_law_p)
 
-        k = np.zeros(mlat.shape)
+        k = np.empty(mlat.shape)
+        k.fill(self.pitch_angle_k_torus)
         k[inside_torus] = self.pitch_angle_k_torus + \
                           (self.pitch_angle_k_pancake - self.pitch_angle_k_torus) * pancake_factor
 
@@ -384,10 +385,12 @@ class PancakeWasherDistribution(Distribution):
         n_e = np.zeros(mlat.shape)
         n_e[inside] = n_e_washer * (1 + (self.n_e_pancake_factor - 1) * pancake_factor)
 
-        p = np.zeros(mlat.shape)
-        p[inside] = self.power_law_p_inner + (self.power_law_p_outer - self.power_law_p_outer) * radial_factor[inside]
+        p = np.empty(mlat.shape)
+        p.fill(self.power_law_p_inner)
+        p[inside] = self.power_law_p_inner + (self.power_law_p_outer - self.power_law_p_inner) * radial_factor[inside]
 
-        k = np.zeros(mlat.shape)
+        k = np.empty(mlat.shape)
+        k.fill(self.pitch_angle_k_washer)
         k[inside] = self.pitch_angle_k_washer + \
             (self.pitch_angle_k_pancake - self.pitch_angle_k_washer) * pancake_factor
 
@@ -506,10 +509,12 @@ class PexpPancakeWasherDistribution(Distribution):
         n_e = np.zeros(mlat.shape)
         n_e[inside] = n_e_washer * (1 + (self.n_e_pancake_factor - 1) * pancake_factor)
 
-        p = np.zeros(mlat.shape)
-        p[inside] = self.power_law_p_inner + (self.power_law_p_outer - self.power_law_p_outer) * radial_factor[inside]
+        p = np.empty(mlat.shape)
+        p.fill(self.power_law_p_inner)
+        p[inside] = self.power_law_p_inner + (self.power_law_p_outer - self.power_law_p_inner) * radial_factor[inside]
 
-        k = np.zeros(mlat.shape)
+        k = np.empty(mlat.shape)
+        k.fill(self.pitch_angle_k_washer)
         k[inside] = self.pitch_angle_k_washer + \
             (self.pitch_angle_k_pancake - self.pitch_angle_k_washer) * pancake_factor
 
