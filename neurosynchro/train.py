@@ -1,6 +1,5 @@
-#! /usr/bin/env python
 # -*- mode: python; coding: utf-8 -*-
-# Copyright 2017 Peter Williams and collaborators.
+# Copyright 2017-2018 Peter Williams and collaborators.
 # Licensed under the MIT License.
 
 """Train one of the neural networks.
@@ -9,14 +8,15 @@ Meant to be run as a program in production, but you can import it to
 experiment with training regimens.
 
 """
-from __future__ import absolute_import, division, print_function, unicode_literals
+from __future__ import absolute_import, division, print_function
 
 import argparse, sys, time
 from keras.layers import Dense
 from pwkit.cli import die
 from pwkit.io import Path
 
-from . import DomainRange, NSModel
+from . import DomainRange
+from .impl import NSModel
 
 
 def generic_trainer(m):

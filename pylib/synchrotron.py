@@ -95,8 +95,6 @@ import numpy as np
 from pwkit.astutil import halfpi, twopi
 from pwkit.numutil import broadcastize
 
-from neurosynchro import STOKES_I, STOKES_Q, STOKES_U, STOKES_V, EMISSION, ABSORPTION
-
 DEFAULT_GAMMA_MIN = 1.
 DEFAULT_GAMMA_MAX = 1000.
 
@@ -253,8 +251,8 @@ class NeuroSynchrotronCalculator(SynchrotronCalculator):
 
     """
     def __init__(self, nn_dir):
-        import neurosynchro
-        self.apx = neurosynchro.PhysicalApproximator(nn_dir)
+        from neurosynchro.impl import PhysicalApproximator
+        self.apx = PhysicalApproximator(nn_dir)
 
         self.param_names = []
 
