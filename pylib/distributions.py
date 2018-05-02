@@ -419,6 +419,8 @@ class PexpPancakeWasherDistribution(Distribution):
     seen in Jupiter's magnetosphere as described in de Pater+
     (2003Icar..163..434D).
 
+    Assumes an underlying kappa distribution.
+
     """
     __section__ = 'pexp-pancake-washer-distribution'
 
@@ -447,16 +449,19 @@ class PexpPancakeWasherDistribution(Distribution):
     """The factor by which n_e goes up as you enter the pancake region.
 
     """
-    power_law_p_inner = 3
+    kappa_inner = 3
     """The power-law index of the energetic electrons at the inner edge of the
     washer, such that N(>E) ~ E^(-p).
 
     """
-    power_law_p_outer = 3
+    kappa_outer = 3
     """The power-law index of the energetic electrons at the outer edge of the
     washer.
 
     """
+    kappa_width = 3
+    """The width parameter of the electron kappa distribution."""
+
     pitch_angle_k_washer = 1
     """The power-law index of the pitch angle distribution in sin(theta) in the
     washer component.
@@ -478,7 +483,7 @@ class PexpPancakeWasherDistribution(Distribution):
     are 0.
 
     """
-    _parameter_names = ['n_e', 'p', 'k']
+    _parameter_names = ['n_e', 'kappa', 'width', 'k']
     _ne_norm = None
 
     @broadcastize(3, (0, 0, 0))
@@ -509,16 +514,19 @@ class PexpPancakeWasherDistribution(Distribution):
         n_e = np.zeros(mlat.shape)
         n_e[inside] = n_e_washer * (1 + (self.n_e_pancake_factor - 1) * pancake_factor)
 
-        p = np.empty(mlat.shape)
-        p.fill(self.power_law_p_inner)
-        p[inside] = self.power_law_p_inner + (self.power_law_p_outer - self.power_law_p_inner) * radial_factor[inside]
+        kappa = np.empty(mlat.shape)
+        kappa.fill(self.kappa_inner)
+        kappa[inside] = self.kappa_inner + (self.kappa_outer - self.kappa_inner) * radial_factor[inside]
+
+        width = np.empty(mlat.shape)
+        width.fill(self.kappa_width)
 
         k = np.empty(mlat.shape)
         k.fill(self.pitch_angle_k_washer)
         k[inside] = self.pitch_angle_k_washer + \
             (self.pitch_angle_k_pancake - self.pitch_angle_k_washer) * pancake_factor
 
-        return n_e, p, k
+        return n_e, kappa, width, k
 
 
 class GriddedDistribution(Distribution):
