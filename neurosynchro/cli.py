@@ -149,10 +149,8 @@ def transform(datadir):
     mask |= bad
     print('Rows with bad a_V:', bad.sum(), file=sys.stderr)
 
-    bad = (df.fq <= 0)
-    mask |= bad
-    print('Rows with bad f_Q:', bad.sum(), file=sys.stderr)
-
+    # This cut isn't physically motivated, but under the current rimphony
+    # model, f_V is always positive.
     bad = (df.fv <= 0)
     mask |= bad
     print('Rows with bad f_V:', bad.sum(), file=sys.stderr)
