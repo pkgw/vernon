@@ -76,7 +76,6 @@ class Mapping(object):
         any_oos = np.any(oos)
 
         if any_oos:
-            print('TMP OOB:', self.name, self.p_min, self.p_max, phys.min(), phys.max())
             if self.out_of_sample == 'ignore':
                 pass
             elif self.out_of_sample == 'clip':
