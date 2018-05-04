@@ -172,6 +172,8 @@ class IntegratedImages(object):
             return self.frame(i_cml, i_freq, 2)
         if i_stokes == 'v':
             return self.frame(i_cml, i_freq, 3)
+        if i_stokes == 'absv':
+            return np.abs(self.frame(i_cml, i_freq, 3))
         if i_stokes == 'l':
             q = self.frame(i_cml, i_freq, 1)
             u = self.frame(i_cml, i_freq, 2)
@@ -210,6 +212,8 @@ class IntegratedImages(object):
             return self.flux(i_cml, i_freq, 2)
         if i_stokes == 'v':
             return self.flux(i_cml, i_freq, 3)
+        if i_stokes == 'absv':
+            return np.abs(self.flux(i_cml, i_freq, 3))
         if i_stokes == 'l':
             q = self.flux(i_cml, i_freq, 1)
             u = self.flux(i_cml, i_freq, 2)
@@ -244,6 +248,14 @@ class IntegratedImages(object):
         return self.lightcurve(i_freq, i_stokes).mean()
 
 
+    def rot_flux_stats(self, i_freq, i_stokes):
+        """Returns (min, avg, max).
+
+        """
+        lc = self.lightcurve(i_freq, i_stokes)
+        return lc.min(), lc.mean(), lc.max()
+
+
     def lightcurve_360(self, i_freq, i_stokes):
         lc = self.lightcurve(i_freq, i_stokes)
         cmls_360 = np.linspace(0, 360, self.n_cmls + 1) # cf. how self.cmls is determined
@@ -263,6 +275,19 @@ class IntegratedImages(object):
 
     def rot_avg_spectrum(self, i_stokes):
         return np.array([self.rot_avg_flux(i, i_stokes) for i in range(self.n_freqs)])
+
+
+    def rot_spectrum_stats(self, i_stokes):
+        """Returns an array of shape (3, n_freqs).
+
+        The first row is the minimum flux density achieved over the full
+        rotation; the second is the mean; the third is the maximum.
+
+        """
+        arr = np.empty((3, self.n_freqs))
+        for i in range(self.n_freqs):
+            arr[:,i] = self.rot_flux_stats(i, i_stokes)
+        return arr
 
 
     def specmovie(self, i_cml, i_stokes, yflip=False):
@@ -610,6 +635,69 @@ def view_specmovie_cli(args):
     cycle(arrays, descs, yflip=True)
 
 
+# Viewing an assembled file - the "spectum summary" plot
+
+def make_view_specsumm_parser():
+    ap = argparse.ArgumentParser(
+        prog = 'integrate view specsumm'
+    )
+    ap.add_argument('path',
+                    help='The name of the HDF file to view.')
+    return ap
+
+
+def make_specsumm_plot(ii):
+    import omega as om
+
+    # Stokes I+V spectrum - backing data slurped from my dulk85 interactive
+    # javascript slide, which patched it together from who knows where.
+    # Stokes V from McLean 2011, Williams 2015, ALMA.
+
+    n3b_i_freq = np.array([1.4, 6.05, 21.85, 33.5, 43.7, 97.5])
+    n3b_i_ujy = np.array([890, 1360, 1460, 1300, 1180, 680])
+
+    n3b_v_freq = np.array([1.43, 4.86, 8.46, 21.848, 33.498, 43.701, 97.5])
+    n3b_v_ujy = np.array([-220, 40, 190, 171, 323, 281, 250])
+
+    p = om.quickXY(n3b_i_freq, n3b_i_ujy, 'N33370B I/V', xlog=True)
+    p.addXY(n3b_v_freq, n3b_v_ujy, None, dsn=0, lineStyle={'dashing': [2, 2]})
+
+    # Reference: typical range of variation in the wbi+15 paper.
+
+    p.addXY([6.05, 6.05, 6.05], [1.1e3, 1.5e3, 1.8e3], None, pointStamp=om.stamps.X(), dsn=0)
+    p.addXY([6.05, 6.05], [1., 250.], None, pointStamp=om.stamps.X(), dsn=0, lineStyle={'dashing': [2, 2]})
+
+    # Reference: the ALMA measurements
+
+    p.addXY([97.5, 97.5], [400., 900.], None, pointStamp=om.stamps.X(), dsn=0)
+    p.addXY([97.5, 97.5], [100., 400.], None, pointStamp=om.stamps.X(), dsn=0, lineStyle={'dashing': [2, 2]})
+
+    # The actual model data
+
+    i_min, i_mean, i_max = ii.rot_spectrum_stats('i')
+    p.addXY(ii.freqs, i_mean, 'model I', dsn=1)
+    p.addXY(ii.freqs, i_min, None, dsn=1, lineStyle={'dashing': [1, 3]})
+    p.addXY(ii.freqs, i_max, None, dsn=1, lineStyle={'dashing': [1, 3]})
+
+    v_min, v_mean, v_max = ii.rot_spectrum_stats('absv')
+    p.addXY(ii.freqs, v_mean, 'model |V|', dsn=2)
+    p.addXY(ii.freqs, v_min, None, dsn=2, lineStyle={'dashing': [1, 3]})
+    p.addXY(ii.freqs, v_max, None, dsn=2, lineStyle={'dashing': [1, 3]})
+
+    l_min, l_mean, l_max = ii.rot_spectrum_stats('l')
+    p.addXY(ii.freqs, l_mean, 'model L', dsn=3)
+    p.addXY(ii.freqs, l_min, None, dsn=3, lineStyle={'dashing': [1, 3]})
+    p.addXY(ii.freqs, l_max, None, dsn=3, lineStyle={'dashing': [1, 3]})
+
+    return p
+
+
+def view_specsumm_cli(args):
+    settings = make_view_specsumm_parser().parse_args(args=args)
+    ii = IntegratedImages(settings.path)
+    make_specsumm_plot(ii).show()
+
+
 # Viewing an assembled file - the "summary" mode with lots of stats
 
 def make_view_summary_parser():
@@ -648,23 +736,10 @@ def view_summary_cli(args):
     cycle(ii.rotmovie(1, 'i', yflip=True))
     cycle(ii.rotmovie(1, 'fc', yflip=True))
 
-    # Stokes I+V spectrum - backing data slurped from my dulk85 interactive
-    # javascript slide, which patched it together from who knows where.
-
-    n3b_freq = np.array([1.4, 6.05, 21.85, 33.5, 43.7, 97.5])
-    n3b_ujy = np.array([890, 1360, 1460, 1300, 1180, 680])
+    # The spectral summary
 
     pg = om.makeDisplayPager()
-
-    p = om.quickXY(n3b_freq, n3b_ujy, 'N33370B', xlog=True, ylog=True)
-    p.addXY(ii.freqs, ii.spectrum(0, 'i'), '0/*/I')
-    p.addXY(ii.freqs, np.abs(ii.spectrum(0, 'v')), '0/*/|V|', dsn=1, lineStyle={'dashing': [3, 3]})
-    #n = ii.n_cmls // 2
-    #p.addXY(ii.freqs, ii.spectrum(n, 'i'), '%d/*/I' % n)
-    #p.addXY(ii.freqs, np.abs(ii.spectrum(n, 'v')), '%d/*/|V|' % n, dsn=2, lineStyle={'dashing': [3, 3]})
-    p.addXY(ii.freqs, ii.rot_avg_spectrum('i'), 'mean/*/I')
-    p.addXY(ii.freqs, np.abs(ii.rot_avg_spectrum('v')), 'mean/*/|V|', dsn=2, lineStyle={'dashing': [3, 3]})
-    pg.send(p)
+    pg.send(make_specsumm_plot(ii))
 
     # Light curve. TODO: phasing?
 
@@ -703,7 +778,7 @@ def view_summary_cli(args):
 
 def view_cli(args):
     if len(args) == 0:
-        die('must supply a sub-subcommand: "lc", "rot", "specmovie", "summary"')
+        die('must supply a sub-subcommand: "lc", "rot", "specmovie", "specsumm", "summary"')
 
     if args[0] == 'lc':
         view_lc_cli(args[1:])
@@ -711,6 +786,8 @@ def view_cli(args):
         view_rot_cli(args[1:])
     elif args[0] == 'specmovie':
         view_specmovie_cli(args[1:])
+    elif args[0] == 'specsumm':
+        view_specsumm_cli(args[1:])
     elif args[0] == 'summary':
         view_summary_cli(args[1:])
     else:
