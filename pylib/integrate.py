@@ -650,8 +650,10 @@ def make_specsumm_plot(ii):
     import omega as om
 
     # Stokes I+V spectrum - backing data slurped from my dulk85 interactive
-    # javascript slide, which patched it together from who knows where.
-    # Stokes V from McLean 2011, Williams 2015, ALMA.
+    # javascript slide, which patched it together from who knows where. Stokes
+    # V from McLean 2011, Williams 2015, ALMA. K/Q-band data from
+    # dracut:data/vla-multiband.tab (not published in Williams+ 2015 but
+    # analyzed there).
 
     n3b_i_freq = np.array([1.4, 6.05, 21.85, 33.5, 43.7, 97.5])
     n3b_i_ujy = np.array([890, 1360, 1460, 1300, 1180, 680])
@@ -740,6 +742,29 @@ def view_summary_cli(args):
 
     pg = om.makeDisplayPager()
     pg.send(make_specsumm_plot(ii))
+
+    # Fractional polarization spectrum
+
+    n3b_i_freq = np.array([1.4, 6.05, 21.85, 33.5, 43.7, 97.5])
+    n3b_i_ujy = np.array([890, 1360, 1460, 1300, 1180, 680])
+    n3b_v_ujy = np.array([-220, 150, 171, 323, 281, 250])
+    n3b_fc = 100. * n3b_v_ujy / n3b_i_ujy
+
+    p = om.quickXY(n3b_i_freq, n3b_fc, 'N33370B V/I', xlog=True)
+    p.addXY([6.05, 6.05], [0, 20.], None, pointStamp=om.stamps.X(), dsn=0)
+    p.addXY([97.5, 97.5], [10, 60.], None, pointStamp=om.stamps.X(), dsn=0)
+
+    fc_min, fc_mean, fc_max = ii.rot_spectrum_stats('fc')
+    p.addXY(ii.freqs, 100. * fc_mean, 'model V/I', dsn=1)
+    p.addXY(ii.freqs, 100. * fc_min, None, dsn=1, lineStyle={'dashing': [1, 3]})
+    p.addXY(ii.freqs, 100. * fc_max, None, dsn=1, lineStyle={'dashing': [1, 3]})
+
+    fl_min, fl_mean, fl_max = ii.rot_spectrum_stats('fl')
+    p.addXY(ii.freqs, 100. * fl_mean, 'model L/I', dsn=2)
+    p.addXY(ii.freqs, 100. * fl_min, None, dsn=2, lineStyle={'dashing': [1, 3]})
+    p.addXY(ii.freqs, 100. * fl_max, None, dsn=2, lineStyle={'dashing': [1, 3]})
+
+    pg.send(p)
 
     # Light curve. TODO: phasing?
 
