@@ -681,8 +681,8 @@ def make_specsumm_plot(ii):
     p.addXY(ii.freqs, i_min, None, dsn=1, lineStyle={'dashing': [1, 3]})
     p.addXY(ii.freqs, i_max, None, dsn=1, lineStyle={'dashing': [1, 3]})
 
-    v_min, v_mean, v_max = ii.rot_spectrum_stats('absv')
-    p.addXY(ii.freqs, v_mean, 'model |V|', dsn=2)
+    v_min, v_mean, v_max = ii.rot_spectrum_stats('v')
+    p.addXY(ii.freqs, v_mean, 'model V', dsn=2)
     p.addXY(ii.freqs, v_min, None, dsn=2, lineStyle={'dashing': [1, 3]})
     p.addXY(ii.freqs, v_max, None, dsn=2, lineStyle={'dashing': [1, 3]})
 
