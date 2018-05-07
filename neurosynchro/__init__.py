@@ -72,7 +72,8 @@ class Mapping(object):
 
 
     def phys_to_norm(self, phys):
-        oos = ~((phys >= self.p_min) & (phys <= self.p_max)) # catches NaNs
+        # note: using prefix ~ instead of np.logical_not fails for scalars
+        oos = np.logical_not((phys >= self.p_min) & (phys <= self.p_max)) # catches NaNs
         any_oos = np.any(oos)
 
         if any_oos:
@@ -90,7 +91,7 @@ class Mapping(object):
 
 
     def norm_to_phys(self, norm):
-        oos = ~((norm >= self.n_min) & (norm <= self.n_max)) # catches NaNs
+        oos = np.logical_not((norm >= self.n_min) & (norm <= self.n_max)) # catches NaNs
         any_oos = np.any(oos)
 
         if any_oos:
