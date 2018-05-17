@@ -250,9 +250,10 @@ class NeuroSynchrotronCalculator(SynchrotronCalculator):
     """Compute synchrotron coefficients using a neural network approximation.
 
     """
-    def __init__(self, nn_dir):
+    def __init__(self, nn_dir, print_warnings=True):
         from neurosynchro.impl import PhysicalApproximator
         self.apx = PhysicalApproximator(nn_dir)
+        self.print_warnings = print_warnings
 
         self.param_names = []
 
@@ -269,7 +270,7 @@ class NeuroSynchrotronCalculator(SynchrotronCalculator):
             if flags & (1 << i):
                 danger_quantities.append(mapping.name)
 
-        if len(danger_quantities):
+        if len(danger_quantities) and self.print_warnings:
             import sys
             print('warning: out-of-bounds quantities: %s' % ' '.join(sorted(danger_quantities)),
                   file=sys.stderr)
