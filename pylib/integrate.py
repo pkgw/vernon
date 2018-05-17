@@ -349,6 +349,44 @@ class RTConfiguration(Configuration):
         return RTOnlySetup(synch_calc, rad_trans, ghz * 1e9)
 
 
+def oneshot(assembled, nn_path, frame_num, ghz, **kwargs):
+    """Programmatic access to "one-shot" integration of a frame.
+
+    *assembled*
+      Path to the preprays assembled HDF5 file.
+    *nn_path*
+      Path to the appropriate neurosynchro neural network data.
+    *frame_num*
+      Which frame in the preprays file to image.
+    *ghz*
+      The frequency to do the integration for, in GHz.
+    **kwargs
+      Forwarded to :meth:`ImageMaker.compute`; can include `parallel=`
+      to control parallelization à la :mod:`pwkit.parallel`.
+    Return value
+      An ndarray of shape ``(4, H, W)``, giving the Stokes IQUV
+      images of the specified frame. The height and width are
+      set by choices made in the preprays stage.
+
+    It takes about 6 minutes to do one integration on my laptop using
+    full parallelization.
+
+    We avoid config files and so have some copy/paste going on, but meh. This
+    should be kept in synch with what the ``integrate`` command line tool
+    does, though.
+
+    """
+    from .geometry import PrecomputedImageMaker, RTOnlySetup
+    from .synchrotron import NeuroSynchrotronCalculator
+
+    synch_calc = NeuroSynchrotronCalculator(nn_path)
+    rad_trans = FormalRTIntegrator()
+    setup = RTOnlySetup(synch_calc, rad_trans, ghz * 1e9)
+    imaker = PrecomputedImageMaker(setup, assembled)
+    imaker.select_frame_by_name('frame%04d' % frame_num)
+    return imaker.compute(**kwargs)
+
+
 # Command-line interface to jobs that do the RT integration for a series of
 # frames at a series of frequencies
 
