@@ -34,6 +34,7 @@ from pwkit.io import Path
 
 class Mapping(object):
     trainer = None
+    phys_bounds_mode = 'empirical'
     out_of_sample = 'ignore'
 
     def __init__(self, name):
@@ -41,18 +42,28 @@ class Mapping(object):
 
 
     @classmethod
-    def from_samples(cls, name, phys_samples):
-        inst = cls(name)
+    def from_info_and_samples(cls, info, phys_samples):
+        inst = cls(info['name'])
+        inst.phys_bounds_mode = info.get('phys_bounds_mode', cls.phys_bounds_mode)
+        inst.trainer = info.get('trainer', cls.trainer)
+        inst.out_of_sample = info.get('out_of_sample', cls.out_of_sample)
 
         valid = np.isfinite(phys_samples) & inst._is_valid(phys_samples)
         n_rej = phys_samples.size - valid.sum()
-        print('%s: rejecting %d samples out of %d' % (name, n_rej, phys_samples.size))
+        print('%s: rejecting %d samples out of %d' % (inst.name, n_rej, phys_samples.size))
         phys_samples = phys_samples[valid]
         if phys_samples.size < 3:
-            raise Exception('not enough valid samples for %s' % name)
+            raise Exception('not enough valid samples for %s' % inst.name)
 
-        inst.p_min = phys_samples.min()
-        inst.p_max = phys_samples.max()
+        if inst.phys_bounds_mode == 'empirical':
+            inst.p_min = phys_samples.min()
+            inst.p_max = phys_samples.max()
+        elif inst.phys_bounds_mode == 'theta':
+            inst.p_min = 0.
+            inst.p_max = 0.5 * np.pi
+        else:
+            raise ValueError('unrecognized phys_bounds_mode value %r for %s' %
+                             (inst.phys_bounds_mode, inst.name))
 
         # Pluggable "transform"
         transformed = inst._to_xform(phys_samples)
@@ -113,6 +124,8 @@ class Mapping(object):
         d['name'] = self.name
         d['maptype'] = self.desc
 
+        if self.phys_bounds_mode is not None:
+            d['phys_bounds_mode'] = self.phys_bounds_mode
         if self.trainer is not None:
             d['trainer'] = self.trainer
         if self.out_of_sample is not None:
@@ -133,10 +146,13 @@ class Mapping(object):
             raise ValueError('info is for maptype %s but this class is %s' % (info['maptype'], cls.desc))
 
         inst = cls(str(info['name']))
+        if 'phys_bounds_mode' in info:
+            inst.phys_bounds_mode = info['phys_bounds_mode']
         if 'trainer' in info:
             inst.trainer = info['trainer']
         if 'out_of_sample' in info:
             inst.out_of_sample = info['out_of_sample']
+
         inst.x_mean = float(info['x_mean'])
         inst.x_std = float(info['x_std'])
         inst.p_min = float(info['phys_min'])
@@ -232,12 +248,7 @@ class Passthrough(object):
 
 def mapping_from_info_and_samples(info, phys_samples):
     cls = _mappings[info['maptype']]
-    inst = cls.from_samples(info['name'], phys_samples)
-    if 'trainer' in info:
-        inst.trainer = info['trainer']
-    if 'out_of_sample' in info:
-        inst.out_of_sample = info['out_of_sample']
-    return inst
+    return cls.from_info_and_samples(info, phys_samples)
 
 def mapping_from_dict(info):
     maptype = str(info['maptype'])
