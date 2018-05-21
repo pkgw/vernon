@@ -48,6 +48,74 @@ def generic_trainer(m):
     return m
 
 
+def twolayer_trainer(m):
+    m.add(Dense(
+        units = 120,
+        input_dim = m.domain_range.n_params,
+        activation = 'relu',
+        kernel_initializer = 'normal',
+    ))
+    m.add(Dense(
+        units = 60,
+        activation = 'relu',
+        kernel_initializer = 'normal',
+    ))
+    m.add(Dense(
+        units = 1,
+        activation = 'linear',
+        kernel_initializer = 'normal',
+    ))
+    m.compile('adam', 'mse')
+    hist = m.ns_fit(
+        epochs = 30,
+        batch_size = 2000,
+        verbose = 0,
+    )
+    print('Intermediate MSE:', hist.history['loss'][-1])
+    m.ns_sigma_clip(7)
+    hist = m.ns_fit(
+        epochs = 30,
+        batch_size = 2000,
+        verbose = 0,
+    )
+    m.final_mse = hist.history['loss'][-1]
+    return m
+
+
+def binary_trainer(m):
+    m.add(Dense(
+        units = 120,
+        input_dim = m.domain_range.n_params,
+        activation = 'relu',
+        kernel_initializer = 'normal',
+    ))
+    m.add(Dense(
+        units = 60,
+        activation = 'relu',
+        kernel_initializer = 'normal',
+    ))
+    m.add(Dense(
+        units = 1,
+        activation = 'sigmoid',
+        kernel_initializer = 'normal',
+    ))
+    m.compile(optimizer='adam', loss='binary_crossentropy')
+    hist = m.ns_fit(
+        epochs = 30,
+        batch_size = 2000,
+        verbose = 0,
+    )
+    print('Intermediate MSE:', hist.history['loss'][-1])
+    # Note: no sigma-clipping
+    hist = m.ns_fit(
+        epochs = 30,
+        batch_size = 2000,
+        verbose = 0,
+    )
+    m.final_mse = hist.history['loss'][-1]
+    return m
+
+
 def load_data_and_train(datadir, nndir, result_name):
     cfg_path = Path(nndir) / 'nn_config.toml'
     dr, rinfo = DomainRange.from_serialized(cfg_path, result_to_extract=result_name)

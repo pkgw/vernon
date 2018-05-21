@@ -143,7 +143,7 @@ class PhysicalApproximator(object):
     physically-based parameterization.
 
     """
-    results = 'j_I alpha_I j_frac_pol alpha_frac_pol j_V_share alpha_V_share rel_rho_Q rel_rho_V'.split()
+    results = 'j_I alpha_I rho_Q rho_V j_frac_pol alpha_frac_pol j_V_share alpha_V_share rho_Q_sign'.split()
 
     def __init__(self, nn_dir):
         self.domain_range = DomainRange.from_serialized(os.path.join(nn_dir, 'nn_config.toml'))
@@ -200,29 +200,33 @@ class PhysicalApproximator(object):
         if flag:
             oos_flags |= (1 << (self.domain_range.n_params + 1))
 
-        j_frac_pol, flag = self.domain_range.rmaps[2].norm_to_phys(self.j_frac_pol.predict(norm)[...,0])
+        rho_Q, flag = self.domain_range.rmaps[2].norm_to_phys(self.rho_Q.predict(norm)[...,0])
         if flag:
             oos_flags |= (1 << (self.domain_range.n_params + 2))
 
-        alpha_frac_pol, flag = self.domain_range.rmaps[3].norm_to_phys(self.alpha_frac_pol.predict(norm)[...,0])
+        rho_V, flag = self.domain_range.rmaps[3].norm_to_phys(self.rho_V.predict(norm)[...,0])
         if flag:
             oos_flags |= (1 << (self.domain_range.n_params + 3))
 
-        j_V_share, flag = self.domain_range.rmaps[4].norm_to_phys(self.j_V_share.predict(norm)[...,0])
+        j_frac_pol, flag = self.domain_range.rmaps[4].norm_to_phys(self.j_frac_pol.predict(norm)[...,0])
         if flag:
             oos_flags |= (1 << (self.domain_range.n_params + 4))
 
-        alpha_V_share, flag = self.domain_range.rmaps[5].norm_to_phys(self.alpha_V_share.predict(norm)[...,0])
+        alpha_frac_pol, flag = self.domain_range.rmaps[5].norm_to_phys(self.alpha_frac_pol.predict(norm)[...,0])
         if flag:
             oos_flags |= (1 << (self.domain_range.n_params + 5))
 
-        rel_rho_Q, flag = self.domain_range.rmaps[6].norm_to_phys(self.rel_rho_Q.predict(norm)[...,0])
+        j_V_share, flag = self.domain_range.rmaps[6].norm_to_phys(self.j_V_share.predict(norm)[...,0])
         if flag:
             oos_flags |= (1 << (self.domain_range.n_params + 6))
 
-        rel_rho_V, flag = self.domain_range.rmaps[7].norm_to_phys(self.rel_rho_V.predict(norm)[...,0])
+        alpha_V_share, flag = self.domain_range.rmaps[7].norm_to_phys(self.alpha_V_share.predict(norm)[...,0])
         if flag:
             oos_flags |= (1 << (self.domain_range.n_params + 7))
+
+        rho_Q_sign, flag = self.domain_range.rmaps[8].norm_to_phys(self.rho_Q_sign.predict(norm)[...,0])
+        if flag:
+            oos_flags |= (1 << (self.domain_range.n_params + 8))
 
         # Patch up B = 0 in the obvious way. (Although if we ever have to deal
         # with nontrivial cold plasma densities, zones of zero B might affect
@@ -243,8 +247,7 @@ class PhysicalApproximator(object):
         alpha_V = alpha_V_share * alpha_P
         alpha_Q = -np.sqrt(1 - alpha_V_share**2) * alpha_P
 
-        rho_Q = rel_rho_Q * alpha_I
-        rho_V = rel_rho_V * alpha_I
+        rho_Q = rho_Q * rho_Q_sign
 
         # Now apply the known scalings.
 
