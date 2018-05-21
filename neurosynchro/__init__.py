@@ -29,10 +29,12 @@ mapping_from_samples
 from collections import OrderedDict
 from six.moves import range
 import numpy as np
+import pandas as pd
 from pwkit.io import Path
 
 
 class Mapping(object):
+    desc = None # set by subclasses
     trainer = None
     phys_bounds_mode = 'empirical'
     out_of_sample = 'ignore'
@@ -257,43 +259,21 @@ def mapping_from_dict(info):
 
 
 def basic_load(datadir, drop_metadata=True):
-    import warnings
-
     datadir = Path(datadir)
     chunks = []
-    param_names = None
 
-    with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', category=UserWarning)
+    for item in datadir.glob('*.txt'):
+        chunks.append(pd.read_table(str(item)))
 
-        for item in datadir.glob('*.txt'):
-            if param_names is None:
-                with item.open('rt') as f:
-                    first_line = f.readline()
-                    assert first_line[0] == '#'
-                    param_names = first_line.strip().split()[1:]
-
-            c = np.loadtxt(str(item))
-            if not c.size or c.ndim != 2:
-                continue
-
-            assert c.shape[1] > len(param_names)
-            chunks.append(c)
-
-    data = np.vstack(chunks)
+    data = pd.concat(chunks, ignore_index=True)
 
     if drop_metadata:
-        # Ignore `!foo` columns, which are naively interpreted as parameters
-        # but are actually output info (e.g. timings) that may not be of
-        # interest.
+        # Drop `foo(mtea)` columns
+        for col in data.columns:
+            if col.endswith('(meta)'):
+                del data[col]
 
-        while param_names[-1][0] == '!':
-            n = len(param_names) - 1
-            data[:,n:-1] = data[:,n+1:]
-            data = data[:,:-1]
-            del param_names[-1]
-
-    return param_names, data
+    return data
 
 
 class DomainRange(object):
@@ -302,43 +282,26 @@ class DomainRange(object):
     pmaps = None
     rmaps = None
 
+
     @classmethod
-    def from_info_and_samples(cls, info, phys_samples):
+    def from_info_and_samples(cls, info, df):
         inst = cls()
         inst.n_params = len(info['params'])
         inst.n_results = len(info['results'])
         inst.pmaps = []
         inst.rmaps = []
 
-        assert phys_samples.ndim == 2
-
-        confirmed_ok = False
-
-        if inst.n_results == 8:
-            # Main synchrotron coefficients:
-            if inst.n_results + inst.n_params - phys_samples.shape[1] == 2:
-                confirmed_ok = True
-                base_result_idx = 0
-            # Faraday coefficients:
-            elif inst.n_results + inst.n_params - phys_samples.shape[1] == 6:
-                confirmed_ok = True
-                base_result_idx = 6
-
-        if not confirmed_ok:
-            confirmed_ok = phys_samples.shape[1] == (inst.n_params + inst.n_results)
-            base_result_idx = 0
-
-        assert confirmed_ok
-
         for i, pinfo in enumerate(info['params']):
-            inst.pmaps.append(mapping_from_info_and_samples(pinfo, phys_samples[:,i]))
+            if not df.columns[i].startswith(pinfo['name'] + '('):
+                raise Exception('alignment error: expect data column %d to be %r; got %r' % (i, pinfo['name'], df.columns[i]))
+            inst.pmaps.append(mapping_from_info_and_samples(pinfo, df[df.columns[i]].values))
+
+        n = inst.n_params
 
         for i, rinfo in enumerate(info['results']):
-            if i >= base_result_idx and i - base_result_idx + inst.n_params < phys_samples.shape[1]:
-                ps = phys_samples[:,i-base_result_idx+inst.n_params]
-                inst.rmaps.append(mapping_from_info_and_samples(rinfo, ps))
-            else:
-                inst.rmaps.append(Passthrough(rinfo))
+            if not df.columns[n+i].startswith(rinfo['name'] + '(res)'):
+                raise Exception('alignment error: expect data column %d to be %r; got %r' % (n + i, rinfo['name'], df.columns[n + i]))
+            inst.rmaps.append(mapping_from_info_and_samples(rinfo, df[df.columns[n+i]].values))
 
         return inst
 
@@ -387,38 +350,33 @@ class DomainRange(object):
 
 
     def load_and_normalize(self, datadir):
-        _, data = basic_load(datadir)
+        df = basic_load(datadir)
 
-        if data.shape[1] == self.n_params + 6 and self.n_results == 8:
-            # Main synchrotron coefficients
-            fake_data = np.empty((data.shape[0], self.n_params + 8))
-            fake_data.fill(np.nan)
-            fake_data[:,:self.n_params + 6] = data
-            data = fake_data
-        elif data.shape[1] == self.n_params + 2 and self.n_results == 8:
-            # Faraday coefficients
-            fake_data = np.empty((data.shape[0], self.n_params + 8))
-            fake_data.fill(np.nan)
-            fake_data[:,:self.n_params] = data[:,:self.n_params]
-            fake_data[:,-2:] = data[:,self.n_params:]
-            data = fake_data
-        else:
-            assert data.shape[1] == (self.n_params + self.n_results)
+        for i, pmap in enumerate(self.pmaps):
+            if not df.columns[i].startswith(pmap.name + '('):
+                raise Exception('alignment error: expect data column %d to be %s(...); got %s' % (i, pmap.name, df.columns[i]))
 
-        return SampleData(self, data)
+        n = self.n_params
+
+        for i, rmap in enumerate(self.rmaps):
+            if df.columns[n+i] != rmap.name + '(res)':
+                raise Exception('alignment error: expect data column %d to be %s(res); got %s' % (n + i, rmap.name, df.columns[n + i]))
+
+        return SampleData(self, df)
 
 
 class SampleData(object):
+    df = None
     domain_range = None
     phys = None
     norm = None
+    oos_flags = 0
 
-    def __init__(self, domain_range, phys_samples):
+    def __init__(self, domain_range, df):
+        self.df = df
         self.domain_range = domain_range
-        self.phys = phys_samples
-
+        self.phys = df.values
         self.norm = np.empty_like(self.phys)
-        self.oos_flags = 0
 
         for i in range(self.domain_range.n_params):
             self.norm[:,i], flag = self.domain_range.pmaps[i].phys_to_norm(self.phys[:,i])

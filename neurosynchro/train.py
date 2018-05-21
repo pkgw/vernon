@@ -62,6 +62,7 @@ def load_data_and_train(datadir, nndir, result_name):
     if trainer_func is None:
         die('unknown trainer function %r', trainer_name)
 
+    print('Training with scheme \"%s\"' % trainer_name)
     m = NSModel()
     m.ns_setup(rinfo['_index'], sd)
     t0 = time.time()

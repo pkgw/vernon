@@ -8,7 +8,6 @@
 from __future__ import absolute_import, division, print_function
 
 __all__ = '''
-NaiveApproximator
 NSModel
 PhysicalApproximator
 '''.split()
@@ -139,104 +138,6 @@ class NSModel(models.Sequential):
         return p
 
 
-class NaiveApproximator(object):
-    """Approximate the eight nontrivial RT coefficients:
-
-    0. j_I - Stokes I emission
-    1. alpha_I - Stokes I absorption
-    2. j_Q - Stokes Q emission
-    3. alpha_Q - Stokes Q absorption
-    4. j_V - Stokes V emission
-    5. alpha_V - Stokes V absorption
-    6. rho_Q - Faraday conversion
-    7. rho_V - Faraday rotation
-
-    Independent neural networks are used for each parameter, which can lead to
-    unphysical results (e.g., |j_Q| > j_I).
-
-    """
-    def __init__(self, nn_dir):
-        self.domain_range = DomainRange.from_serialized(os.path.join(nn_dir, 'nn_config.toml'))
-        self.models = []
-
-        for stokes in 'iqv':
-            for rttype in ('j', 'alpha', 'rho'):
-                if stokes == 'i' and rttype == 'rho':
-                    continue # this is not a thing
-
-                m = models.load_model(
-                    os.path.join(nn_dir, '%s_%s.h5' % (rttype, stokes)),
-                    custom_objects = {'NSModel': NSModel}
-                )
-                m.result_index = len(self.models)
-                m.domain_range = self.domain_range
-                self.models.append(m)
-
-    _freq_scaling = np.array([1, -1, 1, -1, 1, -1, -1, -1], dtype=np.int)
-    _theta_sign_scaling = np.array([0, 0, 0, 0, 1, 1, 0, 1], dtype=np.int)
-
-    @broadcastize(4, ret_spec=None)
-    def compute_all_nontrivial(self, nu, B, n_e, theta, **kwargs):
-        # Turn the standard parameters into the ones used in our computations
-
-        no_B = ~(B > 0)
-        nu_cyc = cgs.e * B / (2 * np.pi * cgs.me * cgs.c)
-        nu_cyc[no_B] = 1e7 # fake to avoid div-by-0 for now
-        kwargs['s'] = nu / nu_cyc
-
-        # XXX we are paranoid and assume that theta could take on any value
-        # ... even though we do no bounds-checking for whether the inputs
-        # overlap the region where we trained the neural net.
-
-        theta = theta % (2 * np.pi)
-        w = (theta > np.pi)
-        theta[w] = 2 * np.pi - theta[w]
-        flip = (theta > 0.5 * np.pi)
-        theta[flip] = np.pi - theta[flip]
-        kwargs['theta'] = theta
-
-        # Normalize inputs.
-
-        oos_flags = 0
-
-        norm = np.empty(nu.shape + (self.domain_range.n_params,))
-        for i, mapping in enumerate(self.domain_range.pmaps):
-            norm[...,i], flag = mapping.phys_to_norm(kwargs[mapping.name])
-            if flag:
-                oos_flags |= (1 << i)
-
-        # Compute outputs.
-
-        result = np.empty(nu.shape + (self.domain_range.n_results,))
-        for i in range(self.domain_range.n_results):
-            r = self.models[i].predict(norm)[...,0]
-            result[...,i], flag = self.domain_range.rmaps[i].norm_to_phys(r)
-            if flag:
-                oos_flags |= (1 << (self.domain_range.n_params + i))
-
-        # Now apply the known scalings. Everything scales linearly with n_e.
-
-        result *= (n_e[...,np.newaxis] / hardcoded_ne_ref)
-
-        freq_term = (nu[...,np.newaxis] / hardcoded_nu_ref)
-        result *= freq_term**self._freq_scaling
-
-        theta_sign_term = np.ones(result.shape, dtype=np.int)
-        theta_sign_term[np.broadcast_to(flip[...,np.newaxis], theta_sign_term.shape)] = -1
-        theta_sign_term **= (2 - self._theta_sign_scaling) # gets rid of -1s for flip-insensitive components
-        result *= theta_sign_term
-
-        # Patch up B = 0 in the obvious way. (Although if we ever have to deal
-        # with nontrivial cold plasma densities, zones of zero B might affect
-        # the RT if they cause refraction or what-have-you.)
-
-        result[np.broadcast_to(no_B[...,np.newaxis], result.shape)] = 0.
-
-        # NOTE: the computed values might not obey the necessary invariants!
-
-        return result, oos_flags
-
-
 class PhysicalApproximator(object):
     """Approximate the eight nontrivial RT coefficients using a more
     physically-based parameterization.
@@ -248,6 +149,8 @@ class PhysicalApproximator(object):
         self.domain_range = DomainRange.from_serialized(os.path.join(nn_dir, 'nn_config.toml'))
 
         for i, r in enumerate(self.results):
+            assert self.domain_range.rmaps[i].name == r
+
             m = models.load_model(
                 os.path.join(nn_dir, '%s.h5' % r),
                 custom_objects = {'NSModel': NSModel}

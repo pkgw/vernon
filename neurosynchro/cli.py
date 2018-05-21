@@ -57,7 +57,7 @@ def lock_domain_range_cli(args):
     settings = make_ldr_parser().parse_args(args=args)
 
     # Load samples
-    _, samples = basic_load(settings.datadir)
+    df = basic_load(settings.datadir)
 
     # Load skeleton config
     cfg_path = Path(settings.nndir) / 'nn_config.toml'
@@ -65,7 +65,7 @@ def lock_domain_range_cli(args):
         info = pytoml.load(f)
 
     # Turn into processed DomainRange object
-    dr = DomainRange.from_info_and_samples(info, samples)
+    dr = DomainRange.from_info_and_samples(info, df)
 
     # Update config and rewrite
     dr.into_info(info)
@@ -77,23 +77,19 @@ def lock_domain_range_cli(args):
 # "summarize"
 
 def summarize(datadir):
-    param_names, data = basic_load(datadir)
-    params = data[:,:len(param_names)]
-    results = data[:,len(param_names):]
+    df = basic_load(datadir)
 
     # Report stuff.
 
-    print('Number of parameter columns:', params.shape[1])
-    print('Number of result columns:', results.shape[1])
-    print('Number of rows:', data.shape[0])
+    print('Columns:', ' '.join(df.columns))
+    print('Number of rows:', df.shape[0])
+    print('Total number of NaNs:', np.isnan(df.values).sum())
+    print('Number of rows with NaNs:', (np.isnan(df.values).sum(axis=1) > 0).sum())
 
-    print('Total number of NaNs:', np.isnan(data).sum())
-    print('Number of rows with NaNs:', (np.isnan(data).sum(axis=1) > 0).sum())
-
-    for i in range(results.shape[1]):
-        r = results[:,i]
+    for c in df.columns:
+        r = df[c]
         print()
-        print('Result %d:' % i)
+        print('Column %s:' % c)
         print('  Number of NaNs:', np.isnan(r).sum())
         print('  Non-NaN max:', np.nanmax(r))
         print('  Non-NaN min:', np.nanmin(r))
@@ -116,65 +112,46 @@ def summarize_cli(args):
 # "transform"
 
 def transform(datadir):
-    """This task takes the raw synchrotron coefficients ouput by symphony and
+    """This task takes the raw synchrotron coefficients output by rimphony and
     transforms them into a format that better respects the physical
     constraints of the problem.
 
     """
     import pandas as pd
 
-    param_names, data = basic_load(datadir)
-    params = data[:,:len(param_names)]
-    results = data[:,len(param_names):]
-
-    if results.shape[1] != 8:
-        die('expected 8 result columns (stokes+faraday); got %d', results.shape[1])
-
-    df = pd.DataFrame(dict(
-        ji = results[:,0],
-        ai = results[:,1],
-        jq = results[:,2],
-        aq = results[:,3],
-        jv = results[:,4],
-        av = results[:,5],
-        fq = results[:,6],
-        fv = results[:,7],
-    ))
+    df = basic_load(datadir)
     n = df.shape[0]
-
-    for i, p in enumerate(param_names):
-        df[p] = params[:,i]
 
     df = df.dropna()
     print('Dropping due to NaNs:', n - df.shape[0], file=sys.stderr)
 
-    bad = (df.ji <= 0)
+    bad = (df['j_I(res)'] <= 0)
     mask = bad
     print('Rows with bad J_I:', bad.sum(), file=sys.stderr)
 
-    bad = (df.ai <= 0)
+    bad = (df['alpha_I(res)'] <= 0)
     mask |= bad
     print('Rows with bad a_I:', bad.sum(), file=sys.stderr)
 
-    bad = (df.jq >= 0)
+    bad = (df['j_Q(res)'] >= 0)
     mask |= bad
     print('Rows with bad J_Q:', bad.sum(), file=sys.stderr)
 
-    bad = (df.aq >= 0)
+    bad = (df['alpha_Q(res)'] >= 0)
     mask |= bad
     print('Rows with bad a_Q:', bad.sum(), file=sys.stderr)
 
-    bad = (df.jv <= 0)
+    bad = (df['j_V(res)'] <= 0)
     mask |= bad
     print('Rows with bad J_V:', bad.sum(), file=sys.stderr)
 
-    bad = (df.av <= 0)
+    bad = (df['alpha_V(res)'] <= 0)
     mask |= bad
     print('Rows with bad a_V:', bad.sum(), file=sys.stderr)
 
     # This cut isn't physically motivated, but under the current rimphony
     # model, f_V is always positive.
-    bad = (df.fv <= 0)
+    bad = (df['rho_V(res)'] <= 0)
     mask |= bad
     print('Rows with bad f_V:', bad.sum(), file=sys.stderr)
 
@@ -182,37 +159,38 @@ def transform(datadir):
     df = df[~mask]
     print('Dropped due to first-pass filters:', n - df.shape[0], file=sys.stderr)
 
-    j_pol = np.sqrt(df.jq**2 + df.jv**2)
-    a_pol = np.sqrt(df.aq**2 + df.av**2)
+    j_pol = np.sqrt(df['j_Q(res)']**2 + df['j_V(res)']**2)
+    a_pol = np.sqrt(df['alpha_Q(res)']**2 + df['alpha_V(res)']**2)
 
-    df['frac_j_pol'] = j_pol / df.ji
-    bad = (df.frac_j_pol < 0) | (df.frac_j_pol > 1)
+    df['j_frac_pol(res)'] = j_pol / df['j_I(res)']
+    bad = (df['j_frac_pol(res)'] < 0) | (df['j_frac_pol(res)'] > 1)
     mask = bad
-    print('Rows with bad frac_j_pol:', bad.sum(), file=sys.stderr)
+    print('Rows with bad j_frac_pol:', bad.sum(), file=sys.stderr)
 
-    df['frac_a_pol'] = a_pol / df.ai
-    bad = (df.frac_a_pol < 0) | (df.frac_a_pol > 1)
+    df['alpha_frac_pol(res)'] = a_pol / df['alpha_I(res)']
+    bad = (df['alpha_frac_pol(res)'] < 0) | (df['alpha_frac_pol(res)'] > 1)
     mask |= bad
-    print('Rows with bad frac_a_pol:', bad.sum(), file=sys.stderr)
+    print('Rows with bad alpha_frac_pol:', bad.sum(), file=sys.stderr)
 
     n = df.shape[0]
     df = df[~mask]
     print('Dropped due to second-pass filters:', n - df.shape[0], file=sys.stderr)
 
-    df['circ_j_share'] = df.jv / j_pol
-    df['circ_a_share'] = df.av / a_pol
-    df['rel_fq'] = df.fq / df.ai
-    df['rel_fv'] = df.fv / df.ai
+    df['j_V_share(res)'] = df['j_V(res)'] / j_pol
+    df['alpha_V_share(res)'] = df['alpha_V(res)'] / a_pol
+    df['rel_rho_Q(res)'] = df['rho_Q(res)'] / df['alpha_I(res)']
+    df['rel_rho_V(res)'] = df['rho_V(res)'] / df['alpha_I(res)']
 
     print('Final row count:', df.shape[0], file=sys.stderr)
 
-    print('#', ' '.join(param_names))
-    df.to_csv(sys.stdout,
-              sep='\t',
-              columns = param_names + ['ji', 'ai', 'frac_j_pol', 'frac_a_pol',
-                                       'circ_j_share', 'circ_a_share', 'rel_fq', 'rel_fv'],
-              header = False,
-              index = False)
+    for c in 'j_Q alpha_Q j_V alpha_V rho_Q rho_V'.split():
+        del df[c + '(res)']
+
+    df.to_csv(
+        sys.stdout,
+        sep = '\t',
+        index = False
+    )
 
 
 def make_transform_parser():
