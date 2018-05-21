@@ -178,12 +178,22 @@ def transform(datadir):
 
     df['j_V_share(res)'] = df['j_V(res)'] / j_pol
     df['alpha_V_share(res)'] = df['alpha_V(res)'] / a_pol
-    df['rel_rho_Q(res)'] = df['rho_Q(res)'] / df['alpha_I(res)']
-    df['rel_rho_V(res)'] = df['rho_V(res)'] / df['alpha_I(res)']
+
+    # I used to scale rho_{Q,V} by alpha_I, but these values are often
+    # strongly different. (And, judging by the commentary in Heyvaerts, I
+    # think this is probably OK and not a sign of a numerics problem.) So we
+    # just pass those columns on through like {j,alpha}_I. However, in a bit
+    # of a hack, we add a column giving the sign of the rho_Q column, since in
+    # the "pitchy kappa" distribution we have a non-negligible number of
+    # negative rho_Q values *plus* a large dynamic range on both sides of
+    # zero. Adding this column lets us break the neural networking into two
+    # pieces in a way that doesn't involve a bunch of complicated
+    # rearchitecting of my parameter code.
+    df['rho_Q_sign(res)'] = np.sign(df['rho_Q(res)'])
 
     print('Final row count:', df.shape[0], file=sys.stderr)
 
-    for c in 'j_Q alpha_Q j_V alpha_V rho_Q rho_V'.split():
+    for c in 'j_Q alpha_Q j_V alpha_V'.split():
         del df[c + '(res)']
 
     df.to_csv(

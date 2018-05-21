@@ -13,6 +13,7 @@ unless needed.
 from __future__ import absolute_import, division, print_function
 
 __all__ = '''
+AbsLogMapping
 DirectMapping
 DomainRange
 LogMapping
@@ -21,6 +22,7 @@ Mapping
 NegLogMapping
 NinthRootMapping
 SampleData
+SignMapping
 basic_load
 mapping_from_dict
 mapping_from_samples
@@ -37,6 +39,7 @@ class Mapping(object):
     desc = None # set by subclasses
     trainer = None
     phys_bounds_mode = 'empirical'
+    normalization_mode = 'gaussian'
     out_of_sample = 'ignore'
 
     def __init__(self, name):
@@ -45,10 +48,7 @@ class Mapping(object):
 
     @classmethod
     def from_info_and_samples(cls, info, phys_samples):
-        inst = cls(info['name'])
-        inst.phys_bounds_mode = info.get('phys_bounds_mode', cls.phys_bounds_mode)
-        inst.trainer = info.get('trainer', cls.trainer)
-        inst.out_of_sample = info.get('out_of_sample', cls.out_of_sample)
+        inst = cls.from_dict(info, load_bounds=False)
 
         valid = np.isfinite(phys_samples) & inst._is_valid(phys_samples)
         n_rej = phys_samples.size - valid.sum()
@@ -69,8 +69,17 @@ class Mapping(object):
 
         # Pluggable "transform"
         transformed = inst._to_xform(phys_samples)
-        inst.x_mean = transformed.mean()
-        inst.x_std = transformed.std()
+
+        if inst.normalization_mode == 'gaussian':
+            inst.x_mean = transformed.mean()
+            inst.x_std = transformed.std()
+        elif inst.normalization_mode == 'unit_interval':
+            # Maps the physical values to the unit interval [0, 1].
+            inst.x_mean = transformed.min()
+            inst.x_std = transformed.max() - inst.x_mean
+        else:
+            raise ValueError('unrecognized normalization_mode value %r for %s' %
+                             (inst.normalization_mode, inst.name))
 
         # Normalize
         normed = (transformed - inst.x_mean) / inst.x_std
@@ -128,6 +137,8 @@ class Mapping(object):
 
         if self.phys_bounds_mode is not None:
             d['phys_bounds_mode'] = self.phys_bounds_mode
+        if self.normalization_mode is not None:
+            d['normalization_mode'] = self.normalization_mode
         if self.trainer is not None:
             d['trainer'] = self.trainer
         if self.out_of_sample is not None:
@@ -143,26 +154,42 @@ class Mapping(object):
 
 
     @classmethod
-    def from_dict(cls, info):
+    def from_dict(cls, info, load_bounds=True):
         if str(info['maptype']) != cls.desc:
             raise ValueError('info is for maptype %s but this class is %s' % (info['maptype'], cls.desc))
 
         inst = cls(str(info['name']))
         if 'phys_bounds_mode' in info:
             inst.phys_bounds_mode = info['phys_bounds_mode']
+        if 'normalization_mode' in info:
+            inst.normalization_mode = info['normalization_mode']
         if 'trainer' in info:
             inst.trainer = info['trainer']
         if 'out_of_sample' in info:
             inst.out_of_sample = info['out_of_sample']
 
-        inst.x_mean = float(info['x_mean'])
-        inst.x_std = float(info['x_std'])
-        inst.p_min = float(info['phys_min'])
-        inst.p_max = float(info['phys_max'])
-        inst.n_min = float(info['norm_min'])
-        inst.n_max = float(info['norm_max'])
+        if load_bounds:
+            inst.x_mean = float(info['x_mean'])
+            inst.x_std = float(info['x_std'])
+            inst.p_min = float(info['phys_min'])
+            inst.p_max = float(info['phys_max'])
+            inst.n_min = float(info['norm_min'])
+            inst.n_max = float(info['norm_max'])
 
         return inst
+
+
+class AbsLogMapping(Mapping):
+    desc = 'abs_log'
+
+    def _to_xform(self, p):
+        return np.log10(np.abs(p))
+
+    def _from_xform(self, x):
+        return 10**x # XXX not invertible!
+
+    def _is_valid(self, p):
+        return p != 0
 
 
 class DirectMapping(Mapping):
@@ -231,12 +258,27 @@ class NinthRootMapping(Mapping):
         return np.ones(p.shape, dtype=np.bool)
 
 
+class SignMapping(Mapping):
+    desc = 'sign'
+
+    def _to_xform(self, p):
+        return np.sign(p)
+
+    def _from_xform(self, x):
+        return np.sign(x) # XXX not reversible!
+
+    def _is_valid(self, p):
+        return (p != 0.)
+
+
 _mappings = {
+    'abs_log': AbsLogMapping,
     'direct': DirectMapping,
     'log': LogMapping,
     'logit': LogitMapping,
     'neg_log': NegLogMapping,
     'ninth_root': NinthRootMapping,
+    'sign': SignMapping,
 }
 
 
