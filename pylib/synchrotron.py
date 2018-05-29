@@ -1,5 +1,5 @@
 # -*- mode: python; coding: utf-8 -*-
-# Copyright 2017 Peter Williams and collaborators.
+# Copyright 2017-2018 Peter Williams and collaborators.
 # Licensed under the MIT License.
 
 """Computing synchrotron radiative transfer coefficients.
@@ -84,6 +84,7 @@ as 8-element arrays with the folowing structure:
 from __future__ import absolute_import, division, print_function
 
 __all__ = '''
+get_cold_plasma_coefficients
 SynchrotronCalculator
 GrtransSynchrotronCalculator
 SymphonySynchrotronCalculator
@@ -296,6 +297,79 @@ class NeuroSynchrotronCalculator(SynchrotronCalculator):
         rho = expanded[...,8:]
 
         return j, alpha, rho
+
+
+@broadcastize(5, None)
+def get_cold_plasma_coefficients(nu, B, n_e, theta, T):
+    """Get radiative transfer coefficients appropriate for a cold plasma.
+
+    (Seeing as this module is called "synchrotron" this code may not quite
+    belong here, but...)
+
+    *nu*
+      Observing frequency, in Hz [note: all inputs are broadcast as vectors]
+    *B*
+      Magnetic field, in G
+    *n_e*
+      Number density of cold electrons, in cm^-3
+    *theta*
+      Angle between magneti field and line of sight, in radians.
+    *T*
+      Temperature of the electrons, in Kelvin.
+    *Returns*
+      Array of shape (X, 8), where X is the shape of the broadcasted inputs.
+      Gives the radiative transfer coefficients in my standard packing: the
+      inner axis covers ``(j_I, alpha_I, j_Q, alpha_Q, j_V, alpha_V, rho_Q, rho_V)``.
+
+    The modeled physics are free-free emission and absorption and Faraday
+    rotation and conversion. We assume a simple electron/proton plasma, that
+    things are nonrelativistic, and that *nu* is well into the
+    radio/Rayleigh-Jeans regime.
+
+    """
+    coeffs = np.zeros(nu.shape + (8,))
+
+    # Velocity-averaged Gaunt factor; Mezger & Henderson (1967ApJ...147..471M)
+    # eqn A.1a, as pointed out by
+    # https://www.cv.nrao.edu/course/astr534/FreeFreeEmission.html.
+
+    g_ff = np.log(0.04955 / (1e-9 * nu)) + 1.5 * np.log(T)
+
+    # Emission coefficient from Rybicki & Lightman (1979rpa..book.....R). Eqns
+    # 5.14a, 5.17, plus assumption of Rayleigh-Jeans and simple
+    # electron-proton plasma.
+
+    coeffs[...,0] = 5.444e-39 * T**-0.5 * n_e**2 * g_ff
+
+    # Absorption coefficient: Rybicki & Lightman (1979rpa..book.....R), eqns 5.19ab,
+    # with more precision in the prefactor.
+
+    coeffs[...,1] = 0.01772 * T**-1.5 * n_e**2 * nu**-2 * g_ff
+
+    # Faraday rotation: cf. Munoz+ (2012ApJ...745..115M), eqns 6 and 7. This
+    # is a factor of 2 bigger than that from R&L79 eqn 8.31, but I think this
+    # is correct: this parameter goes into the RT equations such that it is
+    # essentially the angular frequency at which Q rotates into U, whereas R&L
+    # are referring to the apparent orientation of the linear polarization. As
+    # usual, these differ by a factor of two such that a Q/U rotation of
+    # `theta` results in a polarization orientation rotation of `theta/2`. So
+    # I think it is correct for our value to be twice as big as the thing that
+    # R&L is talking about.
+    #
+    # Note that rho_V is the rotation coefficent: rho_V rotates Q and U, while
+    # rho_Q rotates U and V.
+
+    nu_pl = 8978.6 * np.sqrt(n_e) # standard plasma frequency (in Hz)
+    nu_cyc = 2.7992e6 * B # standard cyclotron frequency (in Hz)
+    coeffs[...,7] = 2.09585e-10 * nu_pl**2 * nu_cyc * np.cos(theta) / nu**2
+
+    # Faraday conversion.
+
+    coeffs[...,6] = -1.047923e-10 * nu_pl**2 * nu_cyc**2 * np.sin(theta)**2 / nu**3
+
+    # That's all, folks.
+
+    return coeffs
 
 
 class Comparator(object):
