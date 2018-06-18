@@ -673,6 +673,41 @@ def view_specmovie_cli(args):
     cycle(arrays, descs, yflip=True)
 
 
+# Viewing an assembled file - the "spectum sequence" plot
+
+def make_view_specseq_parser():
+    ap = argparse.ArgumentParser(
+        prog = 'integrate view specseq'
+    )
+    ap.add_argument('-s', dest='stokes', default='i',
+                    help='Which Stokes parameter to view: i q u v l fl fc')
+    ap.add_argument('path',
+                    help='The name of the HDF file to view.')
+    return ap
+
+
+def make_specseq_plot(settings, ii):
+    import omega as om
+
+    p = om.RectPlot()
+    p.setLinLogAxes(True, False)
+
+    for icml, cml in enumerate(ii.cmls):
+        spect = ii.spectrum(icml, settings.stokes)
+        p.addXY(ii.freqs, spect, '%.0f' % cml)
+
+    p.defaultKeyOverlay.hAlign = 0.95
+    p.setLabels('Frequency (GHz)', 'Flux density (uJy)')
+
+    return p
+
+
+def view_specseq_cli(args):
+    settings = make_view_specseq_parser().parse_args(args=args)
+    ii = IntegratedImages(settings.path)
+    make_specseq_plot(settings, ii).show()
+
+
 # Viewing an assembled file - the "spectum summary" plot
 
 def make_view_specsumm_parser():
@@ -841,7 +876,7 @@ def view_summary_cli(args):
 
 def view_cli(args):
     if len(args) == 0:
-        die('must supply a sub-subcommand: "lc", "rot", "specmovie", "specsumm", "summary"')
+        die('must supply a sub-subcommand: "lc", "rot", "specmovie", "specseq", "specsumm", "summary"')
 
     if args[0] == 'lc':
         view_lc_cli(args[1:])
@@ -849,6 +884,8 @@ def view_cli(args):
         view_rot_cli(args[1:])
     elif args[0] == 'specmovie':
         view_specmovie_cli(args[1:])
+    elif args[0] == 'specseq':
+        view_specseq_cli(args[1:])
     elif args[0] == 'specsumm':
         view_specsumm_cli(args[1:])
     elif args[0] == 'summary':
