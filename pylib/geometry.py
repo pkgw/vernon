@@ -583,6 +583,196 @@ class TiltedDipoleField(object):
         view(coord[::-1], yflip=True, **kwargs)
 
 
+class TiltedDistendedDipoleField(TiltedDipoleField):
+    """XXX HACK TO TRY DISTENDED DIPOLES
+
+    We are totally cavalier about the magnetic coordinate system in a way that
+    will be TERRIBLE for the particle distribution simulations. But I think we
+    can get away having that stuff be way wrong for the radiative transfer part.
+    As such, note that we derived from TiltedDipoleField
+
+    tilt
+       The angular offset of the dipole axis away from the body's rotation axis,
+       in radians. The dipole axis is defined to lie on a body-centric longitude
+       of zero.
+    moment
+       The dipole moment, measured in units of [Gauss * R_body**3], where R_body
+       is the body's radius. Negative values are OK. Because of the choice of
+       length unit, `moment` is the surface field strength by construction.
+    delta_x
+       The displacement of the dipole center perpendicular to the dipole axis,
+       in the plane containing both the dipole axis and the rotational axis
+       (i.e., the longitude = 0 plane). Measured in units of the body's
+       radius. Positive values move the dipole center towards the magnetic
+       latitude of 90°.
+    delta_y
+       The displacement of the dipole center perpendicular to both the dipole
+       axis and the rotational axis (i.e., towards magnetic longitude = 90°).
+       Measured in units of the body's radius. Positive values move the dipole
+       center towards the magnetic latitude of 90°.
+    delta_z
+       The displacement of the dipole center along the dipole axis. Measured
+       in units of the body's radius. Positive values move the dipole center
+       towards the magnetic latitude of 90°.
+    distend_ampl
+       Amplitude of the distension term
+    distend_sharpness
+       Sharpness of the distension term
+    distend_width
+       Width of the distension plateau
+
+    """
+    def __init__(self, tilt, moment, delta_x=0., delta_y=0., delta_z=0., distend_ampl=1,
+                 distend_sharpness=9, distend_width=0.1):
+        super(TiltedDistendedDipoleField, self).__init__(tilt, moment, delta_x=delta_x,
+                                                         delta_y=delta_y, delta_z=delta_z)
+        self.distend_ampl = float(distend_ampl)
+        self.distend_sharpness = float(distend_sharpness)
+        self.distend_width = float(distend_width)
+
+
+    @broadcastize(2,(0,0))
+    def _br_bth(self, mlat, mr):
+        """Compute the direction of the magnetic field components (B_r, B_lat),
+        given a position in field-centric ("dipole-centric" in
+        TiltedDipoleField) coordinates. B_lon is always zero since we're not
+        dealing with any of that nonaxisymmetry business.
+
+        Following Caudal (1986JGR....91.4201C):
+
+        B_r = 1 / (r^2 sin theta) * d(alpha)/d(theta)
+        B_theta = -1 / (r sin theta) * d(alpha)/d(r)
+
+        Our function
+
+        alpha(r, theta) = sin^2 theta * (1 + A(tplus - tminus)) / r
+
+        where
+
+        t{plus,minus} = tanh(k * (theta {+,-} w - pi/2))
+
+        therefore
+
+        d(alpha)/d(theta) = [
+           2 cos(th) sin(th) * (1 + A(tplus - tminus)) +
+           sin(th)**2 * (A * k * (tminus**2 - tplus**2))
+        ] / r
+
+        d(alpha)/d(r) = -sin^2 theta * (1 + A(tplus - tminus)) / r^2
+
+        therefore
+
+        B_r = [2 cos(th) * (1 + A(tplus - tminus)) + sin(th) * A * k * (tminus^2 - tplus*2)] / r^3
+        B_theta = sin(th) * (1 + A(tplus - tminus)) / r^3
+
+        Finally, B_lat = -B_theta since theta is a colatitude.
+
+        """
+        theta = 0.5 * np.pi - mlat # theta is a colatitude
+        cth = np.cos(theta)
+        sth = np.sin(theta)
+        tplus = np.tanh(self.distend_sharpness * (theta + self.distend_width - 0.5 * np.pi))
+        tminus = np.tanh(self.distend_sharpness * (theta - self.distend_width - 0.5 * np.pi))
+        tanh_term = 1 + self.distend_ampl * (tplus - tminus)
+
+        b_r = self.moment * (
+            2 * cth * tanh_term + cth * self.distend_ampl * self.distend_sharpness * (tminus**2 - tplus**2)
+        ) / mr**3
+
+        b_theta = self.moment * sth * tanh_term / mr**3
+
+        return b_r, -b_theta
+
+
+    @broadcastize(3,0)
+    def bmag(self, blat, blon, r):
+        """Compute the magnitude of the magnetic field at a set of body-centric
+        coordinates. For a dipolar field, some pretty straightforward algebra
+        gives the field strength expression used below.
+
+        """
+        mlat, mlon, mr = self._to_dc(blat, blon, r)
+        b_r, b_lat = self._br_bth(mlat, mr)
+        return np.hypot(b_r, b_lat)
+
+
+    @broadcastize(3,(0,0,0))
+    def bhat(self, pos_blat, pos_blon, pos_r, epsilon=1e-8):
+        """Compute the direction of the magnetic field at a set of body-centric
+        coordinates, expressed as a set of unit vectors *also in body-centric
+        coordinates*.
+
+        """
+        # Convert positions to mlat/mlon/r:
+        pos_mlat0, pos_mlon0, pos_mr0 = self._to_dc(pos_blat, pos_blon, pos_r)
+
+        # We renormalize the vector to have a tiny magnitude, so we can ignore
+        # the r**3. But we need to include M since its sign matters!
+
+        b_r, b_lat = self._br_bth(pos_mlat0, pos_mr0)
+        scale = epsilon / np.hypot(b_r, b_lat)
+        b_r *= scale
+        b_lat *= scale
+
+        # Body-centric coordinates offset in the bhat direction:
+        blat1, blon1, br1 = self._from_dc(pos_mlat0 + b_lat,
+                                          pos_mlon0,
+                                          pos_mr0 + b_r)
+
+        # Unit offset vector. Here again the unit-ization doesn't really make
+        # dimensional sense but seems reasonable anyway.
+        dlat = blat1 - pos_blat
+        dlon = blon1 - pos_blon
+        dr = br1 - pos_r
+        scale = 1. / np.sqrt(dlat**2 + dlon**2 + dr**2)
+        return scale * dlat, scale * dlon, scale * dr
+
+
+class DistendedDipoleFieldConfiguration(Configuration):
+    __section__ = 'distended-dipole-field'
+
+    moment = 3000.
+    tilt_deg = 15.
+    delta_x = 0.
+    delta_y = 0.
+    delta_z = 0.
+    distend_ampl = 1.0
+    distend_sharpness = 9.0
+    distend_width = 0.1
+
+    def to_field(self):
+        return TiltedDistendedDipoleField(
+            self.tilt_deg * astutil.D2R,
+            self.moment,
+            delta_x = self.delta_x,
+            delta_y = self.delta_y,
+            delta_z = self.delta_z,
+            distend_ampl = self.distend_ampl,
+            distend_sharpness = self.distend_sharpness,
+            distend_width = self.distend_width,
+        )
+
+
+class FieldTypeConfiguration(Configuration):
+    """Copying the dumb hack of DistributionConfiguration."""
+
+    __section__ = 'field-type'
+
+    name = 'undefined'
+
+    dipole = TiltedDipoleField
+    distended = TiltedDistendedDipoleField
+
+    def get(self):
+        if self.name == 'dipole':
+            return self.dipole
+        elif self.name == 'distended-dipole':
+            return self.distended
+        elif self.name == 'undefined':
+            raise ValueError('you forgot to put "[field-type] name = ..." in your configuration')
+        raise ValueError('unrecognized magnetic field type %r' % self.name)
+
+
 class BasicRayTracer(Configuration):
     """Class the implements the definition of a ray through the magnetosphere. By
     definition, rays end at a specified X/Y location in observer coordinates,

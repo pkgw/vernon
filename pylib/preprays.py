@@ -19,7 +19,7 @@ import numpy as np
 from pwkit.cli import die
 
 from .config import Configuration
-from .geometry import BasicRayTracer, FormalRayTracer, BodyConfiguration, ImageConfiguration, MagneticFieldConfiguration
+from .geometry import BasicRayTracer, FormalRayTracer, BodyConfiguration, ImageConfiguration, FieldTypeConfiguration
 from .distributions import DistributionConfiguration
 
 
@@ -31,7 +31,7 @@ class PrepraysConfiguration(Configuration):
 
     body = BodyConfiguration
     image = ImageConfiguration
-    field = MagneticFieldConfiguration
+    field = FieldTypeConfiguration
     #ray_tracer = FormalRayTracer
     ray_tracer = BasicRayTracer
     distrib = DistributionConfiguration
@@ -59,7 +59,7 @@ class PrepraysConfiguration(Configuration):
             lat_of_cen = self.latitude_of_center,
             cml = cml,
             radius = self.body.radius,
-            bfield = self.field.to_field(),
+            bfield = self.field.get().to_field(),
             distrib = self.distrib.get(),
             ray_tracer = self.ray_tracer,
         )
