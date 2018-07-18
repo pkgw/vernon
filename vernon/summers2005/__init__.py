@@ -16,7 +16,7 @@ from pwkit import reraise_context
 from pwkit.numutil import broadcastize
 from pwkit.parallel import make_parallel_helper
 
-from ._impl import get_coeffs
+from .._summers2005 import get_coeffs
 
 _MODE_BOUNCE_AVERAGED_CODE = 0
 _MODE_LOCAL_CODE = 1

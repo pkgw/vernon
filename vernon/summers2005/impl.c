@@ -655,7 +655,7 @@ static PyMethodDef methods[] = {
 #if PY_MAJOR_VERSION >= 3
 static struct PyModuleDef module_def = {
     PyModuleDef_HEAD_INIT,
-    "_impl",
+    "_summers2005",
     NULL,
     0,
     methods,
@@ -671,12 +671,12 @@ static struct PyModuleDef module_def = {
 #endif
 
 INIT_RET_TYPE
-PyInit__impl(void)
+PyInit__summers2005(void)
 {
 #if PY_MAJOR_VERSION >= 3
     return PyModule_Create(&module_def);
 #else
-    PyImport_AddModule("_impl");
-    Py_InitModule("_impl", methods);
+    PyImport_AddModule("_summers2005");
+    Py_InitModule("_summers2005", methods);
 #endif
 }
