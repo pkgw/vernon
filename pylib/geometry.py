@@ -760,8 +760,8 @@ class FieldTypeConfiguration(Configuration):
 
     name = 'undefined'
 
-    dipole = TiltedDipoleField
-    distended = TiltedDistendedDipoleField
+    dipole = MagneticFieldConfiguration
+    distended = DistendedDipoleFieldConfiguration
 
     def get(self):
         if self.name == 'dipole':
