@@ -1,8 +1,6 @@
 # Keep sorted
 *.pyc
-/.bulkjobdata
-/.version
-/Dockerfile
-/stack
-/polsynchemis.so
-/radtrans_integrate.so
+__pycache__
+/build/
+/vernon.egg-info/
+/vernon/_summers2005.*.so
