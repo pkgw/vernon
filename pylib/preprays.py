@@ -51,13 +51,13 @@ class PrepraysConfiguration(Configuration):
     n_cml = 4
     "The number of CMLs to sample."
 
-    def get_prep_rays_imaker(self, cml):
+    def get_prep_rays_imaker(self, cml_deg):
         from . import geometry
 
         setup = geometry.prep_rays_setup(
             ghz = self.min_ghz,
             lat_of_cen = self.latitude_of_center,
-            cml = cml,
+            cml = cml_deg,
             radius = self.body.radius,
             bfield = self.field.get().to_field(),
             distrib = self.distrib.get(),
@@ -67,13 +67,13 @@ class PrepraysConfiguration(Configuration):
         return geometry.ImageMaker(setup=setup, config=self.image)
 
 
-def get_full_imaker(config_path, cml):
+def get_full_imaker(config_path, cml_deg):
     """Convenience function, combines the functionality that is usually divided
     between the "preprays" and "integrate" HPC operations.
 
     """
     pr_cfg = PrepraysConfiguration.from_toml(config_path)
-    imaker = pr_cfg.get_prep_rays_imaker(cml)
+    imaker = pr_cfg.get_prep_rays_imaker(cml_deg)
 
     from .integrate import RTConfiguration
     rt_cfg = RTConfiguration.from_toml(config_path)
