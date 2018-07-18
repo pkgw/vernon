@@ -3,13 +3,7 @@
 # Licensed under the MIT License.
 
 """
-Common utility code for the vernon project.
+Main module for the vernon project.
 """
 
 from __future__ import absolute_import, division, print_function
-
-__all__ = ['top']
-
-import os
-from pwkit.io import Path
-top = Path(os.environ['TOP'])
