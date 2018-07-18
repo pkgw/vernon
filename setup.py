@@ -19,11 +19,13 @@ setup(
     license = 'MIT',
     description = 'Toolkit for modeling magnetospheric synchrotron emission.',
 
+    # Synchronize with README.md:
     install_requires = [
         'numpy >=1.10',
         'six >=1.10',
     ],
 
+    # Synchronize with README.md:
     setup_requires = [
         'pkgconfig >=1.3',
     ],
