@@ -14,6 +14,7 @@ the magnetospheres of low-mass objects. It is written by Peter K. G. Williams
   extension module.
 - [numpy](https://www.numpy.org/) version 1.10 or greater.
 - [pkgconfig](https://pypi.org/project/pkgconfig/) version 1.3 or greater.
+- [pwkit](https://github.com/pkgw/pwkit/) version 0.8.19 or greater.
 - [six](https://six.readthedocs.io/) version 1.10 or greater.
 
 ## Development

@@ -22,6 +22,7 @@ setup(
     # Synchronize with README.md:
     install_requires = [
         'numpy >=1.10',
+        'pwkit >=0.8.19',
         'six >=1.10',
     ],
 
@@ -32,6 +33,7 @@ setup(
 
     packages = [
         'vernon',
+        'vernon.cli',
         'vernon.neurosynchro',
         'vernon.sde',
         'vernon.summers2005',
