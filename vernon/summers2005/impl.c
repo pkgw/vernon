@@ -173,7 +173,7 @@ apply_latitude(double latitude, state_t *state)
     gsl_poly_complex_solve(c, 5, poly5_workspace, z);
 
     if (state->last_error != RESULT_OK) {
-        strncat(global_err_msg, " (while finding x/y roots)", COUNT(global_err_msg));
+        strncat(global_err_msg, " (while finding x/y roots)", COUNT(global_err_msg) - 1);
         return state->last_error;
     }
 
@@ -372,7 +372,7 @@ calc_coefficients(parameters_t *params, coefficients_t *coeffs)
     gsl_poly_complex_solve(c, 7, poly7_workspace, z);
 
     if (state.last_error != RESULT_OK) {
-        strncat(global_err_msg, " (while finding lambda_m)", COUNT(global_err_msg));
+        strncat(global_err_msg, " (while finding lambda_m)", COUNT(global_err_msg) - 1);
         return state.last_error;
     }
 
@@ -440,7 +440,7 @@ calc_coefficients(parameters_t *params, coefficients_t *coeffs)
     );
 
     if (state.last_error != RESULT_OK) {
-        strncat(global_err_msg, " (while computing Daa)", COUNT(global_err_msg));
+        strncat(global_err_msg, " (while computing Daa)", COUNT(global_err_msg) - 1);
         gsl_set_error_handler(prev_handler);
         global_context = NULL;
         return state.last_error;
@@ -468,7 +468,7 @@ calc_coefficients(parameters_t *params, coefficients_t *coeffs)
     );
 
     if (state.last_error != RESULT_OK) {
-        strncat(global_err_msg, " (while computing Dap)", COUNT(global_err_msg));
+        strncat(global_err_msg, " (while computing Dap)", COUNT(global_err_msg) - 1);
         gsl_set_error_handler(prev_handler);
         global_context = NULL;
         return state.last_error;
@@ -496,7 +496,7 @@ calc_coefficients(parameters_t *params, coefficients_t *coeffs)
     );
 
     if (state.last_error != RESULT_OK) {
-        strncat(global_err_msg, " (while computing Dpp)", COUNT(global_err_msg));
+        strncat(global_err_msg, " (while computing Dpp)", COUNT(global_err_msg) - 1);
         gsl_set_error_handler(prev_handler);
         global_context = NULL;
         return state.last_error;
@@ -548,7 +548,7 @@ calc_unaveraged_coefficients(parameters_t *params, coefficients_t *coeffs)
     coeffs->Daa = daa_integrand(0., &state);
 
     if (state.last_error != RESULT_OK) {
-        strncat(global_err_msg, " (while computing Daa)", COUNT(global_err_msg));
+        strncat(global_err_msg, " (while computing Daa)", COUNT(global_err_msg) - 1);
         gsl_set_error_handler(prev_handler);
         global_context = NULL;
         return state.last_error;
@@ -562,7 +562,7 @@ calc_unaveraged_coefficients(parameters_t *params, coefficients_t *coeffs)
     coeffs->Dap_on_p = dap_on_p_integrand(0., &state);
 
     if (state.last_error != RESULT_OK) {
-        strncat(global_err_msg, " (while computing Dap)", COUNT(global_err_msg));
+        strncat(global_err_msg, " (while computing Dap)", COUNT(global_err_msg) - 1);
         gsl_set_error_handler(prev_handler);
         global_context = NULL;
         return state.last_error;
@@ -576,7 +576,7 @@ calc_unaveraged_coefficients(parameters_t *params, coefficients_t *coeffs)
     coeffs->Dpp_on_p2 = dpp_on_p2_integrand(0., &state);
 
     if (state.last_error != RESULT_OK) {
-        strncat(global_err_msg, " (while computing Dpp)", COUNT(global_err_msg));
+        strncat(global_err_msg, " (while computing Dpp)", COUNT(global_err_msg) - 1);
         gsl_set_error_handler(prev_handler);
         global_context = NULL;
         return state.last_error;
