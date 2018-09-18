@@ -753,6 +753,8 @@ class DistendedDipoleFieldConfiguration(Configuration):
         )
 
 
+from .kzn import KZNFieldConfiguration
+
 class FieldTypeConfiguration(Configuration):
     """Copying the dumb hack of DistributionConfiguration."""
 
@@ -762,12 +764,15 @@ class FieldTypeConfiguration(Configuration):
 
     dipole = MagneticFieldConfiguration
     distended = DistendedDipoleFieldConfiguration
+    kzn = KZNFieldConfiguration
 
     def get(self):
         if self.name == 'dipole':
             return self.dipole
         elif self.name == 'distended-dipole':
             return self.distended
+        elif self.name == 'kzn':
+            return self.kzn
         elif self.name == 'undefined':
             raise ValueError('you forgot to put "[field-type] name = ..." in your configuration')
         raise ValueError('unrecognized magnetic field type %r' % self.name)
