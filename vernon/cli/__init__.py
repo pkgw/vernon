@@ -25,24 +25,24 @@ def entrypoint(argv):
         die('must supply a subcommand: "hpc", "integrate", "ljob", "preprays", "sde", "view", "vkl"')
 
     if argv[1] == 'hpc':
-        from .hpc import entrypoint
+        from ..hpc import entrypoint
         entrypoint(['vernon ' + argv[1]] + argv[2:])
     elif argv[1] == 'integrate':
-        from .integrate import entrypoint
+        from ..integrate import entrypoint
         entrypoint(['vernon ' + argv[1]] + argv[2:])
     elif argv[1] == 'ljob':
         farm_out_to_ljob(['vernon ' + argv[1]] + argv[2:])
     elif argv[1] == 'preprays':
-        from .preprays import entrypoint
+        from ..preprays import entrypoint
         entrypoint(['vernon ' + argv[1]] + argv[2:])
     elif argv[1] == 'sde':
-        from .sde import entrypoint
+        from ..sde import entrypoint
         entrypoint(['vernon ' + argv[1]] + argv[2:])
     elif argv[1] == 'view':
-        from .cli.view import entrypoint
+        from .view import entrypoint
         entrypoint(['vernon ' + argv[1]] + argv[2:])
     elif argv[1] == 'vkl':
-        from .vkl import entrypoint
+        from ..vkl import entrypoint
         entrypoint(['vernon ' + argv[1]] + argv[2:])
     else:
         die('unrecognized subcommand %r', argv[1])
