@@ -109,6 +109,7 @@ KZNFieldConfiguration
 '''.split()
 
 import numpy as np
+from pwkit import astutil
 from pwkit.io import Path
 from pwkit.numutil import broadcastize
 
@@ -367,8 +368,13 @@ class KZNField(TiltedDipoleField):
 
         """
         mcolat = 0.5 * np.pi - mlat
-        coords = self._info_for_rcolat(mr, mcolat)
-        b_r, b_colat = self._b_field(self.kzn_u, *coords)
+        b_r = np.empty_like(mlat)
+        b_colat = np.empty_like(mr)
+
+        for i in range(b_r.size):
+            coords = self._info_for_rcolat(mr.flat[i], mcolat.flat[i])
+            b_r.flat[i], b_colat.flat[i] = self._b_field(self.kzn_u, *coords)
+
         b_r *= self.moment
         b_lat = -self.moment * b_colat
         return b_r, b_lat
