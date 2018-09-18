@@ -73,6 +73,7 @@ class HPCConfiguration(Configuration):
         memory = getattr(self, task_name + '_memory', '8192')
 
         argv = [
+            'vernon',
             'ljob',
             'process',
             work_dir,
@@ -184,7 +185,7 @@ def prep_and_image_ui(pre_args, settings, config):
 
     with open('preprays/tasks', 'wb') as tasks:
         subprocess.check_call(
-            ['preprays', 'seed',
+            ['vernon', 'preprays', 'seed',
              '-c', 'Config.toml',
              '-g', str(config.preprays_n_col_groups)
             ],
@@ -212,7 +213,7 @@ def prep_and_image_pr_assemble(pre_args, settings, config):
     # Assemble the results
 
     subprocess.check_call(
-        ['preprays', 'assemble',
+        ['vernon', 'preprays', 'assemble',
          '-c', 'Config.toml',
          'preprays/*.npy', # note: this is a glob literal
          'preprays.h5',
@@ -251,7 +252,7 @@ def prep_and_image_integ_assemble(pre_args, settings, config):
     # Assemble the results
 
     subprocess.check_call(
-        ['integrate', 'assemble',
+        ['vernon', 'integrate', 'assemble',
          '-c', 'Config.toml',
          'integrate/*.npy', # note: this is a glob literal
          'integrate.h5',
