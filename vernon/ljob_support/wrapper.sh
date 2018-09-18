@@ -100,7 +100,7 @@ fi
 # see http://veithen.github.io/2014/11/16/sigterm-propagation.html for explanation.
 
 trap 'echo "wrapper got SIGTERM; propagating!" ; kill -TERM $pid' TERM
-$TOP/launch stdbuf -eL -oL python -m pylib.ljob launch >>jobinfo/$metadir/ljob.log &
+$TOP/launch stdbuf -eL -oL python -m vernon.ljob launch >>jobinfo/$metadir/ljob.log &
 pid=$!
 wait $pid
 wait $pid # intentional

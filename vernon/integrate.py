@@ -15,8 +15,9 @@ from pwkit import astutil, cgs
 from pwkit.astutil import halfpi, twopi
 from pwkit.io import Path
 from pwkit.numutil import broadcastize
-from pylib.config import Configuration
-from pylib.geometry import BodyConfiguration, ImageConfiguration
+
+from .config import Configuration
+from .geometry import BodyConfiguration, ImageConfiguration
 
 
 class FormalRTIntegrator(object):
@@ -793,15 +794,15 @@ def frac_peak_to_peak(data):
 def view_summary_cli(args):
     import h5py, omega as om
     from pwkit.ndshow_gtk3 import cycle, view
-    from pylib import top
+    ###from pylib import top
 
     settings = make_view_summary_parser().parse_args(args=args)
     ii = IntegratedImages(settings.path)
 
     # Reference data that go into Figure 9 of Williams+ (2015ApJ...799..192W,
     # 10.1088/0004-637X/799/2/192). Measured in mjy, not ujy.
-
-    refdata = h5py.File(str(top / 'historical' / 'vlanofl-extracts.h5'), 'r')
+    #### refdata = h5py.File(str(top / 'historical' / 'vlanofl-extracts.h5'), 'r')
+    assert False, 'adapt for missing refdata'
 
     best_freq = np.argmin((ii.freqs - 6.05)**2)
     print('closest frequency to archival 6.05 GHz value: %.2f GHz' % (ii.freqs[best_freq]))

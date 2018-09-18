@@ -10,9 +10,10 @@ from __future__ import absolute_import, division, print_function
 
 import numpy as np
 from pwkit import cgs
-from pylib.config import Configuration
 from scipy import interpolate, special
 import time
+
+from .config import Configuration
 
 
 class BoundaryConfiguration(Configuration):
@@ -332,10 +333,10 @@ class RadBeltIntegrator(object):
         integration. The units of *f_cube* are not assumed to be anything in
         particular.
 
-        Adapted from pylib.dolfin.ThreeDCoordinates.to_particles.
+        Adapted from vernon.dolfin.ThreeDCoordinates.to_particles.
 
         """
-        from pylib.particles import ParticleDistribution
+        from .particles import ParticleDistribution
 
         nl = self.L_centers.size
         na = self.alpha_centers.size

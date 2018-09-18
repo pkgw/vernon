@@ -104,7 +104,7 @@ class JupiterD4Field(object):
     We switch from Divine & Garett by keeping on using longitudes that
     increase eastward, unlike their `l` variable.
 
-    HEAVILY derived from pylib.geometry.TiltedDipoleField; gross code
+    HEAVILY derived from vernon.geometry.TiltedDipoleField; gross code
     duplication.
 
     """

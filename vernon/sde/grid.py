@@ -773,7 +773,7 @@ class Gridder(object):
         parallel     - `pwkit.parallel` setup parameter for parallelizing the computation
 
         """
-        from pylib.plasma import omega_plasma
+        from .plasma import omega_plasma
         from summers2005 import compute
 
         omega_pl = omega_plasma(n_pl, self.m0) # assumes we're in cgs; result is rad/s
@@ -1039,8 +1039,9 @@ class Gridder(object):
 
 import argparse
 from pwkit.cli import die
-from pylib.config import Configuration
-from pylib.geometry import BodyConfiguration, MagneticFieldConfiguration
+
+from .config import Configuration
+from .geometry import BodyConfiguration, MagneticFieldConfiguration
 
 
 class GenGridTask(Configuration):
