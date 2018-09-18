@@ -11,6 +11,15 @@ from pwkit import cli
 from pwkit.cli import die
 
 
+def farm_out_to_ljob(argv):
+    "ljob is a shell script"
+    import os
+    from pwkit.io import Path
+
+    ljob_script = Path(__file__).with_name('ljob.sh')
+    os.execv(str(ljob_script), argv)
+
+
 def entrypoint(argv):
     if len(argv) == 1:
         die('must supply a subcommand: "hpc", "integrate", "ljob", "neuro", "preprays", "sde", "view", "vkl"')
@@ -22,7 +31,7 @@ def entrypoint(argv):
         from .integrate import entrypoint
         entrypoint(['vernon ' + argv[1]] + argv[2:])
     elif argv[1] == 'ljob':
-        die('IMPLEMENT ME')
+        farm_out_to_ljob(['vernon ' + argv[1]] + argv[2:])
     elif argv[1] == 'neuro':
         from .neurosynchro.cli import entrypoint
         entrypoint(['vernon ' + argv[1]] + argv[2:])
