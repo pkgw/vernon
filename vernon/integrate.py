@@ -397,7 +397,7 @@ from pwkit.cli import die
 
 def integrate_cli(args):
     ap = argparse.ArgumentParser(
-        prog = 'integrate _integrate',
+        prog = 'vernon integrate _integrate',
     )
     ap.add_argument('config_path', metavar='CONFIG-PATH',
                     help='Path to the TOML configuration file.')
@@ -450,7 +450,7 @@ def seed_cli(args):
     from pwkit.cli import die
 
     ap = argparse.ArgumentParser(
-        prog = 'integrate seed',
+        prog = 'vernon integrate seed',
     )
     ap.add_argument('-c', dest='config_path', metavar='CONFIG-PATH',
                     help='The path to the configuration file.')
@@ -526,7 +526,7 @@ class AssembleTask(Configuration):
 
 def make_assemble_parser():
     ap = argparse.ArgumentParser(
-        prog = 'integrate assemble'
+        prog = 'vernon integrate assemble'
     )
     ap.add_argument('-c', dest='config_path', metavar='CONFIG-PATH',
                     help='The path to the configuration file. Optional; adds metadata for physical units.')
@@ -590,7 +590,7 @@ def assemble_cli(args):
 
 def make_view_lc_parser():
     ap = argparse.ArgumentParser(
-        prog = 'integrate view lc'
+        prog = 'vernon integrate view lc'
     )
     ap.add_argument('-s', dest='stokes', default='i',
                     help='Which Stokes parameter to view: i q u v l fl fc')
@@ -619,7 +619,7 @@ def view_lc_cli(args):
 
 def make_view_rot_parser():
     ap = argparse.ArgumentParser(
-        prog = 'integrate view rot'
+        prog = 'vernon integrate view rot'
     )
     ap.add_argument('-s', dest='stokes', default='i',
                     help='Which Stokes parameter to view: i q u v l fl fc')
@@ -648,7 +648,7 @@ def view_rot_cli(args):
 
 def make_view_specmovie_parser():
     ap = argparse.ArgumentParser(
-        prog = 'integrate view specmovie'
+        prog = 'vernon integrate view specmovie'
     )
     ap.add_argument('-s', dest='stokes', default='i',
                     help='Which Stokes parameter to view: i q u v l fl fc')
@@ -677,7 +677,7 @@ def view_specmovie_cli(args):
 
 def make_view_specseq_parser():
     ap = argparse.ArgumentParser(
-        prog = 'integrate view specseq'
+        prog = 'vernon integrate view specseq'
     )
     ap.add_argument('-s', dest='stokes', default='i',
                     help='Which Stokes parameter to view: i q u v l fl fc')
@@ -712,7 +712,7 @@ def view_specseq_cli(args):
 
 def make_view_specsumm_parser():
     ap = argparse.ArgumentParser(
-        prog = 'integrate view specsumm'
+        prog = 'vernon integrate view specsumm'
     )
     ap.add_argument('path',
                     help='The name of the HDF file to view.')
@@ -777,7 +777,7 @@ def view_specsumm_cli(args):
 
 def make_view_summary_parser():
     ap = argparse.ArgumentParser(
-        prog = 'integrate view summary'
+        prog = 'vernon integrate view summary'
     )
     ap.add_argument('path',
                     help='The name of the HDF file to view.')
@@ -898,7 +898,7 @@ def view_cli(args):
 
 def make_movie_parser():
     ap = argparse.ArgumentParser(
-        prog = 'integrate movie'
+        prog = 'vernon integrate movie'
     )
     ap.add_argument('-s', dest='scaling', metavar='FACTOR', type=int, default=1,
                     help='By what (integer) factor to scale the output frame size.')
@@ -1002,7 +1002,7 @@ def movie_cli(args):
 
 def make_framegrab_parser():
     ap = argparse.ArgumentParser(
-        prog = 'integrate framegrab'
+        prog = 'vernon integrate framegrab'
     )
     ap.add_argument('-s', dest='scaling', metavar='FACTOR', type=int, default=1,
                     help='By what (integer) factor to scale the output frame size.')

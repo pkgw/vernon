@@ -454,7 +454,7 @@ def test_coeffs_cli(args):
     import h5py
 
     ap = argparse.ArgumentParser(
-        prog = 'vkl test-coeffs',
+        prog = 'vernon vkl test-coeffs',
     )
     ap.add_argument('grid_path', metavar='GRID-PATH',
                     help='The path to the Dedalus gridding coefficients (from "vkl gen-grid")')

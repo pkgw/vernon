@@ -12,7 +12,7 @@ from pwkit.ndshow_gtk3 import view, cycle
 
 def view_cube_cli(args):
     ap = argparse.ArgumentParser(
-        prog = 'view cube',
+        prog = 'vernon view cube',
     )
     ap.add_argument('-s', dest='stretch', type=str, nargs=1, default=['default'],
                     choices='default sqrt neg'.split(),
@@ -88,7 +88,7 @@ def view_hdf5_cli(args):
     import h5py
 
     ap = argparse.ArgumentParser(
-        prog = 'view hdf5',
+        prog = 'vernon view hdf5',
     )
     ap.add_argument('-s', dest='stretch', type=str, nargs=1, default=['default'],
                     choices='default sqrt neg'.split(),

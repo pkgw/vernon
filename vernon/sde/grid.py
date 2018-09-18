@@ -1160,7 +1160,7 @@ def gen_grid_cli(args):
 
     """
     ap = argparse.ArgumentParser(
-        prog = 'sde gen-grid',
+        prog = 'vernon sde gen-grid',
     )
     ap.add_argument('-n', dest='n_cpu', metavar='NCPU', type=int,
                     help='How many CPUs to use for pitch-angle computation (default: all)')

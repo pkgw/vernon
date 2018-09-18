@@ -466,7 +466,7 @@ def cube_to_particles_cli(args):
 
     """
     ap = argparse.ArgumentParser(
-        prog = 'sde cube-to-particles',
+        prog = 'vernon sde cube-to-particles',
     )
     ap.add_argument('grid_path', metavar='GRID-PATH',
                     help='The path to the input file of gridded coefficients.')
@@ -490,7 +490,7 @@ def forward_cli(args):
 
     """
     ap = argparse.ArgumentParser(
-        prog = 'sde forward',
+        prog = 'vernon sde forward',
     )
     ap.add_argument('-c', dest='config_path', metavar='CONFIG-PATH',
                     help='The path to the configuration file.')

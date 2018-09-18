@@ -83,7 +83,7 @@ def get_full_imaker(config_path, cml_deg):
     return imaker
 
 
-def make_model_parser(prog='preprays', allow_cml=True):
+def make_model_parser(prog='vernon preprays', allow_cml=True):
     """These arguments specify the inputs to the physical model and the imaging
     setup.
 
@@ -103,7 +103,7 @@ def make_model_parser(prog='preprays', allow_cml=True):
 # ljob to crunch the numbers for one of the particle distributions.
 
 def make_compute_parser():
-    ap = make_model_parser(prog='preprays _compute')
+    ap = make_model_parser(prog='vernon preprays _compute')
     ap.add_argument('frame_num', type=int)
     ap.add_argument('row_num', type=int)
     ap.add_argument('start_col', type=int)
@@ -149,7 +149,7 @@ def compute_cli(args):
 # Seeding the ljob computation
 
 def make_seed_parser():
-    ap = make_model_parser(prog='preprays seed', allow_cml=False)
+    ap = make_model_parser(prog='vernon preprays seed', allow_cml=False)
 
     ap.add_argument('-g', dest='n_col_groups', type=int, metavar='NUMBER', default=2,
                     help='The number of groups into which the columns are '
@@ -202,7 +202,7 @@ def seed_cli(args):
 
 def make_assemble_parser():
     ap = argparse.ArgumentParser(
-        prog = 'preprays assemble'
+        prog = 'vernon preprays assemble'
     )
     ap.add_argument('-c', dest='config_path', metavar='CONFIG-PATH',
                     help='The path to the configuration file.')
@@ -287,7 +287,7 @@ def assemble_cli(args):
 # distribution function.
 
 def make_test_approx_parser():
-    ap = argparse.ArgumentParser(prog='preprays test-approx')
+    ap = argparse.ArgumentParser(prog='vernon preprays test-approx')
     ap.add_argument('particles_path', metavar='PATH',
                     help='The path to the particles file.')
     ap.add_argument('mlat', metavar='DEGREES', type=float,

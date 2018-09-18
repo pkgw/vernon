@@ -152,7 +152,7 @@ class HPCConfiguration(Configuration):
 # The standard preprays-and-integrate workflow
 
 def make_prep_and_image_parser():
-    ap = argparse.ArgumentParser(prog='hpc prep-and-image')
+    ap = argparse.ArgumentParser(prog='vernon hpc prep-and-image')
     ap.add_argument('--stage', metavar='STAGE',
                     help='INTERNAL: workflow stage number.')
     ap.add_argument('--previd', metavar='JOBID',
