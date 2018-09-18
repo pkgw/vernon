@@ -1,7 +1,7 @@
 include LICENSE
 include MANIFEST.in
 
-include vernon/cli/*.sh
+include vernon/ljob_support
 
 global-exclude *~
 global-exclude *.pyc *.pyo __pycache__

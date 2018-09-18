@@ -16,7 +16,12 @@ def farm_out_to_ljob(argv):
     import os
     from pwkit.io import Path
 
-    ljob_script = Path(__file__).with_name('ljob.sh')
+    if 'TOP' not in os.environ:
+        die('ljob command must be run with the environment variable $TOP set to a directory')
+
+    ljob_support_dir = (Path(__file__).parent.parent / 'ljob_support').resolve()
+    os.environ['LJOB_SUPPORT'] = str(ljob_support_dir)
+    ljob_script = ljob_support_dir / 'ljob.sh'
     os.execv(str(ljob_script), argv)
 
 

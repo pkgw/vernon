@@ -94,10 +94,10 @@ function process() {
         echo "Setting up work directory $inner ..."
     fi
 
-    cp $TOP/ljob_support/wrapper.sh $inner/wrapper.sh
+    cp $LJOB_SUPPORT/wrapper.sh $inner/wrapper.sh
     mkdir $inner/worker-outerlogs
-    cp -p $TOP/ljob_support/postprocess.py $inner/
-    cp $TOP/ljob_support/ljob-postprocessor-launcher.sh $inner/postprocess.sh
+    cp -p $LJOB_SUPPORT/postprocess.py $inner/
+    cp $LJOB_SUPPORT/ljob-postprocessor-launcher.sh $inner/postprocess.sh
     [ -z "$maxattempts" ] || echo "$maxattempts" >"$inner"/maxattempts.txt
     [ -z "$taskidregex" ] || echo "$taskidregex" >"$inner"/taskidregex.txt
     echo "$passid" >"$inner"/passid.txt
