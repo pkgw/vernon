@@ -22,7 +22,7 @@ def farm_out_to_ljob(argv):
 
 def entrypoint(argv):
     if len(argv) == 1:
-        die('must supply a subcommand: "hpc", "integrate", "ljob", "neuro", "preprays", "sde", "view", "vkl"')
+        die('must supply a subcommand: "hpc", "integrate", "ljob", "preprays", "sde", "view", "vkl"')
 
     if argv[1] == 'hpc':
         from .hpc import entrypoint
@@ -32,9 +32,6 @@ def entrypoint(argv):
         entrypoint(['vernon ' + argv[1]] + argv[2:])
     elif argv[1] == 'ljob':
         farm_out_to_ljob(['vernon ' + argv[1]] + argv[2:])
-    elif argv[1] == 'neuro':
-        from .neurosynchro.cli import entrypoint
-        entrypoint(['vernon ' + argv[1]] + argv[2:])
     elif argv[1] == 'preprays':
         from .preprays import entrypoint
         entrypoint(['vernon ' + argv[1]] + argv[2:])

@@ -34,7 +34,6 @@ setup(
     packages = [
         'vernon',
         'vernon.cli',
-        'vernon.neurosynchro',
         'vernon.sde',
         'vernon.summers2005',
     ],
