@@ -311,8 +311,11 @@ class KZNField(TiltedDipoleField):
     def _b_field(self, A, elemnum, l0, l1, l2):
         "Return (b_r, b_colat) for the given FEM coordinates."
 
+        # Are we outside the FEM model grid? Various parts of our code become unhappy
+        # if the field is truly zero, so in that case, do this:
+
         if elemnum is None:
-            return 0., 0
+            return 0., 1e-8
 
         # Some prep work. The width/height calculations always work for both
         # UL and LR elements.
@@ -405,11 +408,7 @@ class KZNField(TiltedDipoleField):
         # the r**3. But we need to include M since its sign matters!
 
         b_r, b_lat = self._br_bth(pos_mlat0, pos_mr0)
-        mag = np.hypot(b_r, b_lat)
-        if mag == 0:
-            return 0, 0, 1 # doesn't matter ... I hope?
-
-        scale = epsilon / mag
+        scale = epsilon / np.hypot(b_r, b_lat)
         b_r *= scale
         b_lat *= scale
 
