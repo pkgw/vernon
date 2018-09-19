@@ -405,7 +405,11 @@ class KZNField(TiltedDipoleField):
         # the r**3. But we need to include M since its sign matters!
 
         b_r, b_lat = self._br_bth(pos_mlat0, pos_mr0)
-        scale = epsilon / np.hypot(b_r, b_lat)
+        mag = np.hypot(b_r, b_lat)
+        if mag == 0:
+            return 0, 0, 1 # doesn't matter ... I hope?
+
+        scale = epsilon / mag
         b_r *= scale
         b_lat *= scale
 
