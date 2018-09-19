@@ -499,7 +499,7 @@ def seed_cli(args):
                 start_row = start_rows[icg]
                 n_rows = row_heights[icg]
                 jobid = '%s_%d_%d' % (frame_name, ifreq, icg)
-                print('%s integrate _integrate %s %s %s %.3f %d %d' %
+                print('%s vernon integrate _integrate %s %s %s %.3f %d %d' %
                       (jobid, cfgpath, assembled, frame_name, freq, start_row, n_rows))
 
 

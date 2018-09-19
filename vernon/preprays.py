@@ -194,7 +194,7 @@ def seed_cli(args):
         for i_row in range(config.image.ny):
             for i_col in range(settings.n_col_groups):
                 taskid = '%d_%d_%d' % (frame_num, i_row, i_col)
-                print('%s preprays _compute -C %.3f %s %d %d %d %d' %
+                print('%s vernon preprays _compute -C %.3f %s %d %d %d %d' %
                       (taskid, cml, common_args, frame_num, i_row, start_cols[i_col], col_widths[i_col]))
 
 

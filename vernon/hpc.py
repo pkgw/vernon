@@ -162,7 +162,14 @@ def make_prep_and_image_parser():
 
 
 def prep_and_image_cli(argv):
+    # When we're sub-executed by the "vernon" CLI driver, our argv[0] becomes
+    # "vernon hpc". We need to re-split that so that our Slurm scripts invoke
+    # the right thing.
+
     pre_args = argv[:2]
+    if ' ' in argv[0]:
+        pre_args = pre_args[0].split() + pre_args[1:]
+
     settings = make_prep_and_image_parser().parse_args(args=argv[2:])
     config = HPCConfiguration.from_toml('Config.toml')
 
@@ -225,7 +232,7 @@ def prep_and_image_pr_assemble(pre_args, settings, config):
 
     with open('integrate/tasks', 'wb') as tasks:
         subprocess.check_call(
-            ['integrate', 'seed',
+            ['vernon', 'integrate', 'seed',
              '-c', 'Config.toml',
              '-g', str(config.integrate_n_row_groups),
              'preprays.h5',
