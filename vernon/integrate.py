@@ -709,175 +709,11 @@ def view_specseq_cli(args):
     make_specseq_plot(settings, ii).show()
 
 
-# Viewing an assembled file - the "spectum summary" plot
-
-def make_view_specsumm_parser():
-    ap = argparse.ArgumentParser(
-        prog = 'vernon integrate view specsumm'
-    )
-    ap.add_argument('path',
-                    help='The name of the HDF file to view.')
-    return ap
-
-
-def make_specsumm_plot(ii):
-    import omega as om
-
-    # Stokes I+V spectrum - backing data slurped from my dulk85 interactive
-    # javascript slide, which patched it together from who knows where. Stokes
-    # V from McLean 2011, Williams 2015, ALMA. K/Q-band data from
-    # dracut:data/vla-multiband.tab (not published in Williams+ 2015 but
-    # analyzed there).
-
-    n3b_i_freq = np.array([1.4, 6.05, 21.85, 33.5, 43.7, 97.5])
-    n3b_i_ujy = np.array([890, 1360, 1460, 1300, 1180, 680])
-
-    n3b_v_freq = np.array([1.43, 4.86, 8.46, 21.848, 33.498, 43.701, 97.5])
-    n3b_v_ujy = np.array([-220, 40, 190, 171, 323, 281, 250])
-
-    p = om.quickXY(n3b_i_freq, n3b_i_ujy, 'N33370B I/V', xlog=True)
-    p.addXY(n3b_v_freq, n3b_v_ujy, None, dsn=0, lineStyle={'dashing': [2, 2]})
-
-    # Reference: typical range of variation in the wbi+15 paper.
-
-    p.addXY([6.05, 6.05, 6.05], [1.1e3, 1.5e3, 1.8e3], None, pointStamp=om.stamps.X(), dsn=0)
-    p.addXY([6.05, 6.05], [1., 250.], None, pointStamp=om.stamps.X(), dsn=0, lineStyle={'dashing': [2, 2]})
-
-    # Reference: the ALMA measurements
-
-    p.addXY([97.5, 97.5], [400., 900.], None, pointStamp=om.stamps.X(), dsn=0)
-    p.addXY([97.5, 97.5], [100., 400.], None, pointStamp=om.stamps.X(), dsn=0, lineStyle={'dashing': [2, 2]})
-
-    # The actual model data
-
-    i_min, i_mean, i_max = ii.rot_spectrum_stats('i')
-    p.addXY(ii.freqs, i_mean, 'model I', dsn=1)
-    p.addXY(ii.freqs, i_min, None, dsn=1, lineStyle={'dashing': [1, 3]})
-    p.addXY(ii.freqs, i_max, None, dsn=1, lineStyle={'dashing': [1, 3]})
-
-    v_min, v_mean, v_max = ii.rot_spectrum_stats('v')
-    p.addXY(ii.freqs, v_mean, 'model V', dsn=2)
-    p.addXY(ii.freqs, v_min, None, dsn=2, lineStyle={'dashing': [1, 3]})
-    p.addXY(ii.freqs, v_max, None, dsn=2, lineStyle={'dashing': [1, 3]})
-
-    l_min, l_mean, l_max = ii.rot_spectrum_stats('l')
-    p.addXY(ii.freqs, l_mean, 'model L', dsn=3)
-    p.addXY(ii.freqs, l_min, None, dsn=3, lineStyle={'dashing': [1, 3]})
-    p.addXY(ii.freqs, l_max, None, dsn=3, lineStyle={'dashing': [1, 3]})
-
-    return p
-
-
-def view_specsumm_cli(args):
-    settings = make_view_specsumm_parser().parse_args(args=args)
-    ii = IntegratedImages(settings.path)
-    make_specsumm_plot(ii).show()
-
-
-# Viewing an assembled file - the "summary" mode with lots of stats
-
-def make_view_summary_parser():
-    ap = argparse.ArgumentParser(
-        prog = 'vernon integrate view summary'
-    )
-    ap.add_argument('path',
-                    help='The name of the HDF file to view.')
-    return ap
-
-
-def frac_peak_to_peak(data):
-    mx = data.max()
-    mn = data.min()
-    return abs((mx - mn) / (mx + mn))
-
-
-def view_summary_cli(args):
-    import h5py, omega as om
-    from pwkit.ndshow_gtk3 import cycle, view
-    ###from pylib import top
-
-    settings = make_view_summary_parser().parse_args(args=args)
-    ii = IntegratedImages(settings.path)
-
-    # Reference data that go into Figure 9 of Williams+ (2015ApJ...799..192W,
-    # 10.1088/0004-637X/799/2/192). Measured in mjy, not ujy.
-    #### refdata = h5py.File(str(top / 'historical' / 'vlanofl-extracts.h5'), 'r')
-    assert False, 'adapt for missing refdata'
-
-    best_freq = np.argmin((ii.freqs - 6.05)**2)
-    print('closest frequency to archival 6.05 GHz value: %.2f GHz' % (ii.freqs[best_freq]))
-
-    # Always nice to spin it
-
-    cycle(ii.rotmovie(1, 'i', yflip=True))
-    cycle(ii.rotmovie(1, 'fc', yflip=True))
-
-    # The spectral summary
-
-    pg = om.makeDisplayPager()
-    pg.send(make_specsumm_plot(ii))
-
-    # Fractional polarization spectrum
-
-    n3b_i_freq = np.array([1.4, 6.05, 21.85, 33.5, 43.7, 97.5])
-    n3b_i_ujy = np.array([890, 1360, 1460, 1300, 1180, 680])
-    n3b_v_ujy = np.array([-220, 150, 171, 323, 281, 250])
-    n3b_fc = 100. * n3b_v_ujy / n3b_i_ujy
-
-    p = om.quickXY(n3b_i_freq, n3b_fc, 'N33370B V/I', xlog=True)
-    p.addXY([6.05, 6.05], [0, 20.], None, pointStamp=om.stamps.X(), dsn=0)
-    p.addXY([97.5, 97.5], [10, 60.], None, pointStamp=om.stamps.X(), dsn=0)
-
-    fc_min, fc_mean, fc_max = ii.rot_spectrum_stats('fc')
-    p.addXY(ii.freqs, 100. * fc_mean, 'model V/I', dsn=1)
-    p.addXY(ii.freqs, 100. * fc_min, None, dsn=1, lineStyle={'dashing': [1, 3]})
-    p.addXY(ii.freqs, 100. * fc_max, None, dsn=1, lineStyle={'dashing': [1, 3]})
-
-    fl_min, fl_mean, fl_max = ii.rot_spectrum_stats('fl')
-    p.addXY(ii.freqs, 100. * fl_mean, 'model L/I', dsn=2)
-    p.addXY(ii.freqs, 100. * fl_min, None, dsn=2, lineStyle={'dashing': [1, 3]})
-    p.addXY(ii.freqs, 100. * fl_max, None, dsn=2, lineStyle={'dashing': [1, 3]})
-
-    pg.send(p)
-
-    # Light curve. TODO: phasing?
-
-    n3b_cml = refdata['justph_ph'][...] * 360
-
-    lci = ii.lightcurve(best_freq, 'i')
-    lcv = ii.lightcurve(best_freq, 'v')
-
-    p = om.quickXY(n3b_cml, 1e3 * refdata['justph_ci'][...],
-                   'N33370B phavg I (FPTP: %.2f)' % frac_peak_to_peak(refdata['justph_ci'][...]))
-    p.addXY(n3b_cml, 1e3 * refdata['justph_cv'][...],
-            'N33370B phavg V (FPTP: %.2f)' % frac_peak_to_peak(refdata['justph_cv'][...]))
-    p.addXY(ii.cmls, lci, '*/%d/I (FPTP: %.2f)' % (best_freq, frac_peak_to_peak(lci)))
-    p.addXY(ii.cmls, lcv, '*/%d/V (FPTP: %.2f)' % (best_freq, frac_peak_to_peak(lcv)))
-    pg.send(p)
-
-    # Fractional circular polarization curve
-
-    n3b_fc = refdata['justph_cv'][...] / refdata['justph_ci'][...]
-
-    p = om.quickXY(n3b_cml, n3b_fc, 'N33370B phavg f_C')
-    p.addXY(ii.cmls, ii.lightcurve(best_freq, 'fc'), '*/%d/f_c' % best_freq)
-    pg.send(p)
-
-    # Fractional linear polarization curve
-
-    p = om.RectPlot()
-    p.addXY(ii.cmls, ii.lightcurve(best_freq, 'fl'), '*/%d/f_l' % best_freq)
-    p.addHLine(0, 'Zero')
-    pg.send(p)
-
-    pg.done()
-
-
 # The viewer dispatcher
 
 def view_cli(args):
     if len(args) == 0:
-        die('must supply a sub-subcommand: "lc", "rot", "specmovie", "specseq", "specsumm", "summary"')
+        die('must supply a sub-subcommand: "lc", "rot", "specmovie", "specseq"')
 
     if args[0] == 'lc':
         view_lc_cli(args[1:])
@@ -887,10 +723,6 @@ def view_cli(args):
         view_specmovie_cli(args[1:])
     elif args[0] == 'specseq':
         view_specseq_cli(args[1:])
-    elif args[0] == 'specsumm':
-        view_specsumm_cli(args[1:])
-    elif args[0] == 'summary':
-        view_summary_cli(args[1:])
     else:
         die('unrecognized sub-subcommand %r', args[0])
 
