@@ -374,10 +374,19 @@ class KZNField(TiltedDipoleField):
         b_r = np.empty_like(mlat)
         b_colat = np.empty_like(mr)
 
+        # The model is symmetric around the equator, and so is only computed
+        # for colatitudes between 0 and 90. By negating only the radial
+        # component, we keep the overall sense of the magnetic field
+        # continuous.
+
+        flip = mcolat > 0.5 * np.pi
+        mcolat[flip] = np.pi - mcolat[flip]
+
         for i in range(b_r.size):
             coords = self._info_for_rcolat(mr.flat[i], mcolat.flat[i])
             b_r.flat[i], b_colat.flat[i] = self._b_field(self.kzn_u, *coords)
 
+        b_r[flip] *= -1
         b_r *= self.moment
         b_lat = -self.moment * b_colat
         return b_r, b_lat
