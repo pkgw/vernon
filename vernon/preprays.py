@@ -19,8 +19,8 @@ import numpy as np
 from pwkit.cli import die
 
 from .config import Configuration
-from .geometry import BasicRayTracer, FormalRayTracer, BodyConfiguration, ImageConfiguration, FieldTypeConfiguration
-from .distributions import DistributionConfiguration
+from .geometry import BasicRayTracer, FormalRayTracer, BodyConfiguration, ImageConfiguration
+from .dispatchers import DistributionConfiguration, FieldTypeConfiguration
 
 
 common_ray_parameters = 's B theta psi'.split()

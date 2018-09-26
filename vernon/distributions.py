@@ -10,7 +10,6 @@ These are all expressed relative to the magnetic field coordinate system.
 from __future__ import absolute_import, division, print_function
 
 __all__ = '''
-Distribution
 TorusDistribution
 WasherDistribution
 PancakeTorusDistribution
@@ -28,13 +27,9 @@ from pwkit.astutil import halfpi, twopi
 from pwkit.numutil import broadcastize
 
 
+from .bases import Distribution
 from .config import Configuration
 from .geometry import sph_to_cart, BodyConfiguration
-
-
-class Distribution(Configuration):
-    def get_samples(self, mlat, mlon, L, just_ne=False):
-        raise NotImplementedError()
 
 
 class TorusDistribution(Distribution):
@@ -816,38 +811,3 @@ class DG83Distribution(Distribution):
         # fit for p and k. But the new dynamic ray-sampling code can't handle
         # it, so I'm not returning it at the moment.
         return (n_e, n_e_cold, p, k)
-
-
-class DistributionConfiguration(Configuration):
-    """This is a pretty dumb hack, but whatever."""
-
-    __section__ = 'distribution'
-
-    name = 'undefined'
-
-    torus = TorusDistribution
-    washer = WasherDistribution
-    pancake_torus = PancakeTorusDistribution
-    pancake_washer = PancakeWasherDistribution
-    pexp_pancake_washer = PexpPancakeWasherDistribution
-    gridded = GriddedDistribution
-    dg83 = DG83Distribution
-
-    def get(self):
-        if self.name == 'torus':
-            return self.torus
-        elif self.name == 'washer':
-            return self.washer
-        elif self.name == 'pancake-torus':
-            return self.pancake_torus
-        elif self.name == 'pancake-washer':
-            return self.pancake_washer
-        elif self.name == 'pexp-pancake-washer':
-            return self.pexp_pancake_washer
-        elif self.name == 'gridded':
-            return self.gridded
-        elif self.name == 'dg83':
-            return self.dg83
-        elif self.name == 'undefined':
-            raise ValueError('you forgot to put "[distribution] name = ..." in your configuration')
-        raise ValueError('unrecognized distribution name %r' % self.name)

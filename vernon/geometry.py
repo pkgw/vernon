@@ -753,31 +753,6 @@ class DistendedDipoleFieldConfiguration(Configuration):
         )
 
 
-from .kzn import KZNFieldConfiguration
-
-class FieldTypeConfiguration(Configuration):
-    """Copying the dumb hack of DistributionConfiguration."""
-
-    __section__ = 'field-type'
-
-    name = 'undefined'
-
-    dipole = MagneticFieldConfiguration
-    distended = DistendedDipoleFieldConfiguration
-    kzn = KZNFieldConfiguration
-
-    def get(self):
-        if self.name == 'dipole':
-            return self.dipole
-        elif self.name == 'distended-dipole':
-            return self.distended
-        elif self.name == 'kzn':
-            return self.kzn
-        elif self.name == 'undefined':
-            raise ValueError('you forgot to put "[field-type] name = ..." in your configuration')
-        raise ValueError('unrecognized magnetic field type %r' % self.name)
-
-
 class BasicRayTracer(Configuration):
     """Class the implements the definition of a ray through the magnetosphere. By
     definition, rays end at a specified X/Y location in observer coordinates,

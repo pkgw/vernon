@@ -106,6 +106,9 @@ from __future__ import absolute_import, division, print_function
 __all__ = '''
 KZNField
 KZNFieldConfiguration
+KZNKWKDistribution
+KZNModel
+KZNModelConfiguration
 '''.split()
 
 import numpy as np
@@ -113,156 +116,221 @@ from pwkit import astutil
 from pwkit.io import Path
 from pwkit.numutil import broadcastize
 
+from .bases import Distribution
 from .config import Configuration
-from .geometry import TiltedDipoleField
 
 
-class KZNFieldConfiguration(Configuration):
-    __section__ = 'kzn-field'
+def parse_fortran_float(text):
+    return float(text.replace('D', 'e'))
+
+
+class KZNModelConfiguration(Configuration):
+    __section__ = 'kzn-model'
 
     path = 'unset'
-    soln_number = 0
-    moment = 3000.
-    tilt_deg = 15.
-    delta_x = 0.
-    delta_y = 0.
-    delta_z = 0.
+    "The path to the KZN text output file."
 
-    def to_field(self):
+    soln_number = 0
+    "Which solution iteration to load from the file (0-based)."
+
+    def to_model(self):
         p = Path(self.path)
         if p != p.absolute():
-            raise Exception('the \"path\" item of the kzn-field configuration '
+            raise Exception('the \"path\" item of the kzn-model configuration '
                             'must be an absolute path')
 
-        return KZNField(
+        return KZNModel(
             self.path,
             self.soln_number,
-            self.moment,
-            tilt = self.tilt_deg * astutil.D2R,
-            delta_x = self.delta_x,
-            delta_y = self.delta_y,
-            delta_z = self.delta_z,
         )
 
 
-class KZNField(TiltedDipoleField):
-    """A tilted magnetic field loaded from the output of the
-    Keller/Zwingmann/Neukirch numerical model.
+class KZNModel(object):
+    "Data loaded from the Keller/Zwingmann/Neukirch numerical model."
 
-    path
-       The path to the KZN solution file (usually "testca.17")
-    soln_number
-       Which solution iteration to load from the file (0-based).
-    moment
-       The dipole moment, measured in units of [Gauss * R_body**3], where R_body
-       is the body's radius. Negative values are OK. Because of the choice of
-       length unit, `moment` is the surface field strength by construction.
-    tilt
-       The angular offset of the dipole axis away from the body's rotation axis,
-       in radians. The dipole axis is defined to lie on a body-centric longitude
-       of zero.
-    delta_x
-       The displacement of the dipole center perpendicular to the dipole axis,
-       in the plane containing both the dipole axis and the rotational axis
-       (i.e., the longitude = 0 plane). Measured in units of the body's
-       radius. Positive values move the dipole center towards the magnetic
-       latitude of 90°.
-    delta_y
-       The displacement of the dipole center perpendicular to both the dipole
-       axis and the rotational axis (i.e., towards magnetic longitude = 90°).
-       Measured in units of the body's radius. Positive values move the dipole
-       center towards the magnetic latitude of 90°.
-    delta_z
-       The displacement of the dipole center along the dipole axis. Measured
-       in units of the body's radius. Positive values move the dipole center
-       towards the magnetic latitude of 90°.
+    eta1 = None
+    "The \"eta1\" parameter of the underlying simulation."
 
-    """
-    kzn_ip = None
+    eta3 = None
+    "The \"eta3\" parameter of the underlying simulation."
+
+    nu = None
+    "The \"nu\" parameter of the underlying simulation."
+
+    ip = None
     "Number of control points."
 
-    kzn_ind = None
+    ind = None
     "Indices mapping FEM elements to control points."
 
-    kzn_x = None
+    x = None
     "'X' coordinates (really radius) of control points."
 
-    kzn_y = None
+    y = None
     "'Y' coordinates (really colatitude in radians) of control points."
 
-    kzn_lambda = None
+    lam = None
     "The lambda value associated with the solution being used."
 
-    kzn_u = None
+    uA = None
     "The FEM-discretized solution for the magnetic flux function A."
 
-    def __init__(self, path, soln_number, moment, tilt=0., delta_x=0., delta_y=0., delta_z=0.):
-        super(KZNField, self).__init__(tilt, moment, delta_x=delta_x,
-                                       delta_y=delta_y, delta_z=delta_z)
-        self.moment = float(moment)
+    def __init__(self, path, soln_number):
+        with open(path, 'rt') as output:
+            def _skip_to_section(secname, eof_ok=False):
+                "Returns True if EOF was hit and eof_ok is True. False otherwise."
 
-        with open(path, 'rt') as f17:
-            f17.readline() # first line is blank
+                while True:
+                    line = output.readline()
 
-            d = [int(x) for x in f17.readline().split()]
-            assert len(d) == 1
-            assert d[0] == 1, 'currently only support n_fn (# of PDEs/eqns) = 1'
+                    if not len(line):
+                        if eof_ok:
+                            return True
+                        raise Exception(f'hit EOF before finding section @{secname}')
 
-            d = [int(x) for x in f17.readline().split()]
-            assert len(d) == 4
-            self.kzn_n = d[0]
-            self.kzn_m = d[1]
-            self.kzn_ip = d[2]
-            self.kzn_ird = d[3]
+                    pieces = line.rstrip().split(None, 1)
+                    if not len(pieces):
+                        continue
 
-            def fill_array_flat(arr, parse, col_width):
+                    if pieces[0][0] != '@':
+                        continue
+
+                    if pieces[0] == '@error':
+                        raise Exception(pieces[1])
+
+                    if pieces[0] == '@' + secname:
+                        break
+
+                return False
+
+            def _fill_array_flat(arr, parse, col_width):
                 n_left = arr.size
                 ofs = 0
 
                 while n_left > 0:
-                    d = [parse(x) for x in f17.readline().split()]
+                    d = [parse(x) for x in output.readline().split()]
                     n_here = min(n_left, col_width)
                     assert len(d) == n_here, 'expected %d, got %d' % (n_here, len(d))
                     arr.flat[ofs:ofs+n_here] = d
                     n_left -= n_here
                     ofs += n_here
 
-            self.kzn_ind = np.empty((self.kzn_m, 6), dtype=np.int)
-            fill_array_flat(self.kzn_ind, int, 10)
-            self.kzn_ind -= 1 # convert 1-based FORTRAN indices to 0-based
+            def _read_variables():
+                while True:
+                    line = output.readline()
+                    if not len(line):
+                        break
 
-            m_dummy = np.empty(self.kzn_m, dtype=np.int) # unused
-            fill_array_flat(m_dummy, int, 10)
+                    pieces = line.rstrip().split()
+                    if not len(pieces):
+                        break # variable blocks terminate with blank lines
 
-            self.kzn_x = np.empty(self.kzn_ip)
-            fill_array_flat(self.kzn_x, float, 5)
+                    varname = pieces[0]
+                    if varname[0] == '@':
+                        # If this happens, the section ID gets lost, which is bad.
+                        raise Exception('output format error: new section beginning without break')
 
-            self.kzn_y = np.empty(self.kzn_ip)
-            fill_array_flat(self.kzn_y, float, 5)
+                    if len(pieces) < 3:
+                        # If this happens, *something* is getting lost
+                        raise Exception('output format error: unrecognized text in variable block')
 
-            def read_data_block():
-                line = f17.readline()
-                if not len(line):
-                    return None, None
+                    if pieces[1] == '=': # scalar?
+                        yield (varname, pieces[2])
+                    elif pieces[1] == '...f': # float array?
+                        n_items = int(pieces[2])
+                        arr = np.empty(n_items, dtype=np.float)
+                        _fill_array_flat(arr, parse_fortran_float, 5)
+                        yield (varname, arr)
+                    elif pieces[1] == '...i': # int array?
+                        n_items = int(pieces[2])
+                        arr = np.empty(n_items, dtype=np.int)
+                        _fill_array_flat(arr, int, 10)
+                        yield (varname, arr)
+                    else:
+                        raise Exception(r'unrecognized output line: {line:r}')
 
-                d = [float(x) for x in line.split()]
-                assert len(d) == 1
-                lam = d[0]
+            _skip_to_section('parameters')
+            n_seen = 0
 
-                u = np.empty(self.kzn_ip)
-                fill_array_flat(u, float, 5)
-                return lam, u
+            for varname, value in _read_variables():
+                if varname == 'eta1':
+                    self.eta1 = parse_fortran_float(value)
+                    n_seen += 1
+                elif varname == 'nu':
+                    self.nu = parse_fortran_float(value)
+                    n_seen += 1
+                elif varname == 'eta3':
+                    self.eta3 = parse_fortran_float(value)
+                    n_seen += 1
+
+            if n_seen != 3:
+                raise Exception(f'malformed @parameters section: n_seen = {n_seen}')
+
+            _skip_to_section('grid')
+            n_seen = 0
+
+            for varname, value in _read_variables():
+                if varname == 'ip':
+                    self.ip = int(value)
+                    n_seen += 1
+                elif varname == 'n':
+                    self.n = int(value)
+                    n_seen += 1
+                elif varname == 'm':
+                    self.m = int(value)
+                    n_seen += 1
+                elif varname == 'ind':
+                    value = value.reshape((self.m, 6))
+                    self.ind = value - 1 # 1-based FORTRAN to 0-based indices
+                    n_seen += 1
+                elif varname == 'x':
+                    self.x = value
+                    n_seen += 1
+                elif varname == 'y':
+                    self.y = value
+                    n_seen += 1
+
+            if n_seen != 6:
+                raise Exception(f'malformed @grid section: n_seen = {n_seen}')
+
+            def _read_data_block():
+                if _skip_to_section('snapshot', eof_ok=True):
+                    raise Exception('file %s ended before reaching data block #%d' %
+                                    (path, soln_number))
+
+                lam = None
+                u = None
+                ub = None
+
+                for varname, value in _read_variables():
+                    if varname == 'lambda':
+                        lam = parse_fortran_float(value)
+                    elif varname == 'u':
+                        u = value
+                    elif varname == 'ub':
+                        ub = value
+
+                if lam is None:
+                    raise Exception('@snapshot section without lambda value?')
+
+                if u is None:
+                    raise Exception('@snapshot section without u value?')
+
+                if ub is None:
+                    raise Exception('@snapshot section without ub value?')
+
+                return lam, np.concatenate((u, ub))
 
             for _ in range(soln_number):
-                read_data_block()
+                _read_data_block()
 
-            lam, u = read_data_block()
+            lam, u = _read_data_block()
             if lam is None:
                 raise Exception('file %s ended before reaching data block #%d' %
                                 (path, soln_number))
 
-        self.kzn_lambda = lam
-        self.kzn_u = u
+        self.lam = lam
+        self.uA = u
 
 
     def _info_for_rcolat(self, mr, mcolat):
@@ -283,10 +351,10 @@ class KZNField(TiltedDipoleField):
             adjust_sign = -adjust_sign
             adjust_ampl += 1
 
-            if idx >= 0 and idx < self.kzn_m:
-                gridpoint = self.kzn_ind[idx]
-                xx = self.kzn_x[gridpoint]
-                yy = self.kzn_y[gridpoint]
+            if idx >= 0 and idx < self.m:
+                gridpoint = self.ind[idx]
+                xx = self.x[gridpoint]
+                yy = self.y[gridpoint]
                 det = (
                     xx[0] * (yy[1] - yy[2]) +
                     xx[1] * (yy[2] - yy[0]) +
@@ -299,13 +367,28 @@ class KZNField(TiltedDipoleField):
                 dl0 = 1. - dl1 - dl2
                 in_triangle = (dl0 >= -1e-6 and dl1 >= -1e-6 and dl2 >= -1e-6)
 
-            if in_triangle or adjust_ampl > 2 * self.kzn_m:
+            if in_triangle or adjust_ampl > 2 * self.m:
                 break
 
         if in_triangle:
             return idx, dl0, dl1, dl2
 
         return None, None, None, None
+
+
+    def _evaluate(self, u, elemnum, dl0, dl1, dl2, default=np.nan):
+        "Return a FEM-solved function at given FEM coordinates."
+
+        if elemnum is None:
+            return default
+
+        uu = u[self.ind[elemnum]]
+        return (uu[0] * (2 * dl0 - 1) * dl0 +
+                uu[1] * (2 * dl1 - 1) * dl1 +
+                uu[2] * (2 * dl2 - 1) * dl2 +
+                uu[3] * 4 * dl0 * dl1 +
+                uu[4] * 4 * dl1 * dl2 +
+                uu[5] * 4 * dl2 * dl0)
 
 
     def _b_field(self, A, elemnum, l0, l1, l2):
@@ -320,11 +403,11 @@ class KZNField(TiltedDipoleField):
         # Some prep work. The width/height calculations always work for both
         # UL and LR elements.
 
-        node_indices = self.kzn_ind[elemnum]
-        x0 = self.kzn_x[node_indices[0]]
-        y0 = self.kzn_y[node_indices[0]]
-        elem_x_width = self.kzn_x[node_indices[2]] - x0
-        elem_y_height = self.kzn_y[node_indices[2]] - y0
+        node_indices = self.ind[elemnum]
+        x0 = self.x[node_indices[0]]
+        y0 = self.y[node_indices[0]]
+        elem_x_width = self.x[node_indices[2]] - x0
+        elem_y_height = self.y[node_indices[2]] - y0
         u0, u1, u2, u3, u4, u5 = A[node_indices]
 
         # dA/dr and dA/dcolat:
@@ -362,6 +445,66 @@ class KZNField(TiltedDipoleField):
         return b_r, b_colat
 
 
+class KZNFieldConfiguration(Configuration):
+    __section__ = 'kzn-field'
+
+    model = KZNModelConfiguration
+    moment = 3000.
+    tilt_deg = 15.
+    delta_x = 0.
+    delta_y = 0.
+    delta_z = 0.
+
+    def to_field(self):
+        return KZNField(
+            self.model.to_model(),
+            self.moment,
+            tilt = self.tilt_deg * astutil.D2R,
+            delta_x = self.delta_x,
+            delta_y = self.delta_y,
+            delta_z = self.delta_z,
+        )
+
+
+# Import this late to avoid ordering issues with mutually-dependent modules
+from .geometry import TiltedDipoleField
+
+class KZNField(TiltedDipoleField):
+    """A tilted magnetic field loaded from the output of the
+    Keller/Zwingmann/Neukirch numerical model.
+
+    moment
+       The dipole moment, measured in units of [Gauss * R_body**3], where R_body
+       is the body's radius. Negative values are OK. Because of the choice of
+       length unit, `moment` is the surface field strength by construction.
+    tilt
+       The angular offset of the dipole axis away from the body's rotation axis,
+       in radians. The dipole axis is defined to lie on a body-centric longitude
+       of zero.
+    delta_x
+       The displacement of the dipole center perpendicular to the dipole axis,
+       in the plane containing both the dipole axis and the rotational axis
+       (i.e., the longitude = 0 plane). Measured in units of the body's
+       radius. Positive values move the dipole center towards the magnetic
+       latitude of 90°.
+    delta_y
+       The displacement of the dipole center perpendicular to both the dipole
+       axis and the rotational axis (i.e., towards magnetic longitude = 90°).
+       Measured in units of the body's radius. Positive values move the dipole
+       center towards the magnetic latitude of 90°.
+    delta_z
+       The displacement of the dipole center along the dipole axis. Measured
+       in units of the body's radius. Positive values move the dipole center
+       towards the magnetic latitude of 90°.
+
+    """
+    def __init__(self, model, moment, tilt=0., delta_x=0., delta_y=0., delta_z=0.):
+        super(KZNField, self).__init__(tilt, moment, delta_x=delta_x,
+                                       delta_y=delta_y, delta_z=delta_z)
+        self.model = model
+        self.moment = float(moment)
+
+
     @broadcastize(2,(0,0))
     def _br_bth(self, mlat, mr):
         """Compute and return the direction of the magnetic field components (B_r,
@@ -383,8 +526,8 @@ class KZNField(TiltedDipoleField):
         mcolat[flip] = np.pi - mcolat[flip]
 
         for i in range(b_r.size):
-            coords = self._info_for_rcolat(mr.flat[i], mcolat.flat[i])
-            b_r.flat[i], b_colat.flat[i] = self._b_field(self.kzn_u, *coords)
+            coords = self.model._info_for_rcolat(mr.flat[i], mcolat.flat[i])
+            b_r.flat[i], b_colat.flat[i] = self.model._b_field(self.model.uA, *coords)
 
         b_r[flip] *= -1
         b_r *= self.moment
@@ -433,3 +576,76 @@ class KZNField(TiltedDipoleField):
         dr = br1 - pos_r
         scale = 1. / np.sqrt(dlat**2 + dlon**2 + dr**2)
         return scale * dlat, scale * dlon, scale * dr
+
+
+class KZNKWKDistribution(Distribution):
+    """A distribution where the overall particle distribution follows that
+    prescribed by the KZN model, with constant values for kappa, p, and k.
+
+    """
+    __section__ = 'kzn-kwk-distribution'
+
+    model = KZNModelConfiguration
+    "The KZNModel object storing the backing model data."
+
+    density_prefactor = 1000.
+    "Conversion from model densities to physical values in cm^-3."
+
+    kappa = 3
+    "The power-law index of the energetic electrons, such that N(>E) ~ E^(-p)."
+
+    kappa_width = 3
+    "The width parameter of the electron kappa distribution."
+
+    pitch_angle_k = 1
+    "The power-law index of the pitch angle distribution in sin(theta)."
+
+    _model = None
+    _parameter_names = ['n_e', 'kappa', 'width', 'k']
+
+
+    def _ensure_model(self):
+        if self._model is None:
+            self._model = self.model.to_model()
+
+
+    @broadcastize(2,(0,0))
+    def _A_term(self, mlat, mr):
+        # The model is symmetric around the equator.
+
+        mcolat = 0.5 * np.pi - mlat
+        A = np.empty_like(mlat)
+        flip = mcolat > 0.5 * np.pi
+        mcolat[flip] = np.pi - mcolat[flip]
+
+        for i in range(A.size):
+            coords = self._model._info_for_rcolat(mr.flat[i], mcolat.flat[i])
+            A.flat[i] = self._model._evaluate(self._model.uA, *coords, default=0.)
+
+        return A
+
+
+    @broadcastize(3, (0, 0, 0, 0))
+    def get_samples(self, mlat, mlon, L, just_ne=False):
+        self._ensure_model()
+        A = self._A_term(mlat, L)
+
+        # here, sin(colat) = cos(lat), cf eqn. 23 of Neukirch 1993:
+        psi = -self._model.eta1 + A + self._model.eta3 * (L * np.cos(mlat))**2
+        psi = np.maximum(psi, 0.)
+        psi **= self._model.nu
+        n_e = self.density_prefactor * psi
+
+        if just_ne:
+            return (n_e, n_e, n_e, n_e)  # easiest way to make broadcastize happy
+
+        kappa = np.empty(mlat.shape)
+        kappa.fill(self.kappa)
+
+        width = np.empty(mlat.shape)
+        width.fill(self.kappa_width)
+
+        k = np.empty(mlat.shape)
+        k.fill(self.pitch_angle_k)
+
+        return n_e, kappa, width, k
