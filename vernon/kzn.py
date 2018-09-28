@@ -157,6 +157,9 @@ class KZNModel(object):
     nu = None
     "The \"nu\" parameter of the underlying simulation."
 
+    r_cutoff = None
+    "The radius beyond which the density is forced to zero."
+
     ip = None
     "Number of control points."
 
@@ -262,8 +265,11 @@ class KZNModel(object):
                 elif varname == 'eta3':
                     self.eta3 = parse_fortran_float(value)
                     n_seen += 1
+                elif varname == 'rcutoff':
+                    self.r_cutoff = parse_fortran_float(value)
+                    n_seen += 1
 
-            if n_seen != 3:
+            if n_seen != 4:
                 raise Exception(f'malformed @parameters section: n_seen = {n_seen}')
 
             _skip_to_section('grid')
@@ -529,6 +535,10 @@ class KZNField(TiltedDipoleField):
             coords = self.model._info_for_rcolat(mr.flat[i], mcolat.flat[i])
             b_r.flat[i], b_colat.flat[i] = self.model._b_field(self.model.uA, *coords)
 
+        # Note that we are *not* applying the r_cutoff cutoff here. By
+        # definition, the density is zero there, so the B field orientation
+        # really shouldn't matter.
+
         b_r[flip] *= -1
         b_r *= self.moment
         b_lat = -self.moment * b_colat
@@ -633,6 +643,7 @@ class KZNKWKDistribution(Distribution):
         # here, sin(colat) = cos(lat), cf eqn. 23 of Neukirch 1993:
         psi = -self._model.eta1 + A + self._model.eta3 * (L * np.cos(mlat))**2
         psi = np.maximum(psi, 0.)
+        psi[L >= self._model.r_cutoff] = 0.
         psi **= self._model.nu
         n_e = self.density_prefactor * psi
 
