@@ -1208,6 +1208,14 @@ class Ray(object):
         """
         self.ensure_rt_coeffs()
 
+        if self.alpha.shape[0] == 0:
+            # Nothing nowhere
+            if extras:
+                return np.zeros(6)
+            if whole_ray:
+                return np.zeros((0,4))
+            return np.zeros(4)
+
         if integrate_j_times_B:
             j = self.j * self.B.reshape((-1, 1))
         else:
