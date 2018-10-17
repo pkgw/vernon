@@ -325,6 +325,18 @@ class RTConfiguration(Configuration):
     spacing between nu_low and nu_high.
 
     """
+    cold_factor = 0.
+    """Bit of a hack: adds in a cold-plasma term, which primarily affects Faraday
+    rotation. The density of the cold plasma goes as the density of the
+    synchrotron-emitting plasma times cold_factor. Therefore, zero (the
+    default) means that no cold plasma operates.
+
+    """
+    cold_temp = 3e5
+    """The temperature of the cold plasma, in Kelvin. Does not come into play if
+    cold_factor is zero. Default is 3e5.
+
+    """
     def validate(self):
         p = Path(self.nn_path)
         if p != p.absolute():
@@ -337,7 +349,8 @@ class RTConfiguration(Configuration):
 
     def get_synch_calc(self):
         from .synchrotron import NeuroSynchrotronCalculator
-        return NeuroSynchrotronCalculator(self.nn_path)
+        return NeuroSynchrotronCalculator(self.nn_path, cold_factor=self.cold_factor,
+                                          cold_temp=self.cold_temp)
 
     def get_rad_trans(self):
         return FormalRTIntegrator()

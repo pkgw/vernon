@@ -251,10 +251,12 @@ class NeuroSynchrotronCalculator(SynchrotronCalculator):
     """Compute synchrotron coefficients using a neural network approximation.
 
     """
-    def __init__(self, nn_dir, print_warnings=True):
+    def __init__(self, nn_dir, print_warnings=True, cold_factor=0., cold_temp=3e5):
         from neurosynchro.impl import PhysicalApproximator
         self.apx = PhysicalApproximator(nn_dir)
         self.print_warnings = print_warnings
+        self.cold_factor = float(cold_factor)
+        self.cold_temp = float(cold_temp)
 
         self.param_names = []
 
@@ -275,6 +277,11 @@ class NeuroSynchrotronCalculator(SynchrotronCalculator):
             import sys
             print('warning: out-of-bounds quantities: %s' % ' '.join(sorted(danger_quantities)),
                   file=sys.stderr)
+
+        # Add a cold-electron contribution?
+        if self.cold_factor != 0:
+            nontriv += get_cold_plasma_coefficients(nu, B, self.cold_factor * n_e,
+                                                    theta, self.cold_temp)
 
         expanded = np.empty(nontriv.shape[:-1] + (11,))
         # J IQ(U)V:
@@ -313,7 +320,7 @@ def get_cold_plasma_coefficients(nu, B, n_e, theta, T):
     *n_e*
       Number density of cold electrons, in cm^-3
     *theta*
-      Angle between magneti field and line of sight, in radians.
+      Angle between magnetic field and line of sight, in radians.
     *T*
       Temperature of the electrons, in Kelvin.
     *Returns*
