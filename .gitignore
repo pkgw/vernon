@@ -3,5 +3,6 @@
 __pycache__
 /.pytest_cache/
 /build/
+/dist/
 /vernon.egg-info/
 /vernon/_summers2005.*.so
