@@ -36,6 +36,7 @@ setup(
         'vernon.cli',
         'vernon.sde',
         'vernon.summers2005',
+        'vernon.tests',
     ],
 
     ext_modules = [

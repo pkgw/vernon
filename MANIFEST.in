@@ -2,6 +2,7 @@ include LICENSE
 include MANIFEST.in
 
 include vernon/ljob_support
+include vernon/tests/*.toml
 
 global-exclude *~
 global-exclude *.pyc *.pyo __pycache__

@@ -1,0 +1,48 @@
+[body]
+radius = 2.0
+distance = 17.249
+
+[field-type]
+name = 'kzn'
+
+[kzn-model]
+path = 'replace-me'
+soln_number = 28
+
+[kzn-field]
+moment = 50
+tilt_deg = 15
+p_rot_hr = 3.7859
+
+[distribution]
+name = 'kzn-kwk'
+
+[kzn-kwk-distribution]
+hot_factor = 1e-3
+kappa = 5
+kappa_width = 3
+pitch_angle_k = 2
+
+[ray-tracing]
+delta_z = 0.05
+nsamps_close = 3000
+close_radius = 1.5
+
+[prep-rays]
+max_n_samps = 3000
+min_ghz = 6.0
+latitude_of_center = 20
+n_cml = 19
+
+[rt]
+nn_path = "replace-me"
+nu_low = 6.05
+nu_high = 100
+n_freq = 8
+cold_factor = 2e2
+
+[image]
+aspect = 1.0
+nx = 256
+ny = 256
+xhalfsize = 7.5

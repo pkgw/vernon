@@ -309,7 +309,7 @@ class RTConfiguration(Configuration):
     __section__ = 'rt'
 
     nn_path = 'undefined'
-    "The path to the \"neurosynchro\" data files for calculationg RT coefficients."
+    "The path to the \"neurosynchro\" data files for calculating RT coefficients."
 
     # FIXME? As in preprays, these items feel like they don't belong here, but
     # at the moment this is where they make sense:

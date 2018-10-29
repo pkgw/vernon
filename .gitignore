@@ -1,6 +1,7 @@
 # Keep sorted
 *.pyc
 __pycache__
+/.pytest_cache/
 /build/
 /vernon.egg-info/
 /vernon/_summers2005.*.so
