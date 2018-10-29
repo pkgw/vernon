@@ -53,4 +53,4 @@ def test_kzn():
 
     ray = imaker.get_ray(128, 147)
     iquv = ray.integrate(extras=False, whole_ray=False)
-    assert_allclose(iquv, [5.79e-13, -3.84e-13, -4.52e-14, -7.63e-14], rtol=0.1)
+    assert_allclose(iquv, [5.79e-13, -3.82e-13, 8.47e-14, -7.63e-14], rtol=0.1)
