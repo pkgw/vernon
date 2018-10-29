@@ -39,7 +39,7 @@ nn_path = "replace-me"
 nu_low = 6.05
 nu_high = 100
 n_freq = 8
-cold_factor = 2e2
+cold_factor = 1e3
 
 [image]
 aspect = 1.0

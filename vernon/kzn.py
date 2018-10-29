@@ -118,6 +118,7 @@ from pwkit.numutil import broadcastize
 
 from .bases import Distribution
 from .config import Configuration
+from .geometry import BodyConfiguration
 
 
 def parse_fortran_float(text):
@@ -177,6 +178,24 @@ class KZNModel(object):
 
     uA = None
     "The FEM-discretized solution for the magnetic flux function A."
+
+    B0 = None
+    "The equatorial surface magnetic field, in G."
+
+    om_star = None
+    "The rotation rate of the body, in rad/s."
+
+    R_star = None
+    "The radius of the body, in cm."
+
+    chi = 0.0005446169970987488
+    "The electron-to-ion mass ratio (defaults to me/mp)."
+
+    eta2 = None
+    "The ratio of the electron and ion orbital frequencies."
+
+    n_lambda = None
+    "The reference density of electrons in this model, in cm^-3."
 
     def __init__(self, path, soln_number):
         with open(path, 'rt') as output:
@@ -524,19 +543,78 @@ class KZNModel(object):
         return b_r, b_colat
 
 
+    def set_physical_parameters(self, om_star, B0, R):
+        """Assign physical parameters of the body.
+
+        om_star
+          The rotation rate of the body, in rad/s.
+        B0
+          The equatorial surface magnetic field, in G.
+        R_star
+          The radius of the body, in cm.
+
+        """
+        self.om_star = om_star
+        self.B0 = B0
+        self.R_star = R
+
+        # Once these parameters are set, eta2 can be determined.
+
+        from pwkit import cgs
+        gyro_i = cgs.e * self.B0 / (cgs.mp * cgs.c)
+        K = 2 * gyro_i * self.eta3 / om_star
+        chi = self.chi
+        C3 = chi**3 / (1 + chi)
+        C2 = chi * (1 + 2 * chi) / (1 + chi) + K * chi
+        C1 = chi**2 / (1 + chi) + K * (1 - chi)
+        C0 = (1 + 2 * chi) / (1 + chi) - K
+        roots = np.roots([C3, C2, C1, C0])
+
+        n_others = 0
+
+        for root in roots:
+            if np.imag(root) == 0. and root > 0:
+                self.eta2 = root
+            else:
+                n_others += 1
+
+        assert self.eta2 is not None, 'could not find eta2 for these parameters'
+        assert n_others == 2, 'multiple candidate eta2s found'
+
+        # Now that we have eta2, we can calculate the density normalization
+        # term. Here we have transformed Neukirch's analysis from MKS to
+        # cgs/Gaussian.
+
+        self.n_lambda = (1 + chi * self.eta2) / (1 - self.eta2) * cgs.c * B0 / \
+            (4 * np.pi * cgs.e * R**2 * om_star)
+
+        # Convenience:
+        return self
+
+
 class KZNFieldConfiguration(Configuration):
     __section__ = 'kzn-field'
 
+    body = BodyConfiguration
     model = KZNModelConfiguration
     moment = 3000.
+    p_rot_hr = 6.
     tilt_deg = 15.
     delta_x = 0.
     delta_y = 0.
     delta_z = 0.
 
+    def to_model(self):
+        from pwkit import cgs
+        model = self.model.to_model()
+        om_star = 2 * np.pi / (3600 * self.p_rot_hr)
+        model.set_physical_parameters(om_star, self.moment,
+                                      self.body.radius * cgs.rjup)
+        return model
+
     def to_field(self):
         return KZNField(
-            self.model.to_model(),
+            self.to_model(),
             self.moment,
             tilt = self.tilt_deg * astutil.D2R,
             delta_x = self.delta_x,
@@ -663,17 +741,20 @@ class KZNField(TiltedDipoleField):
 
 class KZNKWKDistribution(Distribution):
     """A distribution where the overall particle distribution follows that
-    prescribed by the KZN model, with constant values for kappa, p, and k.
+    prescribed by the KZN model, with constant values for kappa, width, and k.
 
     """
     __section__ = 'kzn-kwk-distribution'
 
-    model = KZNModelConfiguration
-    "The KZNModel object storing the backing model data."
+    field = KZNFieldConfiguration
+    "The KZNField object storing the backing model and magnetic-field data."
 
-    density_prefactor = 1000.
-    "Conversion from model densities to physical values in cm^-3."
+    hot_factor = 1e-3
+    """The fraction of electrons from the KZN model that are energetic enough to
+    produce (gyro)synchrotron radiation. The remaining electrons are
+    considered "cold" and do not emit.
 
+    """
     kappa = 3
     "The power-law index of the energetic electrons, such that N(>E) ~ E^(-p)."
 
@@ -689,7 +770,7 @@ class KZNKWKDistribution(Distribution):
 
     def _ensure_model(self):
         if self._model is None:
-            self._model = self.model.to_model()
+            self._model = self.field.to_model()
 
 
     @broadcastize(2,(0,0))
@@ -717,8 +798,7 @@ class KZNKWKDistribution(Distribution):
         psi = -self._model.eta1 + A + self._model.eta3 * (L * np.cos(mlat))**2
         psi = np.maximum(psi, 0.)
         psi[L >= self._model.r_cutoff] = 0.
-        psi **= self._model.nu
-        n_e = self.density_prefactor * psi
+        n_e = self.hot_factor * self._model.lam * self._model.n_lambda * psi**self._model.nu
 
         if just_ne:
             return (n_e, n_e, n_e, n_e)  # easiest way to make broadcastize happy
